@@ -1,0 +1,60 @@
+{
+  "name": "@askexperts/mcp",
+  "version": "0.1.0",
+  "description": "MCP server for finding experts and asking them questions",
+  "main": "dist/index.js",
+  "type": "module",
+  "bin": {
+    "askexperts-mcp": "./bin/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "tsx src/index.ts",
+    "dev": "tsx --watch src/index.ts",
+    "mcp": "tsx src/index.ts",
+    "fake-expert": "tsx src/utils/fakeExpert.ts",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "experts",
+    "questions",
+    "nostr",
+    "askexperts"
+  ],
+  "author": "",
+  "license": "ISC",
+  "files": [
+    "dist",
+    "bin",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nostrband/askexperts.git"
+  },
+  "bugs": {
+    "url": "https://github.com/nostrband/askexperts/issues"
+  },
+  "homepage": "https://github.com/nostrband/askexperts#readme",
+  "dependencies": {
+    "@getalby/sdk": "^5.1.0",
+    "@modelcontextprotocol/sdk": "^1.13.2",
+    "@noble/ciphers": "^1.3.0",
+    "@noble/hashes": "^1.8.0",
+    "@types/node": "^24.0.8",
+    "bolt11": "^1.4.1",
+    "nostr-tools": "^2.15.0",
+    "nwc-enclaved-utils": "^2.0.8",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3",
+    "zod": "^3.25.67"
+  }
+}
