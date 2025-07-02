@@ -65,19 +65,53 @@ The server exposes the following MCP tools:
 
 #### find_experts
 
-Find experts on a subject by posting an anonymous publicly visible summary of your question.
+Find experts on a subject by posting an anonymous publicly visible summary of your question. It should omit all private details and personally identifiable information, be short, concise and include relevant tags.
 
 **Parameters:**
 - `public_question_summary` (string, required): A public summary of the question, omitting private details and PII
-- `tags` (string[], optional): List of tags for discovery
-- `max_bid_sats` (number, optional): Maximum payment amount willing to pay for an answer
+- `tags` (string[], required): List of tags for discovery (required for expert discovery)
+- `max_bid_sats` (number, optional): Maximum payment amount willing to pay for an answer, in Bitcoin satoshis
 
 **Returns:**
-A JSON string containing an array of bid objects, each containing:
-- `expert_pubkey` (string): Public key (ID) of the expert
-- `relay` (string): URL of relay where expert communicates
-- `bid_amount` (number): Amount asked by expert
-- `offer` (string): Explanation by the expert of why they're a good candidate
+A JSON string containing:
+- `bids`: Array of bid objects, each containing:
+  - `id` (string): Bid payload event ID
+  - `pubkey` (string): Expert's public key
+  - `relays` (string[]): Array of relay URLs
+  - `bid_sats` (number): Amount of the bid in satoshis
+  - `offer` (string): Expert's offer description
+  - `invoice` (string): Lightning Network invoice for payment of bid_sats
+- `id` (string): ID of the ask event
+
+#### ask_experts
+
+After you receive bids from experts, select good ones and you can send the question to these experts. For each bid, information received from find_experts tool must be included.
+
+**Parameters:**
+- `question` (string, required): The detailed question to send to experts, might include more sensitive data as the questions are encrypted.
+- `bids` (array, required): Array of bids from experts to send questions to, each containing:
+  - `id` (string, required): Bid payload event ID
+  - `pubkey` (string, required): Expert's public key
+  - `preimage` (string, conditional): Payment preimage for verification (required if invoice not provided)
+  - `invoice` (string, conditional): Lightning invoice to pay (required if preimage not provided, only works if server has NWC_CONNECTION_STRING set)
+  - `relays` (string[], required): Array of relay URLs to send the question to
+- `timeout` (number, optional): Timeout in milliseconds for sending the questions and receiving the answers (default: 5000ms)
+
+**Returns:**
+A JSON string containing:
+- `total` (number): Total number of question results
+- `sent` (number): Number of questions successfully sent
+- `failed` (number): Number of questions that failed to send
+- `received` (number): Number of answers received
+- `timeout` (number): Number of answers that timed out
+- `results` (array): Detailed results for each expert question/answer, each containing:
+  - `bid_id` (string): ID of the bid
+  - `expert_pubkey` (string): Expert's public key
+  - `question_id` (string): ID of the question event
+  - `answer_id` (string, optional): ID of the answer event if received
+  - `status` (string): Status of the question/answer process ('sent', 'failed', 'received', 'timeout')
+  - `content` (string, optional): Content of the answer if received
+  - `error` (string, optional): Error message if failed
 
 ### Example Usage with MCP Client
 
@@ -95,10 +129,28 @@ const transport = new StdioClientTransport();
 await client.connect(transport);
 
 // Call the find_experts tool
-const result = await client.callTool("find_experts", {
+const findResult = await client.callTool("find_experts", {
   public_question_summary: "How to implement a blockchain in JavaScript?",
   tags: ["blockchain", "javascript", "programming"],
   max_bid_sats: 2000
+});
+
+// Get the bids from the result
+const { bids } = JSON.parse(findResult);
+
+// Select bids to send questions to
+const selectedBids = bids.slice(0, 2); // Select first two bids
+
+// Call the ask_experts tool with selected bids
+const askResult = await client.callTool("ask_experts", {
+  question: "I need a detailed explanation of how to implement a simple blockchain in JavaScript with examples.",
+  bids: selectedBids.map(bid => ({
+    id: bid.id,
+    pubkey: bid.pubkey,
+    invoice: bid.invoice, // The server will pay this invoice if NWC_CONNECTION_STRING is set
+    relays: bid.relays
+  })),
+  timeout: 10000 // Wait 10 seconds for answers
 });
 
 console.log(result);
@@ -124,38 +176,84 @@ const transport = new ChildProcessClientTransport(serverProcess);
 await client.connect(transport);
 
 // Call the find_experts tool
-const result = await client.callTool("find_experts", {
+const findResult = await client.callTool("find_experts", {
   public_question_summary: "How to implement a blockchain in JavaScript?",
   tags: ["blockchain", "javascript", "programming"],
   max_bid_sats: 2000
 });
 
+// Get the bids from the result
+const { bids } = JSON.parse(findResult);
+
+// Select bids to send questions to
+const selectedBids = bids.slice(0, 2); // Select first two bids
+
+// Call the ask_experts tool with selected bids
+const askResult = await client.callTool("ask_experts", {
+  question: "I need a detailed explanation of how to implement a simple blockchain in JavaScript with examples.",
+  bids: selectedBids.map(bid => ({
+    id: bid.id,
+    pubkey: bid.pubkey,
+    invoice: bid.invoice, // The server will pay this invoice if NWC_CONNECTION_STRING is set
+    relays: bid.relays
+  })),
+  timeout: 10000 // Wait 10 seconds for answers
+});
+
 console.log(result);
 ```
 
-## Development
+## Environment Variables
 
-### Project Structure
+### NWC_CONNECTION_STRING
 
+The `NWC_CONNECTION_STRING` environment variable enables the built-in wallet functionality in the `ask_experts` tool. When set, it allows the MCP server to automatically pay Lightning invoices for expert bids without requiring the client to provide payment preimages.
+
+#### What is NWC?
+
+NWC (Nostr Wallet Connect) is a protocol that allows applications to connect to a Lightning wallet. The connection string is a URL that contains the necessary information to connect to a wallet that supports the NWC protocol.
+
+#### Setting up NWC_CONNECTION_STRING
+
+To enable the built-in wallet:
+
+1. Obtain a NWC connection string from a compatible wallet (like Alby)
+2. Set the environment variable before starting the server:
+
+```bash
+# Set the environment variable
+export NWC_CONNECTION_STRING="nostr+walletconnect://..."
+
+# Then start the server
+npm run mcp
 ```
-askexperts/
-├── src/
-│   ├── index.ts          # Main server file
-│   └── tools/
-│       └── findExperts.ts # Implementation of find_experts tool
-├── package.json
-├── tsconfig.json
-└── README.md
+
+#### How it works
+
+When a client calls the `ask_experts` tool with bids that include invoices but no preimages:
+
+1. The server checks if `NWC_CONNECTION_STRING` is set
+2. If set, it uses the NWC client to pay the invoices automatically
+3. It obtains payment preimages from successful payments
+4. These preimages are used to authenticate the questions sent to experts
+
+Without this environment variable, clients must pay invoices themselves and provide the preimages when calling the `ask_experts` tool.
+
+#### Example with built-in wallet
+
+```typescript
+// With NWC_CONNECTION_STRING set on the server, clients can simply provide invoices
+const askResult = await client.callTool("ask_experts", {
+  question: "My detailed question here...",
+  bids: selectedBids.map(bid => ({
+    id: bid.id,
+    pubkey: bid.pubkey,
+    invoice: bid.invoice, // Server will pay this invoice using the built-in wallet
+    relays: bid.relays
+  }))
+});
 ```
-
-### Adding New Tools
-
-To add a new tool:
-
-1. Create a new file in the `src/tools` directory
-2. Implement the tool handler function
-3. Register the tool in the server in `src/index.ts` using `server.registerTool()`
 
 ## License
 
-ISC
+MIT

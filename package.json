@@ -24,7 +24,7 @@
     "askexperts"
   ],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "files": [
     "dist",
     "bin",
