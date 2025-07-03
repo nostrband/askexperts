@@ -104,12 +104,13 @@ async function handleAskEvent(
     const bidPublicKey = getPublicKey(bidPrivateKey);
 
     // Generate an invoice for 10 sats (convert to millisats for the API)
-    const { invoice } = await nwcClient.makeInvoice({
+    const { invoice, payment_hash } = await nwcClient.makeInvoice({
       amount: BID_AMOUNT * 1000, // Convert sats to millisats
       description: `Bid for ask ${askEvent.id}`,
     });
 
     console.log(`Generated invoice: ${invoice}`);
+    console.log(`Payment hash: ${payment_hash}`);
 
     // Create the bid payload event
     const bidPayload: UnsignedEvent = {
@@ -189,7 +190,9 @@ async function handleAskEvent(
           askEvent.pubkey,
           signedBidPayload.id,
           expertPrivateKey,
-          pool
+          pool,
+          nwcClient,
+          payment_hash
         ).catch((error) => {
           console.error(
             `Error in question handler for bid ${signedBidPayload.id}:`,
@@ -219,7 +222,9 @@ async function handleQuestionForBid(
   askPubkey: string,
   bidPayloadId: string,
   expertPrivateKey: Uint8Array,
-  pool: SimplePool
+  pool: SimplePool,
+  nwcClient: nwc.NWCClient,
+  payment_hash: string
 ) {
   console.log(`Starting question handler for bid payload ${bidPayloadId}`);
 
@@ -278,8 +283,21 @@ async function handleQuestionForBid(
             throw error;
           }
 
-          // In a real implementation, we would verify the payment preimage here
-          // For our fake expert, we'll just generate a fake answer
+          // Look up the invoice to check if it's been paid
+          console.log(`Looking up invoice with payment_hash: ${payment_hash}`);
+          const invoiceStatus = await nwcClient.lookupInvoice({
+            payment_hash: payment_hash
+          });
+
+          console.log(`Invoice status: ${JSON.stringify(invoiceStatus)}`);
+
+          // Check if the invoice has been settled (paid)
+          if (!invoiceStatus.settled_at || invoiceStatus.settled_at <= 0) {
+            console.log(`Invoice for bid payload ${bidPayloadId} has not been paid, ignoring question`);
+            throw new Error(`Invoice for bid payload ${bidPayloadId} has not been paid, ignoring question`);
+          }
+
+          console.log(`Invoice for bid payload ${bidPayloadId} has been paid, proceeding with answer`);
 
           // Create the answer payload
           const answerPayload = {

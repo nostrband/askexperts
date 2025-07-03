@@ -159,6 +159,10 @@ server.registerTool(
               .string()
               .optional()
               .describe("ID of the answer event if received"),
+            preimage: z
+              .string()
+              .optional()
+              .describe("Payment preimage of the bid, useful for payment disputes"),
             status: z
               .enum(["sent", "failed", "received", "timeout"])
               .describe("Status of the question/answer process"),

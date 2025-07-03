@@ -213,11 +213,15 @@ export async function askExperts(
       };
     }
     
+    // Find the corresponding bid to get the preimage
+    const bid = params.bids.find(b => b.id === qResult.bid_id);
+    
     return {
       bid_id: qResult.bid_id,
       expert_pubkey: qResult.expert_pubkey,
       question_id: qResult.question_id,
       answer_id: answerResult.answer_id,
+      preimage: bid?.preimage,
       status: answerResult.status,
       content: answerResult.content,
       error: answerResult.error

@@ -7,7 +7,7 @@ An MCP server that allows users to find experts on a subject, ask them questions
 - Find experts on a subject by posting a public summary of your question
 - Experts can bid on answering your question
 - Pay experts for their answers
-- Post reviews of experts
+- Manage list of expert scores
 
 ## Installation
 
@@ -95,6 +95,7 @@ After you receive bids from experts, select good ones and you can send the quest
   - `pubkey` (string, required): Expert's public key
   - `preimage` (string, conditional): Payment preimage for verification (required if invoice not provided)
   - `invoice` (string, conditional): Lightning invoice to pay (required if preimage not provided, only works if server has NWC_CONNECTION_STRING set)
+  - `bid_sats` (number, conditional): Amount of the bid in satoshis (required if invoice is provided, must match the invoice amount)
   - `relays` (string[], required): Array of relay URLs to send the question to
 - `timeout` (number, optional): Timeout in milliseconds for sending the questions and receiving the answers (default: 5000ms)
 
@@ -112,6 +113,7 @@ A JSON string containing:
   - `expert_pubkey` (string): Expert's public key
   - `question_id` (string): ID of the question event
   - `answer_id` (string, optional): ID of the answer event if received
+  - `preimage` (string, optional): Payment preimage used for verification
   - `status` (string): Status of the question/answer process ('sent', 'failed', 'received', 'timeout')
   - `content` (string, optional): Content of the answer if received
   - `error` (string, optional): Error message if failed
@@ -151,6 +153,7 @@ const askResult = await client.callTool("ask_experts", {
     id: bid.id,
     pubkey: bid.pubkey,
     invoice: bid.invoice, // The server will pay this invoice if NWC_CONNECTION_STRING is set
+    bid_sats: bid.bid_sats, // Required when invoice is provided
     relays: bid.relays
   })),
   timeout: 10000 // Wait 10 seconds for answers
@@ -198,6 +201,7 @@ const askResult = await client.callTool("ask_experts", {
     id: bid.id,
     pubkey: bid.pubkey,
     invoice: bid.invoice, // The server will pay this invoice if NWC_CONNECTION_STRING is set
+    bid_sats: bid.bid_sats, // Required when invoice is provided
     relays: bid.relays
   })),
   timeout: 10000 // Wait 10 seconds for answers
@@ -252,6 +256,7 @@ const askResult = await client.callTool("ask_experts", {
     id: bid.id,
     pubkey: bid.pubkey,
     invoice: bid.invoice, // Server will pay this invoice using the built-in wallet
+    bid_sats: bid.bid_sats, // Required when invoice is provided
     relays: bid.relays
   }))
 });
