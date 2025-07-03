@@ -2,6 +2,7 @@ import {
   createAndPublishAskEvent,
   fetchBidsFromExperts,
 } from "../nostr/index.js";
+import { addAsk } from "./askExperts.js";
 
 // Define the Bid interface
 export interface Bid {
@@ -40,7 +41,7 @@ export async function findExperts(
   const {
     event: askEvent,
     publishedRelays,
-    privkey,
+    sessionkey,
   } = await createAndPublishAskEvent({
     content: params.public_question_summary,
     tags: params.tags,
@@ -50,7 +51,7 @@ export async function findExperts(
   // Wait for bids from experts
   const allBids = await fetchBidsFromExperts(
     askEvent.id,
-    privkey,
+    sessionkey,
     publishedRelays,
     5000 // Wait for 5 seconds to collect bids
   );
@@ -65,6 +66,9 @@ export async function findExperts(
     bids,
     id: askEvent.id,
   };
+
+  // Register the ask's session key
+  if (bids.length > 0) addAsk(askEvent.id, { sessionkey, timestamp: Date.now() });
 
   // Format the response as JSON string
   const responseJson = JSON.stringify(response, null, 2);

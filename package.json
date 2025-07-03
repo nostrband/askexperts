@@ -1,6 +1,6 @@
 {
   "name": "@askexperts/mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "MCP server for finding experts and asking them questions",
   "main": "dist/index.js",
   "type": "module",
@@ -13,7 +13,8 @@
     "dev": "tsx --watch src/index.ts",
     "mcp": "tsx src/index.ts",
     "fake-expert": "tsx src/utils/fakeExpert.ts",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "npm run build && node bin/test-pay-experts.js",
+    "test:pay-experts": "tsx tests/test-pay-experts.ts",
     "prepublishOnly": "npm run build"
   },
   "keywords": [

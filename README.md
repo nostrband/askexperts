@@ -65,7 +65,7 @@ The server exposes the following MCP tools:
 
 #### find_experts
 
-Find experts on a subject by posting an anonymous publicly visible summary of your question. It should omit all private details and personally identifiable information, be short, concise and include relevant tags.
+Find experts on a subject by posting an anonymous publicly visible summary of your question. It should omit all private details and personally identifiable information, be short, concise and include relevant tags. Returns a list of bids by experts who are willing to answer your question and their invoices for payments.
 
 **Parameters:**
 - `public_question_summary` (string, required): A public summary of the question, omitting private details and PII
@@ -85,9 +85,10 @@ A JSON string containing:
 
 #### ask_experts
 
-After you receive bids from experts, select good ones and you can send the question to these experts. For each bid, information received from find_experts tool must be included.
+After you receive bids from experts, select good ones and you can send the question to these experts. For each bid, information received from find_experts tool must be included, you can pay invoices yourself and provide preimages, or leave preimages empty and provide invoices and we pay from built-in wallet (only if server has NWC_CONNECTION_STRING set).
 
 **Parameters:**
+- `ask_id` (string, required): Id of the ask, received from find_experts.
 - `question` (string, required): The detailed question to send to experts, might include more sensitive data as the questions are encrypted.
 - `bids` (array, required): Array of bids from experts to send questions to, each containing:
   - `id` (string, required): Bid payload event ID
@@ -102,8 +103,10 @@ A JSON string containing:
 - `total` (number): Total number of question results
 - `sent` (number): Number of questions successfully sent
 - `failed` (number): Number of questions that failed to send
+- `failed_payments` (number): Number of questions that failed to get paid
 - `received` (number): Number of answers received
 - `timeout` (number): Number of answers that timed out
+- `insufficient_balance` (boolean): True if internal wallet is out of funds (only relevant when NWC_CONNECTION_STRING is set)
 - `results` (array): Detailed results for each expert question/answer, each containing:
   - `bid_id` (string): ID of the bid
   - `expert_pubkey` (string): Expert's public key

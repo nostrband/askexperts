@@ -2,9 +2,11 @@ import {
   sendQuestionsToExperts,
   QuestionSentResult,
   fetchAnswersFromExperts,
-  AnswerResult
+  AnswerResult,
+  FetchAnswersParams
 } from "../nostr/index.js";
 import { payExperts } from "../utils/nwc.js";
+import * as bolt11 from 'bolt11';
 
 /**
  * Interface for a bid structure
@@ -15,15 +17,32 @@ export interface BidStructure {
   preimage?: string;
   relays: string[];
   invoice?: string;
+  bid_sats?: number;
 }
 
 /**
  * Interface for the ask_experts parameters
  */
 export interface AskExpertsParams {
+  ask_id: string;
   question: string;
   bids: BidStructure[];
   timeout?: number;
+}
+
+export interface AskStructure {
+  sessionkey: Uint8Array;
+  timestamp: number;
+}
+
+const asks = new Map<string, AskStructure>();
+
+export function addAsk(id: string, ask: AskStructure) {
+  asks.set(id, ask);
+}
+
+function getAsk(id: string) {
+  return asks.get(id);
 }
 
 /**
@@ -34,6 +53,12 @@ export interface AskExpertsParams {
 export async function askExperts(
   params: AskExpertsParams
 ): Promise<{ content: Array<{ type: "text"; text: string }>, structuredContent: any }> {
+
+  const ask = getAsk(params.ask_id);
+  if (!ask) {
+    throw new Error('Ask not found or expired');
+  }
+
   // Validate the parameters
   if (!params.question || params.question.trim() === '') {
     throw new Error('Question is required');
@@ -54,18 +79,53 @@ export async function askExperts(
     if (!bid.preimage && !bid.invoice) {
       throw new Error('Either preimage or invoice is required for each bid');
     }
+    
+    // If invoice is provided, bid_sats must also be provided
+    if (bid.invoice && bid.bid_sats === undefined) {
+      throw new Error('bid_sats must be provided when invoice is provided');
+    }
+    
+    // If both invoice and bid_sats are provided, validate the amount
+    if (bid.invoice && bid.bid_sats !== undefined) {
+      try {
+        // Decode the invoice
+        const decodedInvoice = bolt11.decode(bid.invoice);
+        
+        // Get millisats from the invoice
+        const invoiceMilliSats = decodedInvoice.millisatoshis;
+        
+        // If invoice doesn't have an amount, throw an error
+        if (!invoiceMilliSats) {
+          throw new Error(`Invoice for bid ${bid.id} doesn't specify an amount`);
+        }
+        
+        // Convert bid_sats to millisats for comparison
+        const bidMilliSats = bid.bid_sats * 1000;
+        
+        // Compare the amounts (allow a small tolerance for rounding)
+        if (Math.abs(Number(invoiceMilliSats) - bidMilliSats) > 1) {
+          throw new Error(`Invoice amount (${Number(invoiceMilliSats) / 1000} sats) doesn't match bid_sats (${bid.bid_sats} sats) for bid ${bid.id}`);
+        }
+      } catch (error) {
+        if (error instanceof Error) {
+          throw new Error(`Failed to validate invoice for bid ${bid.id}: ${error.message}`);
+        } else {
+          throw new Error(`Failed to validate invoice for bid ${bid.id}`);
+        }
+      }
+    }
   }
   
   // Check for bids without preimages that need payment
   const bidsWithoutPreimage = params.bids.filter(bid => !bid.preimage && bid.invoice);
   
-  // Track failed bids
-  const failedBids: string[] = [];
+  // Track failed payments
+  const failedPaymentBids: string[] = [];
+  let insufficientBalance = false;
   
   // If there are bids without preimages, try to pay them
+  const nwcConnectionString = process.env.NWC_CONNECTION_STRING;
   if (bidsWithoutPreimage.length > 0) {
-    const nwcConnectionString = process.env.NWC_CONNECTION_STRING;
-    
     if (!nwcConnectionString) {
       throw new Error('NWC_CONNECTION_STRING environment variable is required to pay for bids without preimages');
     }
@@ -86,7 +146,9 @@ export async function askExperts(
         }
       } else {
         console.error(`Failed to pay for bid ${result.bid.id}: ${result.error}`);
-        failedBids.push(result.bid.id);
+        if (result.error === "INSUFFICIENT_BALANCE")
+          insufficientBalance = true;
+        failedPaymentBids.push(result.bid.id);
       }
     }
   }
@@ -101,6 +163,7 @@ export async function askExperts(
   if (validBids.length > 0) {
     // Send questions to experts (only those with valid preimages)
     questionResults = await sendQuestionsToExperts({
+      sessionkey: ask.sessionkey,
       question: params.question,
       bids: validBids as { id: string; pubkey: string; preimage: string; relays: string[] }[],
       timeout: params.timeout
@@ -111,12 +174,12 @@ export async function askExperts(
   const sentQuestions = questionResults.filter(q => q.status === 'sent');
   
   // Prepare for fetching answers
-  const fetchParams = {
+  const fetchParams: FetchAnswersParams = {
+    sessionkey: ask.sessionkey,
     questions: sentQuestions.map(q => ({
       question_id: q.question_id,
       bid_id: q.bid_id,
       expert_pubkey: q.expert_pubkey,
-      question_privkey: q.question_privkey,
       relays: q.relays
     })),
     timeout: params.timeout || 5000
@@ -162,14 +225,17 @@ export async function askExperts(
   });
   
   // Create a summary of the results
-  const summary = {
+  const summary: any = {
     total: params.bids.length,
     sent: questionResults.filter(r => r.status === 'sent').length,
-    failed: questionResults.filter(r => r.status === 'failed').length + failedBids.length,
+    failed: questionResults.filter(r => r.status === 'failed').length,
+    failed_payments: failedPaymentBids.length,
     received: answerResults.filter(r => r.status === 'received').length,
     timeout: answerResults.filter(r => r.status === 'timeout').length,
     results: combinedResults
   };
+  if (nwcConnectionString)
+    summary.insufficient_balance = insufficientBalance;
   
   // Format the response as JSON string
   const responseJson = JSON.stringify(summary, null, 2);

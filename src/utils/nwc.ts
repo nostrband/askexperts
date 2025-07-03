@@ -9,6 +9,7 @@ export const MAX_PARALLEL_PAYMENTS = 5;
  */
 interface BidWithInvoice extends BidStructure {
   invoice: string;
+  bid_sats?: number;
 }
 
 /**
@@ -62,6 +63,7 @@ export async function payExperts(
         success: true
       };
     } catch (error) {
+      console.error("Failed to pay invoice", error);
       // Return error result
       return {
         bid,
@@ -72,8 +74,9 @@ export async function payExperts(
     }
   }
 
-  // Create a pool of promises to track active payments
-  const activePayments: Promise<void>[] = [];
+  // Create a pool to track active payments
+  const activePayments: { promise: Promise<PaymentResult>; index: number }[] = [];
+  let nextIndex = 0;
   
   // Process payments maintaining MAX_PARALLEL_PAYMENTS concurrency
   return new Promise((resolve) => {
@@ -88,24 +91,33 @@ export async function payExperts(
       // If queue has items and we have room for more parallel payments
       if (queue.length > 0 && activePayments.length < MAX_PARALLEL_PAYMENTS) {
         const bid = queue.shift()!;
+        const currentIndex = nextIndex++;
         
-        // Create and track the payment promise
-        const paymentPromise = processPayment(bid).then((result) => {
+        // Create the payment promise
+        const paymentPromise = processPayment(bid);
+        
+        // Track the promise with its index
+        activePayments.push({
+          promise: paymentPromise,
+          index: currentIndex
+        });
+        
+        // Handle promise completion
+        paymentPromise.then((result) => {
           // Add result to results array
           results.push(result);
           
           // Remove this payment from active payments
-          const index = activePayments.indexOf(paymentPromise);
-          if (index !== -1) {
-            activePayments.splice(index, 1);
+          const indexInArray = activePayments.findIndex(p => p.index === currentIndex);
+          if (indexInArray !== -1) {
+            activePayments.splice(indexInArray, 1);
           }
           
           // Start next payment
           startNextPayment();
+        }).catch(error => {
+          console.assert(false, "Payment promise assert failure:", error);
         });
-        
-        // Add to active payments
-        activePayments.push(paymentPromise);
         
         // If we can start more payments, do so
         if (activePayments.length < MAX_PARALLEL_PAYMENTS && queue.length > 0) {
@@ -114,9 +126,7 @@ export async function payExperts(
       }
     }
     
-    // Start initial batch of payments
-    for (let i = 0; i < Math.min(MAX_PARALLEL_PAYMENTS, queue.length); i++) {
-      startNextPayment();
-    }
+    // Start the first payment
+    startNextPayment();
   });
 }

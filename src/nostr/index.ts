@@ -9,7 +9,6 @@ import {
   verifyEvent,
   validateEvent
 } from 'nostr-tools';
-import { Relay } from 'nostr-tools/relay';
 import {
   NOSTR_EVENT_KIND_ASK,
   NOSTR_EVENT_KIND_BID,
@@ -104,9 +103,9 @@ export async function createAndPublishAskEvent(
   params: CreateAskEventParams,
   relays: string[] = DEFAULT_RELAYS,
   timeout: number = 3000
-): Promise<{ event: Event, publishedRelays: string[], privkey: Uint8Array }> {
+): Promise<{ event: Event, publishedRelays: string[], sessionkey: Uint8Array }> {
   const created_at = Math.floor(Date.now() / 1000);
-  const privkey = generateSecretKey();
+  const sessionkey = generateSecretKey();
 
   // Create a Nostr event for the `ask`
   const unsignedAskEvent: UnsignedEvent = {
@@ -114,7 +113,7 @@ export async function createAndPublishAskEvent(
     created_at,
     tags: [...params.tags.map((tag) => ["t", tag])],
     content: params.content,
-    pubkey: getPublicKey(privkey),
+    pubkey: getPublicKey(sessionkey),
   };
   
   if (params.max_bid_sats) {
@@ -124,7 +123,7 @@ export async function createAndPublishAskEvent(
     ]);
   }
 
-  const askEvent = finalizeEvent(unsignedAskEvent, privkey);
+  const askEvent = finalizeEvent(unsignedAskEvent, sessionkey);
 
   // Publish the event to relays
   let publishedRelays: string[] = [];
@@ -135,7 +134,7 @@ export async function createAndPublishAskEvent(
     // MCP uses stdio transport, avoid console logging
   }
 
-  return { event: askEvent, publishedRelays, privkey };
+  return { event: askEvent, publishedRelays, sessionkey };
 }
 
 /**
@@ -150,14 +149,14 @@ interface BidPayloadEvent extends Event {
  * Fetches bids from experts for a given ask event
  *
  * @param ask_event_id - The ID of the ask event
- * @param ask_privkey - The private key used to post the ask event
+ * @param sessionkey - The private key used to post the ask event
  * @param relays - Array of relay URLs to fetch from (defaults to DEFAULT_RELAYS)
  * @param timeout - Timeout in milliseconds (default: 5000ms)
  * @returns Array of Bid objects
  */
 export async function fetchBidsFromExperts(
   ask_event_id: string,
-  ask_privkey: Uint8Array,
+  sessionkey: Uint8Array,
   relays: string[] = DEFAULT_RELAYS,
   timeout: number = 5000
 ): Promise<Bid[]> {
@@ -170,7 +169,6 @@ export async function fetchBidsFromExperts(
     '#e': [ask_event_id],
     since: Math.floor(Date.now() / 1000) - 60 // Get events from the last minute
   };
-  console.error("filter", filter, relays);
   
   // Array to store the collected bids
   const bids: Bid[] = [];
@@ -182,8 +180,15 @@ export async function fetchBidsFromExperts(
     {
       onevent(event: Event) {
         try {
+          // Ensure it's tagging our ask
+          const eTag = event.tags.find(tag => tag[0] === 'e');
+          if (!eTag || eTag[1] !== ask_event_id) {
+            console.error('Bid event has wrong e-tag:', eTag);
+            return;
+          }
+
           // Generate the conversation key for decryption
-          const conversationKey = nip44.getConversationKey(ask_privkey, event.pubkey);
+          const conversationKey = nip44.getConversationKey(sessionkey, event.pubkey);
           
           // Decrypt the bid payload using nip44
           const decrypted = nip44.decrypt(event.content, conversationKey);
@@ -210,7 +215,7 @@ export async function fetchBidsFromExperts(
             console.error('Invalid bid payload event signature:', bidPayloadEvent);
             return;
           }
-          
+
           // Extract the invoice from the tags
           const invoiceTag = bidPayloadEvent.tags.find(tag => tag[0] === 'invoice');
           if (!invoiceTag || !invoiceTag[1]) {
@@ -284,11 +289,11 @@ export interface AnswerResult {
  * Interface for fetching answers from experts
  */
 export interface FetchAnswersParams {
+  sessionkey: Uint8Array;
   questions: {
     question_id: string;
     bid_id: string;
     expert_pubkey: string;
-    question_privkey: Uint8Array;
     relays: string[];
   }[];
   timeout: number;
@@ -304,6 +309,10 @@ export async function fetchAnswersFromExperts(
   params: FetchAnswersParams
 ): Promise<AnswerResult[]> {
   const results: AnswerResult[] = [];
+  if (params.questions.length === 0) {
+    return results;
+  }
+
   const pool = new SimplePool();
   
   // Create a map of question_id to question info for quick lookup
@@ -313,7 +322,6 @@ export async function fetchAnswersFromExperts(
       {
         bid_id: q.bid_id,
         expert_pubkey: q.expert_pubkey,
-        privkey: q.question_privkey
       }
     ])
   );
@@ -324,17 +332,12 @@ export async function fetchAnswersFromExperts(
   // Get all question IDs
   const questionIds = params.questions.map(q => q.question_id);
   
-  if (questionIds.length === 0) {
-    return [];
-  }
-  
   // Create a filter for answer events (kind 20178) with e-tag of any question_id
   const filter = {
     kinds: [NOSTR_EVENT_KIND_ANSWER],
     '#e': questionIds,
     since: Math.floor(Date.now() / 1000) - 60 // Get events from the last minute
   };
-  console.error("filter", filter, allRelays);
   
   // Initialize results with timeout status for all questions
   for (const question of params.questions) {
@@ -346,6 +349,23 @@ export async function fetchAnswersFromExperts(
       status: 'timeout'
     });
   }
+  
+  // Set up a promise that will resolve when all questions are answered
+  let resolveAllAnswered: () => void;
+  const allAnsweredPromise = new Promise<void>(resolve => {
+    resolveAllAnswered = resolve;
+  });
+  
+  // Track which questions have been answered
+  const answeredQuestions = new Set<string>();
+  
+  // Function to check if all questions have been answered
+  const checkAllAnswered = () => {
+    if (answeredQuestions.size === questionIds.length) {
+      console.log("All questions answered, resolving early");
+      resolveAllAnswered();
+    }
+  };
   
   // Subscribe to events and collect them
   const sub = pool.subscribeMany(
@@ -391,8 +411,8 @@ export async function fetchAnswersFromExperts(
           
           // Generate the conversation key for decryption
           const conversationKey = nip44.getConversationKey(
-            questionInfo.privkey,
-            event.pubkey
+            params.sessionkey,
+            questionInfo.expert_pubkey
           );
           
           // Decrypt the answer payload
@@ -418,6 +438,12 @@ export async function fetchAnswersFromExperts(
               status: 'received',
               content: answerPayload.content
             };
+            
+            // Mark this question as answered
+            answeredQuestions.add(questionId);
+            
+            // Check if all questions have been answered
+            checkAllAnswered();
           }
         } catch (error) {
           console.error('Error processing answer event:', error);
@@ -426,8 +452,13 @@ export async function fetchAnswersFromExperts(
     }
   );
   
-  // Wait for the specified timeout
-  await new Promise(resolve => setTimeout(resolve, params.timeout));
+  // Race between timeout and all questions being answered
+  const timeoutPromise = new Promise<void>(resolve =>
+    setTimeout(resolve, params.timeout)
+  );
+  
+  // Wait for either all questions to be answered or the timeout to expire
+  await Promise.race([allAnsweredPromise, timeoutPromise]);
   
   // Unsubscribe and close the pool
   sub.close();
@@ -448,6 +479,7 @@ interface QuestionPayload {
  * Interface for sending questions to experts
  */
 export interface SendQuestionsParams {
+  sessionkey: Uint8Array;
   question: string;
   bids: {
     id: string;
@@ -465,7 +497,6 @@ export interface QuestionSentResult {
   bid_id: string;
   expert_pubkey: string;
   question_id: string;
-  question_privkey: Uint8Array;
   relays: string[];
   status: 'sent' | 'failed';
   error?: string;
@@ -505,7 +536,7 @@ export async function sendQuestionsToExperts(
       const questionPayloadStr = JSON.stringify(questionPayload);
       
       // Generate the conversation key for encryption
-      const conversationKey = nip44.getConversationKey(questionPrivkey, bid.pubkey);
+      const conversationKey = nip44.getConversationKey(params.sessionkey, bid.pubkey);
       
       // Encrypt the question payload
       const encryptedContent = nip44.encrypt(questionPayloadStr, conversationKey);
@@ -532,7 +563,6 @@ export async function sendQuestionsToExperts(
         bid_id: bid.id,
         expert_pubkey: bid.pubkey,
         question_id: questionEvent.id,
-        question_privkey: questionPrivkey,
         relays: publishedRelays,
         status: publishedRelays.length > 0 ? 'sent' : 'failed'
       };
@@ -543,15 +573,10 @@ export async function sendQuestionsToExperts(
       
       results.push(result);
     } catch (error) {
-      // Create a failed result
-      // Generate a dummy private key for the failed case
-      const dummyPrivkey = generateSecretKey();
-      
       const result: QuestionSentResult = {
         bid_id: bid.id,
         expert_pubkey: bid.pubkey,
         question_id: '',
-        question_privkey: dummyPrivkey,
         relays: [],
         status: 'failed',
         error: error instanceof Error ? error.message : String(error)
