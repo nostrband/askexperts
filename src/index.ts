@@ -87,11 +87,11 @@ server.registerTool(
         .describe(
           "The detailed question to send to experts, might include more sensitive data as the questions are encrypted."
         ),
-      bids: z
+      experts: z
         .array(
           z
             .object({
-              id: z.string().describe("Bid payload event ID"),
+              context_id: z.string().describe("Bid payload event ID for the first question, or last answer event ID for a followup"),
               pubkey: z.string().describe("Expert's public key"),
               preimage: canPay
                 ? z
@@ -132,7 +132,7 @@ server.registerTool(
               }
             )
         )
-        .describe("Array of bids from experts to send questions to"),
+        .describe("Array of experts to send questions to"),
       timeout: z
         .number()
         .optional()
@@ -157,7 +157,7 @@ server.registerTool(
       results: z
         .array(
           z.object({
-            bid_id: z.string().describe("ID of the bid"),
+            context_id: z.string().describe("Context ID that was provided as input"),
             expert_pubkey: z.string().describe("Expert's public key"),
             question_id: z.string().describe("ID of the question event"),
             answer_id: z
@@ -175,13 +175,14 @@ server.registerTool(
               .string()
               .optional()
               .describe("Content of the answer if received"),
+            followup_invoice: z.string().optional().describe("Lightning invoice for followup question if available"),
             error: z.string().optional().describe("Error message if failed"),
           })
         )
         .describe("Detailed results for each expert question/answer"),
     },
   },
-  async (params, extra) => {
+  async (params: any, extra) => {
     return await askExpertsMCP.askExperts(params);
   }
 );

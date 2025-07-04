@@ -1,6 +1,6 @@
 import { createWallet } from 'nwc-enclaved-utils';
 import { nwc } from '@getalby/sdk';
-import { AskExpertsMCP, BidStructure } from '../src/AskExpertsMCP.js';
+import { AskExpertsMCP, ExpertSessionStructure } from '../src/AskExpertsMCP.js';
 import { generateSecretKey, getPublicKey } from 'nostr-tools';
 import * as bolt11 from 'bolt11';
 import { payExperts } from '../src/utils/nwc.js';
@@ -48,8 +48,8 @@ async function testPayExperts() {
     const bidPrivateKey = generateSecretKey();
     const bidPublicKey = getPublicKey(bidPrivateKey);
     
-    const fakeBid: BidStructure = {
-      id: 'test-bid-' + Date.now(),
+    const fakeBid: ExpertSessionStructure = {
+      context_id: 'test-bid-' + Date.now(),
       pubkey: bidPublicKey,
       relays: ['wss://relay.nostr.band'],
       invoice: invoice
@@ -81,8 +81,8 @@ async function testPayExperts() {
     });
 
     // Create a new fake bid
-    const newFakeBid: BidStructure = {
-      id: 'test-bid-askexpertsmcp-' + Date.now(),
+    const newFakeBid: ExpertSessionStructure = {
+      context_id: 'test-bid-askexpertsmcp-' + Date.now(),
       pubkey: bidPublicKey,
       relays: ['wss://relay.nostr.band'],
       invoice: newInvoice
@@ -104,7 +104,7 @@ async function testPayExperts() {
     const askExpertsParams = {
       ask_id: findExpertsResult.structuredContent.id,
       question: "Test question for payment functionality",
-      bids: [newFakeBid],
+      experts: [newFakeBid],
       timeout: 5000
     };
     

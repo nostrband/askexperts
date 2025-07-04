@@ -18,7 +18,7 @@ import {
   DEFAULT_RELAYS
 } from './constants.js';
 import * as bolt11 from 'bolt11';
-import { Bid } from '../AskExpertsMCP.js';
+import { Bid, ExpertSessionStructure } from '../AskExpertsMCP.js';
 
 /**
  * Publishes a Nostr event to multiple relays in parallel
@@ -290,6 +290,7 @@ export interface AnswerResult {
   answer_id: string;
   status: 'received' | 'timeout';
   content?: string;
+  followup_invoice?: string;
   error?: string;
 }
 
@@ -489,12 +490,7 @@ interface QuestionPayload {
 export interface SendQuestionsParams {
   sessionkey: Uint8Array;
   question: string;
-  bids: {
-    id: string;
-    pubkey: string;
-    preimage: string;  // We keep this as required for backward compatibility
-    relays: string[];
-  }[];
+  experts: ExpertSessionStructure[];
   timeout?: number;
 }
 
@@ -502,7 +498,7 @@ export interface SendQuestionsParams {
  * Result of sending a question to an expert
  */
 export interface QuestionSentResult {
-  bid_id: string;
+  context_id: string;
   expert_pubkey: string;
   question_id: string;
   relays: string[];
@@ -523,7 +519,7 @@ export async function sendQuestionsToExperts(
   const timeout = params.timeout || 5000;
   
   // Process each bid in parallel
-  const sendPromises = params.bids.map(async (bid) => {
+  const sendPromises = params.experts.map(async (expert) => {
     try {
       // Generate a random keypair for the question
       const questionPrivkey = generateSecretKey();
@@ -536,15 +532,15 @@ export async function sendQuestionsToExperts(
       };
       
       // Add preimage tag if available
-      if (bid.preimage) {
-        questionPayload.tags.push(["preimage", bid.preimage]);
+      if (expert.preimage) {
+        questionPayload.tags.push(["preimage", expert.preimage]);
       }
       
       // Convert the payload to a string
       const questionPayloadStr = JSON.stringify(questionPayload);
       
       // Generate the conversation key for encryption
-      const conversationKey = nip44.getConversationKey(params.sessionkey, bid.pubkey);
+      const conversationKey = nip44.getConversationKey(params.sessionkey, expert.pubkey);
       
       // Encrypt the question payload
       const encryptedContent = nip44.encrypt(questionPayloadStr, conversationKey);
@@ -554,7 +550,7 @@ export async function sendQuestionsToExperts(
         kind: NOSTR_EVENT_KIND_QUESTION,
         created_at: Math.floor(Date.now() / 1000),
         tags: [
-          ["e", bid.id] // e-tag the bid payload event id
+          ["e", expert.context_id] // e-tag the bid payload event id or last answer id
         ],
         content: encryptedContent,
         pubkey: questionPubkey
@@ -564,12 +560,12 @@ export async function sendQuestionsToExperts(
       const questionEvent = finalizeEvent(unsignedQuestionEvent, questionPrivkey);
       
       // Publish the event to the expert's relays
-      const publishedRelays = await publishEvent(questionEvent, bid.relays, timeout);
+      const publishedRelays = await publishEvent(questionEvent, expert.relays, timeout);
       
       // Create the result object
       const result: QuestionSentResult = {
-        bid_id: bid.id,
-        expert_pubkey: bid.pubkey,
+        context_id: expert.context_id,
+        expert_pubkey: expert.pubkey,
         question_id: questionEvent.id,
         relays: publishedRelays,
         status: publishedRelays.length > 0 ? 'sent' : 'failed'
@@ -582,8 +578,8 @@ export async function sendQuestionsToExperts(
       results.push(result);
     } catch (error) {
       const result: QuestionSentResult = {
-        bid_id: bid.id,
-        expert_pubkey: bid.pubkey,
+        context_id: expert.context_id,
+        expert_pubkey: expert.pubkey,
         question_id: '',
         relays: [],
         status: 'failed',

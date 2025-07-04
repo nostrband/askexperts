@@ -1,35 +1,27 @@
 import { nwc } from '@getalby/sdk';
-import { BidStructure } from '../AskExpertsMCP.js';
+import { ExpertSessionStructure } from '../AskExpertsMCP.js';
 
 // Maximum number of parallel payments
 export const MAX_PARALLEL_PAYMENTS = 5;
 
 /**
- * Interface for a bid with invoice
- */
-interface BidWithInvoice extends BidStructure {
-  invoice: string;
-  bid_sats?: number;
-}
-
-/**
  * Interface for payment result
  */
 interface PaymentResult {
-  bid: BidStructure;
+  expert: ExpertSessionStructure;
   preimage: string;
   success: boolean;
   error?: string;
 }
 
 /**
- * Pays invoices for bids without preimages using NWC
- * @param bids Array of bids without preimages
+ * Pays invoices for expert sessions without preimages using NWC
+ * @param experts Array of experts without preimages
  * @param nwcConnectionString NWC connection string
  * @returns Array of payment results with preimages
  */
 export async function payExperts(
-  bids: BidWithInvoice[],
+  experts: ExpertSessionStructure[],
   nwcConnectionString: string
 ): Promise<PaymentResult[]> {
   // Create NWC client
@@ -41,24 +33,24 @@ export async function payExperts(
   const results: PaymentResult[] = [];
   
   // If no bids, return empty results
-  if (bids.length === 0) {
+  if (experts.length === 0) {
     return results;
   }
 
   // Create a queue of bids to process
-  const queue = [...bids];
+  const queue = [...experts];
   
   // Function to process a single payment
-  async function processPayment(bid: BidWithInvoice): Promise<PaymentResult> {
+  async function processPayment(expert: ExpertSessionStructure): Promise<PaymentResult> {
     try {
       // Pay the invoice
       const paymentResult = await nwcClient.payInvoice({
-        invoice: bid.invoice,
+        invoice: expert.invoice,
       });
       
       // Return the payment result with preimage
       return {
-        bid,
+        expert,
         preimage: paymentResult.preimage,
         success: true
       };
@@ -66,7 +58,7 @@ export async function payExperts(
       console.error("Failed to pay invoice", error);
       // Return error result
       return {
-        bid,
+        expert,
         preimage: '',
         success: false,
         error: error instanceof Error ? error.message : String(error)

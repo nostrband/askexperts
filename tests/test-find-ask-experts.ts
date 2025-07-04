@@ -1,4 +1,4 @@
-import { AskExpertsMCP, BidStructure } from '../src/AskExpertsMCP.js';
+import { AskExpertsMCP, ExpertSessionStructure } from '../src/AskExpertsMCP.js';
 import { DEFAULT_RELAYS } from '../src/nostr/constants.js';
 
 /**
@@ -46,7 +46,13 @@ async function testFindAskExperts() {
       const askExpertsParams = {
         ask_id: findExpertsResult.structuredContent.id,
         question: "What is the meaning of life? I've been pondering this question for a while and would appreciate your insights on this philosophical question. Some say it's 42, others say it's about finding your own purpose. What do you think?",
-        bids: findExpertsResult.structuredContent.bids as BidStructure[],
+        experts: findExpertsResult.structuredContent.bids.map((bid: any) => ({
+          context_id: bid.id,
+          pubkey: bid.pubkey,
+          relays: bid.relays,
+          invoice: bid.invoice,
+          bid_sats: bid.bid_sats
+        })) as ExpertSessionStructure[],
         timeout: 10000 // 10 seconds timeout
       };
 
