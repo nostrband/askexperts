@@ -294,7 +294,7 @@ export async function fetchBidsFromExperts(
           return;
         }
 
-        // Create a Bid object (without relays and invoice as per new interface)
+        // Create a complete Bid object with relays, invoice, and payment_hash
         const bid: BidWithData = {
           id: bidPayloadEvent.id,
           pubkey: bidPayloadEvent.pubkey,
@@ -334,7 +334,7 @@ export interface AnswerResult {
   status: "received" | "timeout";
   content?: string;
   followup_invoice?: string;
-  followup_bid_sats?: number;
+  followup_sats?: number;
   followup_payment_hash?: string;
   error?: string;
 }
@@ -504,7 +504,7 @@ export async function fetchAnswersFromExperts(
               // Try to parse the invoice, but don't fail if it can't be parsed
               try {
                 const parsedInvoice = parseBolt11(invoice);
-                result.followup_bid_sats = parsedInvoice.bid_sats;
+                result.followup_sats = parsedInvoice.bid_sats;
                 result.followup_payment_hash = parsedInvoice.payment_hash;
                 result.followup_invoice = invoice;
               } catch (error) {

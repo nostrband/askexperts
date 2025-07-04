@@ -148,12 +148,17 @@ export class AskExpertsMCP {
 
     // Create the response object with bids and event ID
     const response = {
-      bids: bids.map((b) => ({
-        id: b.id,
-        pubkey: b.pubkey,
-        bid_sats: b.bid_sats,
-        offer: b.offer,
-      })),
+      bids: bids.map((b) => {
+        const responseBid: any = {
+          id: b.id,
+          pubkey: b.pubkey,
+          bid_sats: b.bid_sats,
+          offer: b.offer,
+        };
+        if (!this.nwcString)
+          responseBid.invoice = b.invoice;
+        return responseBid;
+      }),
       id: askEvent.id,
     };
 
@@ -161,7 +166,7 @@ export class AskExpertsMCP {
     if (bids.length > 0) {
       const contexts = new Map<string, ExpertContext>();
 
-      // Store relays and invoices for each bid in the contexts map
+      // Store relays, invoices, payment_hash, and bid_sats for each bid in the contexts map
       bids.forEach((bid) => {
         contexts.set(bid.id, {
           relays: bid.relays,
@@ -302,7 +307,7 @@ export class AskExpertsMCP {
       }
     }
 
-    // Filter out experts without preimages (failed payments or not paid)
+    // Keep only experts with valid preimages (successful payments)
     const validExperts = experts.filter((bid) => bid.preimage);
 
     // Create empty results array for the case when no valid bids
@@ -370,7 +375,7 @@ export class AskExpertsMCP {
       const expert = experts.find((b) => b.context_id === qResult.context_id);
       if (!expert) throw new Error("Invalid answers, expert not found");
 
-      const result = {
+      const result: any = {
         context_id: qResult.context_id,
         expert_pubkey: qResult.expert_pubkey,
         question_id: qResult.question_id,
@@ -378,9 +383,14 @@ export class AskExpertsMCP {
         payment_hash: expert.context.payment_hash,
         status: answerResult.status,
         content: answerResult.content,
-        followup_invoice: answerResult.followup_invoice,
         error: answerResult.error,
       };
+
+      if (answerResult.followup_invoice) {
+        result.followup_sats = answerResult.followup_sats;
+        if (!this.nwcString)
+          result.followup_invoice = answerResult.followup_invoice;
+      }
 
       // If we have a followup invoice, create a new context for it
       if (answerResult.followup_invoice && ask.contexts) {
@@ -388,8 +398,8 @@ export class AskExpertsMCP {
         ask.contexts.set(answerResult.answer_id, {
           relays: expert.context.relays,
           invoice: answerResult.followup_invoice,
-          bid_sats: answerResult.followup_bid_sats!,
-          payment_hash: answerResult.followup_payment_hash!
+          bid_sats: answerResult.followup_sats!,
+          payment_hash: answerResult.followup_payment_hash!,
         });
       }
 

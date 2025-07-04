@@ -2,14 +2,14 @@ import { AskExpertsMCP, ExpertSessionStructure } from '../src/AskExpertsMCP.js';
 import { DEFAULT_RELAYS } from '../src/nostr/constants.js';
 
 /**
- * Test for the AskExpertsMCP class
- * 
+ * Integration test for the AskExpertsMCP class
+ *
  * This test:
- * 1. Sets the NWC_CONNECTION_STRING environment variable
+ * 1. Uses a predefined NWC connection string for payment functionality
  * 2. Creates an AskExpertsMCP instance with the NWC connection string
- * 3. Calls findExperts with a dumb question
- * 4. If a bid is received, calls askExperts with the full question
- * 5. Logs the results
+ * 3. Calls findExperts with a philosophical question summary
+ * 4. If bids are received, calls askExperts with the detailed question
+ * 5. Logs the results and verifies successful question sending and answer receiving
  */
 async function testFindAskExperts() {
   try {
@@ -30,7 +30,7 @@ async function testFindAskExperts() {
     console.log('Calling findExperts with a dumb question...');
     const findExpertsParams = {
       public_question_summary: "What is the meaning of life?",
-      tags: ["nostr"],
+      tags: ["nostr", "test"],
       max_bid_sats: 100
     };
 

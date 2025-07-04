@@ -69,7 +69,8 @@ Find experts on a subject by posting an anonymous publicly visible summary of yo
 
 **Parameters:**
 - `public_question_summary` (string, required): A public summary of the question, omitting private details and PII
-- `tags` (string[], required): List of tags for discovery (required for expert discovery)
+- `tags` (string[], optional): List of tags for discovery (required if expert_pubkeys not set)
+- `expert_pubkeys` (string[], optional): List of expert public keys to direct the question to, if those were already discovered
 - `max_bid_sats` (number, optional): Maximum payment amount willing to pay for an answer, in Bitcoin satoshis
 
 **Returns:**
@@ -77,26 +78,24 @@ A JSON string containing:
 - `bids`: Array of bid objects, each containing:
   - `id` (string): Bid payload event ID
   - `pubkey` (string): Expert's public key
-  - `relays` (string[]): Array of relay URLs
   - `bid_sats` (number): Amount of the bid in satoshis
   - `offer` (string): Expert's offer description
-  - `invoice` (string): Lightning Network invoice for payment of bid_sats
 - `id` (string): ID of the ask event
 
 #### ask_experts
 
-After you receive bids from experts, select good ones and you can send the question to these experts. For each bid, information received from find_experts tool must be included, you can pay invoices yourself and provide preimages, or leave preimages empty and provide invoices and we pay from built-in wallet (only if server has NWC_CONNECTION_STRING set).
+After you receive bids from experts, select good ones and you can send the question to these experts. For each bid, information received from find_experts tool must be included, you can pay invoices yourself and provide preimages, or leave preimages empty and we pay from built-in wallet. Relays and invoices are stored internally and clients don't have to pass them from bids to questions.
+
+**Note:** If the server does not have `NWC_CONNECTION_STRING` set, you must pay invoices yourself and provide the preimages when calling this tool.
 
 **Parameters:**
 - `ask_id` (string, required): Id of the ask, received from find_experts.
 - `question` (string, required): The detailed question to send to experts, might include more sensitive data as the questions are encrypted.
-- `bids` (array, required): Array of bids from experts to send questions to, each containing:
-  - `id` (string, required): Bid payload event ID
+- `experts` (array, required): Array of experts to send questions to, each containing:
+  - `context_id` (string, required): Bid payload event ID for the first question, or last answer event ID for a followup
   - `pubkey` (string, required): Expert's public key
-  - `preimage` (string, conditional): Payment preimage for verification (required if invoice not provided)
-  - `invoice` (string, conditional): Lightning invoice to pay (required if preimage not provided, only works if server has NWC_CONNECTION_STRING set)
-  - `bid_sats` (number, conditional): Amount of the bid in satoshis (required if invoice is provided, must match the invoice amount)
-  - `relays` (string[], required): Array of relay URLs to send the question to
+  - `preimage` (string, conditional): Payment preimage for verification (required if NWC_CONNECTION_STRING not set)
+  - `bid_sats` (number, conditional): Amount of the bid in satoshis (required when preimage is not provided, must match the invoice amount)
 - `timeout` (number, optional): Timeout in milliseconds for sending the questions and receiving the answers (default: 5000ms)
 
 **Returns:**
@@ -107,15 +106,17 @@ A JSON string containing:
 - `failed_payments` (number): Number of questions that failed to get paid
 - `received` (number): Number of answers received
 - `timeout` (number): Number of answers that timed out
-- `insufficient_balance` (boolean): True if internal wallet is out of funds (only relevant when NWC_CONNECTION_STRING is set)
+- `insufficient_balance` (boolean): True if internal wallet is out of funds (only relevant when `NWC_CONNECTION_STRING` is set)
 - `results` (array): Detailed results for each expert question/answer, each containing:
-  - `bid_id` (string): ID of the bid
+  - `context_id` (string): Context ID that was provided as input
   - `expert_pubkey` (string): Expert's public key
   - `question_id` (string): ID of the question event
   - `answer_id` (string, optional): ID of the answer event if received
-  - `preimage` (string, optional): Payment preimage used for verification
+  - `payment_hash` (string, optional): Payment hash of the bid, useful to find the payment in client's wallet
   - `status` (string): Status of the question/answer process ('sent', 'failed', 'received', 'timeout')
   - `content` (string, optional): Content of the answer if received
+  - `followup_sats` (number, optional): If followup is allowed by expert, includes the amount of sats to pay for a followup question
+  - `followup_invoice` (string, optional): Lightning invoice for followup question if available (only included when `NWC_CONNECTION_STRING` is not set)
   - `error` (string, optional): Error message if failed
 
 ### Example Usage with MCP Client
@@ -137,29 +138,30 @@ await client.connect(transport);
 const findResult = await client.callTool("find_experts", {
   public_question_summary: "How to implement a blockchain in JavaScript?",
   tags: ["blockchain", "javascript", "programming"],
+  // expert_pubkeys: ["pubkey1", "pubkey2"], // Optional: direct the question to specific experts
   max_bid_sats: 2000
 });
 
-// Get the bids from the result
-const { bids } = JSON.parse(findResult);
+// Get the bids and ask ID from the result
+const { bids, id } = JSON.parse(findResult);
 
 // Select bids to send questions to
 const selectedBids = bids.slice(0, 2); // Select first two bids
 
-// Call the ask_experts tool with selected bids
+// Call the ask_experts tool with selected experts
 const askResult = await client.callTool("ask_experts", {
+  ask_id: id,
   question: "I need a detailed explanation of how to implement a simple blockchain in JavaScript with examples.",
-  bids: selectedBids.map(bid => ({
-    id: bid.id,
+  experts: selectedBids.map(bid => ({
+    context_id: bid.id,
     pubkey: bid.pubkey,
-    invoice: bid.invoice, // The server will pay this invoice if NWC_CONNECTION_STRING is set
-    bid_sats: bid.bid_sats, // Required when invoice is provided
-    relays: bid.relays
+    bid_sats: bid.bid_sats // Required to match the invoice amount
+    // preimage is not provided, so the server will pay using NWC_CONNECTION_STRING
   })),
   timeout: 10000 // Wait 10 seconds for answers
 });
 
-console.log(result);
+console.log(askResult);
 ```
 
 #### Using with NPX
@@ -185,29 +187,30 @@ await client.connect(transport);
 const findResult = await client.callTool("find_experts", {
   public_question_summary: "How to implement a blockchain in JavaScript?",
   tags: ["blockchain", "javascript", "programming"],
+  // expert_pubkeys: ["pubkey1", "pubkey2"], // Optional: direct the question to specific experts
   max_bid_sats: 2000
 });
 
-// Get the bids from the result
-const { bids } = JSON.parse(findResult);
+// Get the bids and ask ID from the result
+const { bids, id } = JSON.parse(findResult);
 
 // Select bids to send questions to
 const selectedBids = bids.slice(0, 2); // Select first two bids
 
-// Call the ask_experts tool with selected bids
+// Call the ask_experts tool with selected experts
 const askResult = await client.callTool("ask_experts", {
+  ask_id: id,
   question: "I need a detailed explanation of how to implement a simple blockchain in JavaScript with examples.",
-  bids: selectedBids.map(bid => ({
-    id: bid.id,
+  experts: selectedBids.map(bid => ({
+    context_id: bid.id,
     pubkey: bid.pubkey,
-    invoice: bid.invoice, // The server will pay this invoice if NWC_CONNECTION_STRING is set
-    bid_sats: bid.bid_sats, // Required when invoice is provided
-    relays: bid.relays
+    bid_sats: bid.bid_sats, // Required to match the invoice amount
+    // preimage is not provided, so the server will pay using NWC_CONNECTION_STRING
   })),
   timeout: 10000 // Wait 10 seconds for answers
 });
 
-console.log(result);
+console.log(askResult);
 ```
 
 ## Environment Variables
@@ -249,15 +252,15 @@ Without this environment variable, clients must pay invoices themselves and prov
 #### Example with built-in wallet
 
 ```typescript
-// With NWC_CONNECTION_STRING set on the server, clients can simply provide invoices
+// With NWC_CONNECTION_STRING set on the server, clients can simply provide bid information
 const askResult = await client.callTool("ask_experts", {
+  ask_id: findResult.structuredContent.id,
   question: "My detailed question here...",
-  bids: selectedBids.map(bid => ({
-    id: bid.id,
+  experts: selectedBids.map(bid => ({
+    context_id: bid.id,
     pubkey: bid.pubkey,
-    invoice: bid.invoice, // Server will pay this invoice using the built-in wallet
-    bid_sats: bid.bid_sats, // Required when invoice is provided
-    relays: bid.relays
+    bid_sats: bid.bid_sats // Required to match the invoice amount
+    // No preimage needed - server will pay using the built-in wallet
   }))
 });
 ```

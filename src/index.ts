@@ -82,32 +82,66 @@ server.registerTool(
   }
 );
 
-const expertConfig = z
-  .object({
-    context_id: z
-      .string()
-      .describe(
-        "Bid payload event ID for the first question, or last answer event ID for a followup"
-      ),
-    pubkey: z.string().describe("Expert's public key"),
-    preimage: canPay
-      ? z.string().optional().describe("Payment preimage for verification")
-      : z.string().describe("Payment preimage for verification"),
+let expertConfig = z.object({
+  context_id: z
+    .string()
+    .describe(
+      "Bid payload event ID for the first question, or last answer event ID for a followup"
+    ),
+  pubkey: z.string().describe("Expert's public key"),
+});
+
+if (canPay) {
+  expertConfig = expertConfig.extend({
     bid_sats: z
       .number()
+      .describe("Amount of the bid in satoshis (for user to verify)"),
+  });
+} else {
+  expertConfig = expertConfig.extend({
+    preimage: z
+      .string()
+      .describe("Payment preimage received after invoice was paid"),
+  });
+}
+
+let resultConfig = z.object({
+  context_id: z.string().describe("Context ID that was provided as input"),
+  expert_pubkey: z.string().describe("Expert's public key"),
+  question_id: z.string().describe("ID of the question event"),
+  answer_id: z
+    .string()
+    .optional()
+    .describe("ID of the answer event if received"),
+  payment_hash: z
+    .string()
+    .optional()
+    .describe(
+      "Payment hash of the bid, useful to find the payment in client's wallet"
+    ),
+  status: z
+    .enum(["sent", "failed", "received", "timeout"])
+    .describe("Status of the question/answer process"),
+  content: z.string().optional().describe("Content of the answer if received"),
+  error: z.string().optional().describe("Error message if failed"),
+  followup_sats: z
+    .number()
+    .optional()
+    .describe(
+      "If followup is allowed by expert, includes the amount of sats to pay for a followup question"
+    ),
+});
+
+if (!canPay) {
+  resultConfig = resultConfig.extend({
+    followup_invoice: z
+      .string()
       .optional()
       .describe(
-        "Amount of the bid in satoshis (required if invoice is provided in context)"
+        "Lightning invoice for followup question if followup is allowed"
       ),
-  })
-  .refine(
-    (data) => canPay || data.preimage !== undefined,
-    {
-      message: canPay
-        ? "Preimage is optional when using built-in wallet"
-        : "Preimage must be provided",
-    }
-  );
+  });
+}
 
 const askExpertsConfig = {
   title: "Ask Experts",
@@ -146,37 +180,7 @@ const askExpertsConfig = {
         canPay ? "True if internal wallet is out of funds" : "Always false"
       ),
     results: z
-      .array(
-        z.object({
-          context_id: z
-            .string()
-            .describe("Context ID that was provided as input"),
-          expert_pubkey: z.string().describe("Expert's public key"),
-          question_id: z.string().describe("ID of the question event"),
-          answer_id: z
-            .string()
-            .optional()
-            .describe("ID of the answer event if received"),
-          payment_hash: z
-            .string()
-            .optional()
-            .describe(
-              "Payment hash of the bid, useful to find the payment in client's wallet"
-            ),
-          status: z
-            .enum(["sent", "failed", "received", "timeout"])
-            .describe("Status of the question/answer process"),
-          content: z
-            .string()
-            .optional()
-            .describe("Content of the answer if received"),
-          followup_invoice: z
-            .string()
-            .optional()
-            .describe("Lightning invoice for followup question if available"),
-          error: z.string().optional().describe("Error message if failed"),
-        })
-      )
+      .array(resultConfig)
       .describe("Detailed results for each expert question/answer"),
   },
 };
