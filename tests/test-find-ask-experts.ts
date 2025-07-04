@@ -49,8 +49,6 @@ async function testFindAskExperts() {
         experts: findExpertsResult.structuredContent.bids.map((bid: any) => ({
           context_id: bid.id,
           pubkey: bid.pubkey,
-          relays: bid.relays,
-          invoice: bid.invoice,
           bid_sats: bid.bid_sats
         })) as ExpertSessionStructure[],
         timeout: 10000 // 10 seconds timeout
