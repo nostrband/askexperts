@@ -1,5 +1,5 @@
 import { nwc } from '@getalby/sdk';
-import { BidStructure } from '../tools/askExperts.js';
+import { BidStructure } from '../AskExpertsMCP.js';
 
 // Maximum number of parallel payments
 export const MAX_PARALLEL_PAYMENTS = 5;

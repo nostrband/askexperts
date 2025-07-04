@@ -23,7 +23,8 @@ export interface Bid {
 // Define the input parameters interface for findExperts
 export interface FindExpertsParams {
   public_question_summary: string;
-  tags: string[];
+  tags?: string[];
+  expert_pubkeys?: string[];
   max_bid_sats?: number;
 }
 
@@ -106,6 +107,11 @@ export class AskExpertsMCP {
     content: Array<{ type: "text"; text: string }>;
     structuredContent: any;
   }> {
+    // Validate that at least one of tags or expert_pubkeys is provided
+    if (!params.tags && !params.expert_pubkeys) {
+      throw new Error('Either tags or expert_pubkeys must be provided');
+    }
+
     // Create and publish the Ask event using the nostr module
     const {
       event: askEvent,
@@ -113,7 +119,8 @@ export class AskExpertsMCP {
       sessionkey,
     } = await createAndPublishAskEvent({
       content: params.public_question_summary,
-      tags: params.tags,
+      tags: params.tags || [],
+      expert_pubkeys: params.expert_pubkeys,
       max_bid_sats: params.max_bid_sats,
     }, this.relays);
 

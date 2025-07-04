@@ -30,7 +30,7 @@ async function testFindAskExperts() {
     console.log('Calling findExperts with a dumb question...');
     const findExpertsParams = {
       public_question_summary: "What is the meaning of life?",
-      tags: ["philosophy", "life", "test"],
+      tags: ["nostr"],
       max_bid_sats: 100
     };
 

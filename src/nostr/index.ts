@@ -17,8 +17,8 @@ import {
   NOSTR_EVENT_KIND_ANSWER,
   DEFAULT_RELAYS
 } from './constants.js';
-import { Bid } from '../tools/findExperts.js';
 import * as bolt11 from 'bolt11';
+import { Bid } from '../AskExpertsMCP.js';
 
 /**
  * Publishes a Nostr event to multiple relays in parallel
@@ -88,6 +88,7 @@ export async function publishEvent(
 export interface CreateAskEventParams {
   content: string;
   tags: string[];
+  expert_pubkeys?: string[];
   max_bid_sats?: number;
 }
 
@@ -115,6 +116,13 @@ export async function createAndPublishAskEvent(
     content: params.content,
     pubkey: getPublicKey(sessionkey),
   };
+  
+  // Add expert pubkeys as p tags if provided
+  if (params.expert_pubkeys && params.expert_pubkeys.length > 0) {
+    for (const pubkey of params.expert_pubkeys) {
+      unsignedAskEvent.tags.push(["p", pubkey]);
+    }
+  }
   
   if (params.max_bid_sats) {
     unsignedAskEvent.tags.push([

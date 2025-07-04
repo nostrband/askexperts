@@ -33,7 +33,12 @@ server.registerTool(
         ),
       tags: z
         .array(z.string())
-        .describe("List of tags for discovery (required for expert discovery)"),
+        .optional()
+        .describe("List of tags for discovery"),
+      expert_pubkeys: z
+        .array(z.string())
+        .optional()
+        .describe("List of expert public keys to direct the question to"),
       max_bid_sats: z
         .number()
         .optional()

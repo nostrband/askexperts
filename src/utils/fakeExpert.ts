@@ -2,12 +2,12 @@ import {
   SimplePool,
   Event,
   nip44,
-  getEventHash,
   finalizeEvent,
   generateSecretKey,
   getPublicKey,
   UnsignedEvent,
 } from "nostr-tools";
+import { sha256 } from "@noble/hashes/sha2";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 import {
   NOSTR_EVENT_KIND_ASK,
@@ -283,21 +283,37 @@ async function handleQuestionForBid(
             throw error;
           }
 
+          // Check preimage matches payment_hash
+          const preimage = questionPayload.tags?.find(
+            (t: string[]) => t[0] === "preimage"
+          )?.[1];
+          console.log(`Checking preimage ${preimage} against payment_hash ${payment_hash}`);
+          if (!preimage || bytesToHex(sha256(hexToBytes(preimage))) !== payment_hash) {
+            console.error(`Failed to match preimage with payment_hash`);
+            throw new Error(`Failed to match preimage with payment_hash`);
+          }
+
           // Look up the invoice to check if it's been paid
           console.log(`Looking up invoice with payment_hash: ${payment_hash}`);
           const invoiceStatus = await nwcClient.lookupInvoice({
-            payment_hash: payment_hash
+            payment_hash: payment_hash,
           });
 
           console.log(`Invoice status: ${JSON.stringify(invoiceStatus)}`);
 
           // Check if the invoice has been settled (paid)
           if (!invoiceStatus.settled_at || invoiceStatus.settled_at <= 0) {
-            console.log(`Invoice for bid payload ${bidPayloadId} has not been paid, ignoring question`);
-            throw new Error(`Invoice for bid payload ${bidPayloadId} has not been paid, ignoring question`);
+            console.log(
+              `Invoice for bid payload ${bidPayloadId} has not been paid, ignoring question`
+            );
+            throw new Error(
+              `Invoice for bid payload ${bidPayloadId} has not been paid, ignoring question`
+            );
           }
 
-          console.log(`Invoice for bid payload ${bidPayloadId} has been paid, proceeding with answer`);
+          console.log(
+            `Invoice for bid payload ${bidPayloadId} has been paid, proceeding with answer`
+          );
 
           // Create the answer payload
           const answerPayload = {
