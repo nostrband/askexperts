@@ -1,6 +1,6 @@
 # AskExperts MCP Server
 
-An MCP server that allows users to find experts on a subject, ask them questions, pay them for their answers, and post reviews.
+An MCP server that allows users to find experts on a subject, ask them questions, pay them for their answers, and curate the experts.
 
 ## Features
 
@@ -76,7 +76,7 @@ Find experts on a subject by posting an anonymous publicly visible summary of yo
 **Returns:**
 A JSON string containing:
 - `bids`: Array of bid objects, each containing:
-  - `id` (string): Bid payload event ID
+  - `message_id` (string): Bid payload event ID
   - `pubkey` (string): Expert's public key
   - `bid_sats` (number): Amount of the bid in satoshis
   - `offer` (string): Expert's offer description
@@ -92,7 +92,7 @@ After you receive bids from experts, select good ones and you can send the quest
 - `ask_id` (string, required): Id of the ask, received from find_experts.
 - `question` (string, required): The detailed question to send to experts, might include more sensitive data as the questions are encrypted.
 - `experts` (array, required): Array of experts to send questions to, each containing:
-  - `context_id` (string, required): Bid payload event ID for the first question, or last answer event ID for a followup
+  - `message_id` (string, required): Bid payload event ID for the first question, or last answer event ID for a followup
   - `pubkey` (string, required): Expert's public key
   - `preimage` (string, conditional): Payment preimage for verification (required if NWC_CONNECTION_STRING not set)
   - `bid_sats` (number, conditional): Amount of the bid in satoshis (required when preimage is not provided, must match the invoice amount)
@@ -108,14 +108,13 @@ A JSON string containing:
 - `timeout` (number): Number of answers that timed out
 - `insufficient_balance` (boolean): True if internal wallet is out of funds (only relevant when `NWC_CONNECTION_STRING` is set)
 - `results` (array): Detailed results for each expert question/answer, each containing:
-  - `context_id` (string): Context ID that was provided as input
+  - `message_id` (string): Message ID that was provided as input
   - `expert_pubkey` (string): Expert's public key
-  - `question_id` (string): ID of the question event
-  - `answer_id` (string, optional): ID of the answer event if received
   - `payment_hash` (string, optional): Payment hash of the bid, useful to find the payment in client's wallet
   - `status` (string): Status of the question/answer process ('sent', 'failed', 'received', 'timeout')
   - `content` (string, optional): Content of the answer if received
   - `followup_sats` (number, optional): If followup is allowed by expert, includes the amount of sats to pay for a followup question
+  - `followup_message_id` (string, optional): ID of the message to ask a followup question, to be passed to ask_experts
   - `followup_invoice` (string, optional): Lightning invoice for followup question if available (only included when `NWC_CONNECTION_STRING` is not set)
   - `error` (string, optional): Error message if failed
 
@@ -153,7 +152,7 @@ const askResult = await client.callTool("ask_experts", {
   ask_id: id,
   question: "I need a detailed explanation of how to implement a simple blockchain in JavaScript with examples.",
   experts: selectedBids.map(bid => ({
-    context_id: bid.id,
+    message_id: bid.message_id,
     pubkey: bid.pubkey,
     bid_sats: bid.bid_sats // Required to match the invoice amount
     // preimage is not provided, so the server will pay using NWC_CONNECTION_STRING
@@ -202,7 +201,7 @@ const askResult = await client.callTool("ask_experts", {
   ask_id: id,
   question: "I need a detailed explanation of how to implement a simple blockchain in JavaScript with examples.",
   experts: selectedBids.map(bid => ({
-    context_id: bid.id,
+    message_id: bid.message_id,
     pubkey: bid.pubkey,
     bid_sats: bid.bid_sats, // Required to match the invoice amount
     // preimage is not provided, so the server will pay using NWC_CONNECTION_STRING
@@ -257,7 +256,7 @@ const askResult = await client.callTool("ask_experts", {
   ask_id: findResult.structuredContent.id,
   question: "My detailed question here...",
   experts: selectedBids.map(bid => ({
-    context_id: bid.id,
+    message_id: bid.message_id,
     pubkey: bid.pubkey,
     bid_sats: bid.bid_sats // Required to match the invoice amount
     // No preimage needed - server will pay using the built-in wallet

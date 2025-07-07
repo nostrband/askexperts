@@ -30,7 +30,7 @@ export interface FindExpertsParams {
  * Interface for an expert session structure
  */
 export interface ExpertSessionStructure {
-  context_id: string; // Bid payload event ID for the first question, or last answer event ID for a followup
+  message_id: string;
   pubkey: string;
   preimage?: string;
   bid_sats?: number;
@@ -47,6 +47,7 @@ export interface AskExpertsParams {
 }
 
 export interface ExpertContext {
+  bid_id: string;
   relays: string[];
   invoice: string;
   bid_sats: number;
@@ -150,13 +151,12 @@ export class AskExpertsMCP {
     const response = {
       bids: bids.map((b) => {
         const responseBid: any = {
-          id: b.id,
+          message_id: b.id,
           pubkey: b.pubkey,
           bid_sats: b.bid_sats,
           offer: b.offer,
         };
-        if (!this.nwcString)
-          responseBid.invoice = b.invoice;
+        if (!this.nwcString) responseBid.invoice = b.invoice;
         return responseBid;
       }),
       id: askEvent.id,
@@ -169,6 +169,7 @@ export class AskExpertsMCP {
       // Store relays, invoices, payment_hash, and bid_sats for each bid in the contexts map
       bids.forEach((bid) => {
         contexts.set(bid.id, {
+          bid_id: bid.id,
           relays: bid.relays,
           invoice: bid.invoice,
           payment_hash: bid.payment_hash,
@@ -229,11 +230,11 @@ export class AskExpertsMCP {
     // Get context for each expert
     const experts: ExpertSessionWithContext[] = params.experts.map((expert) => {
       // Get context for this expert
-      const context = ask.contexts.get(expert.context_id);
+      const context = ask.contexts.get(expert.message_id);
 
       if (!context) {
         throw new Error(
-          `Context not found for expert with context_id ${expert.context_id}`
+          `Context not found for expert with message_id ${expert.message_id}`
         );
       }
 
@@ -245,7 +246,7 @@ export class AskExpertsMCP {
 
     // Validate each expert
     for (const expert of experts) {
-      if (!expert.context_id) throw new Error("Expert context_id is required");
+      if (!expert.message_id) throw new Error("Expert message_id is required");
       if (!expert.pubkey) throw new Error("Expert pubkey is required");
 
       // Bid_sats must be provided
@@ -257,7 +258,7 @@ export class AskExpertsMCP {
       if (!expert.preimage) {
         if (expert.bid_sats !== expert.context.bid_sats)
           throw new Error(
-            `Invoice amount (${expert.context.bid_sats} sats) doesn't match bid_sats (${expert.bid_sats} sats) for bid ${expert.context_id}`
+            `Invoice amount (${expert.context.bid_sats} sats) doesn't match bid_sats (${expert.bid_sats} sats) for bid ${expert.message_id}`
           );
       }
     }
@@ -291,18 +292,18 @@ export class AskExpertsMCP {
         if (result.success) {
           // Find the corresponding expert and update it with the preimage
           const e = experts.find(
-            (b) => b.context_id === result.expert.context_id
+            (b) => b.message_id === result.expert.message_id
           );
           if (e) {
             e.preimage = result.preimage;
           }
         } else {
           console.error(
-            `Failed to pay for bid ${result.expert.context_id}: ${result.error}`
+            `Failed to pay for bid ${result.expert.message_id}: ${result.error}`
           );
           if (result.error === "INSUFFICIENT_BALANCE")
             insufficientBalance = true;
-          failedExpertContextIds.push(result.expert.context_id);
+          failedExpertContextIds.push(result.expert.message_id);
         }
       }
     }
@@ -331,8 +332,7 @@ export class AskExpertsMCP {
     const fetchParams: FetchAnswersParams = {
       sessionkey: ask.sessionkey,
       questions: sentQuestions.map((q) => ({
-        question_id: q.question_id,
-        bid_id: q.context_id,
+        message_id: q.message_id,
         expert_pubkey: q.expert_pubkey,
         relays: q.relays,
       })),
@@ -349,9 +349,8 @@ export class AskExpertsMCP {
       // If the question failed, just return the question result
       if (qResult.status === "failed") {
         return {
-          bid_id: qResult.context_id,
+          message_id: qResult.message_id,
           expert_pubkey: qResult.expert_pubkey,
-          question_id: qResult.question_id,
           status: "failed",
           error: qResult.error,
         };
@@ -359,27 +358,24 @@ export class AskExpertsMCP {
 
       // Find the corresponding answer result
       const answerResult = answerResults.find(
-        (a) => a.question_id === qResult.question_id
+        (a) => a.message_id === qResult.message_id
       );
 
       if (!answerResult) {
         return {
-          bid_id: qResult.context_id,
+          message_id: qResult.message_id,
           expert_pubkey: qResult.expert_pubkey,
-          question_id: qResult.question_id,
           status: "timeout",
         };
       }
 
       // Find the corresponding expert to get the preimage
-      const expert = experts.find((b) => b.context_id === qResult.context_id);
+      const expert = experts.find((b) => b.context.bid_id === qResult.bid_id);
       if (!expert) throw new Error("Invalid answers, expert not found");
 
       const result: any = {
-        context_id: qResult.context_id,
+        message_id: expert.message_id,
         expert_pubkey: qResult.expert_pubkey,
-        question_id: qResult.question_id,
-        answer_id: answerResult.answer_id,
         payment_hash: expert.context.payment_hash,
         status: answerResult.status,
         content: answerResult.content,
@@ -388,14 +384,20 @@ export class AskExpertsMCP {
 
       if (answerResult.followup_invoice) {
         result.followup_sats = answerResult.followup_sats;
+        result.followup_message_id = answerResult.followup_message_id;
         if (!this.nwcString)
           result.followup_invoice = answerResult.followup_invoice;
       }
 
       // If we have a followup invoice, create a new context for it
-      if (answerResult.followup_invoice && ask.contexts) {
+      if (
+        answerResult.followup_invoice &&
+        answerResult.followup_message_id &&
+        ask.contexts
+      ) {
         // Create new context with answer_id as the key
-        ask.contexts.set(answerResult.answer_id, {
+        ask.contexts.set(answerResult.followup_message_id, {
+          bid_id: expert.context.bid_id,
           relays: expert.context.relays,
           invoice: answerResult.followup_invoice,
           bid_sats: answerResult.followup_sats!,
@@ -404,7 +406,7 @@ export class AskExpertsMCP {
       }
 
       // Drop the old context
-      ask.contexts.delete(qResult.context_id);
+      ask.contexts.delete(qResult.bid_id);
 
       return result;
     });

@@ -22,7 +22,7 @@ const askExpertsMCP = new AskExpertsMCP(
 const canPay = !!process.env.NWC_CONNECTION_STRING;
 
 let bidConfig = z.object({
-  id: z.string().describe("Bid payload event ID"),
+  message_id: z.string().describe("Bid message ID to pass to ask_experts tool"),
   pubkey: z.string().describe("Expert's public key"),
   bid_sats: z.number().describe("Amount of the bid in satoshis"),
   offer: z.string().describe("Expert's offer description"),
@@ -83,10 +83,10 @@ server.registerTool(
 );
 
 let expertConfig = z.object({
-  context_id: z
+  message_id: z
     .string()
     .describe(
-      "Bid payload event ID for the first question, or last answer event ID for a followup"
+      "Message ID from the bid or from last expert answer (if it's a followup question)"
     ),
   pubkey: z.string().describe("Expert's public key"),
 });
@@ -106,13 +106,8 @@ if (canPay) {
 }
 
 let resultConfig = z.object({
-  context_id: z.string().describe("Context ID that was provided as input"),
+  message_id: z.string().describe("Message ID that was provided as input"),
   expert_pubkey: z.string().describe("Expert's public key"),
-  question_id: z.string().describe("ID of the question event"),
-  answer_id: z
-    .string()
-    .optional()
-    .describe("ID of the answer event if received"),
   payment_hash: z
     .string()
     .optional()
@@ -130,6 +125,10 @@ let resultConfig = z.object({
     .describe(
       "If followup is allowed by expert, includes the amount of sats to pay for a followup question"
     ),
+  followup_message_id: z
+    .string()
+    .optional()
+    .describe("ID of the message to ask a followup question, to be passed to ask_experts"),
 });
 
 if (!canPay) {

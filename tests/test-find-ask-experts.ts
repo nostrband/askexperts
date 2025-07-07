@@ -47,7 +47,7 @@ async function testFindAskExperts() {
         ask_id: findExpertsResult.structuredContent.id,
         question: "What is the meaning of life? I've been pondering this question for a while and would appreciate your insights on this philosophical question. Some say it's 42, others say it's about finding your own purpose. What do you think?",
         experts: findExpertsResult.structuredContent.bids.map((bid: any) => ({
-          context_id: bid.id,
+          message_id: bid.message_id,
           pubkey: bid.pubkey,
           bid_sats: bid.bid_sats
         })) as ExpertSessionStructure[],

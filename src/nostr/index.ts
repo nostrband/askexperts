@@ -18,10 +18,9 @@ import {
   DEFAULT_RELAYS,
 } from "./constants.js";
 import { parseBolt11 } from "../utils/nwc.js";
-import {
-  Bid,
-  ExpertSessionWithContext,
-} from "../AskExpertsMCP.js";
+import { Bid, ExpertSessionWithContext } from "../AskExpertsMCP.js";
+import { bytesToHex } from "nostr-tools/utils";
+import { randomBytes } from "@noble/hashes/utils";
 
 /**
  * Publishes a Nostr event to multiple relays in parallel
@@ -284,7 +283,7 @@ export async function fetchBidsFromExperts(
 
         // Parse the invoice using parseBolt11
         let bidAmount = 0;
-        let paymentHash = '';
+        let paymentHash = "";
         try {
           const parsedInvoice = parseBolt11(invoice);
           bidAmount = parsedInvoice.bid_sats;
@@ -302,7 +301,7 @@ export async function fetchBidsFromExperts(
           offer: bidPayloadEvent.content,
           relays: bidRelays,
           invoice,
-          payment_hash: paymentHash
+          payment_hash: paymentHash,
         };
 
         // Add the bid to the array
@@ -327,15 +326,15 @@ export async function fetchBidsFromExperts(
  * Interface for an answer result
  */
 export interface AnswerResult {
-  bid_id: string;
   expert_pubkey: string;
-  question_id: string;
+  message_id: string;
   answer_id: string;
   status: "received" | "timeout";
   content?: string;
   followup_invoice?: string;
   followup_sats?: number;
   followup_payment_hash?: string;
+  followup_message_id?: string;
   error?: string;
 }
 
@@ -345,8 +344,7 @@ export interface AnswerResult {
 export interface FetchAnswersParams {
   sessionkey: Uint8Array;
   questions: {
-    question_id: string;
-    bid_id: string;
+    message_id: string;
     expert_pubkey: string;
     relays: string[];
   }[];
@@ -371,34 +369,27 @@ export async function fetchAnswersFromExperts(
 
   // Create a map of question_id to question info for quick lookup
   const questionMap = new Map(
-    params.questions.map((q) => [
-      q.question_id,
-      {
-        bid_id: q.bid_id,
-        expert_pubkey: q.expert_pubkey,
-      },
-    ])
+    params.questions.map((q) => [q.message_id, q.expert_pubkey])
   );
 
   // Get all unique relays from all questions
   const allRelays = [...new Set(params.questions.flatMap((q) => q.relays))];
 
-  // Get all question IDs
-  const questionIds = params.questions.map((q) => q.question_id);
+  // Get all message IDs
+  const messageIds = params.questions.map((q) => q.message_id);
 
-  // Create a filter for answer events (kind 20178) with e-tag of any question_id
+  // Create a filter for answer events (kind 20178) with e-tag of any message_id
   const filter = {
     kinds: [NOSTR_EVENT_KIND_ANSWER],
-    "#e": questionIds,
+    "#e": messageIds,
     since: Math.floor(Date.now() / 1000) - 60, // Get events from the last minute
   };
 
   // Initialize results with timeout status for all questions
   for (const question of params.questions) {
     results.push({
-      bid_id: question.bid_id,
       expert_pubkey: question.expert_pubkey,
-      question_id: question.question_id,
+      message_id: question.message_id,
       answer_id: "",
       status: "timeout",
     });
@@ -415,7 +406,7 @@ export async function fetchAnswersFromExperts(
 
   // Function to check if all questions have been answered
   const checkAllAnswered = () => {
-    if (answeredQuestions.size === questionIds.length) {
+    if (answeredQuestions.size === messageIds.length) {
       console.log("All questions answered, resolving early");
       resolveAllAnswered();
     }
@@ -446,24 +437,24 @@ export async function fetchAnswersFromExperts(
         }
 
         // Find the question ID from the e-tag
-        const questionTag = event.tags.find((tag) => tag[0] === "e");
-        if (!questionTag || !questionTag[1]) {
+        const messageTag = event.tags.find((tag) => tag[0] === "e");
+        if (!messageTag || !messageTag[1]) {
           console.error("Answer event missing e-tag:", event);
           return;
         }
 
-        const questionId = questionTag[1];
-        const questionInfo = questionMap.get(questionId);
+        const messageId = messageTag[1];
+        const expertPubkey = questionMap.get(messageId);
 
-        if (!questionInfo) {
-          console.error("Received answer for unknown question:", questionId);
+        if (!expertPubkey) {
+          console.error("Received answer for unknown question:", messageId);
           return;
         }
 
         // Generate the conversation key for decryption
         const conversationKey = nip44.getConversationKey(
           params.sessionkey,
-          questionInfo.expert_pubkey
+          expertPubkey
         );
 
         // Decrypt the answer payload
@@ -480,14 +471,13 @@ export async function fetchAnswersFromExperts(
 
         // Find the existing result for this question and update it
         const resultIndex = results.findIndex(
-          (r) => r.question_id === questionId
+          (r) => r.message_id === messageId
         );
         if (resultIndex !== -1) {
           // Create the base result
           const result: AnswerResult = {
-            bid_id: questionInfo.bid_id,
-            expert_pubkey: questionInfo.expert_pubkey,
-            question_id: questionId,
+            expert_pubkey: expertPubkey,
+            message_id: messageId,
             answer_id: event.id,
             status: "received",
             content: answerPayload.content,
@@ -498,7 +488,7 @@ export async function fetchAnswersFromExperts(
             const invoiceTag = answerPayload.tags.find(
               (tag: string[]) => tag[0] === "invoice"
             );
-            
+
             if (invoiceTag && invoiceTag[1]) {
               const invoice = invoiceTag[1];
               // Try to parse the invoice, but don't fail if it can't be parsed
@@ -512,12 +502,20 @@ export async function fetchAnswersFromExperts(
                 // Keep the answer, just ignore the followup invoice
               }
             }
+
+            // Next message id
+            const messageTag = answerPayload.tags.find(
+              (tag: string[]) => tag[0] === "message_id"
+            );
+            if (messageTag && messageTag[1]) {
+              result.followup_message_id = messageTag[1];
+            }
           }
 
           results[resultIndex] = result;
 
           // Mark this question as answered
-          answeredQuestions.add(questionId);
+          answeredQuestions.add(messageId);
 
           // Check if all questions have been answered
           checkAllAnswered();
@@ -565,9 +563,10 @@ export interface SendQuestionsParams {
  * Result of sending a question to an expert
  */
 export interface QuestionSentResult {
-  context_id: string;
+  bid_id: string;
   expert_pubkey: string;
   question_id: string;
+  message_id: string;
   relays: string[];
   status: "sent" | "failed";
   error?: string;
@@ -592,10 +591,13 @@ export async function sendQuestionsToExperts(
       const questionPrivkey = generateSecretKey();
       const questionPubkey = getPublicKey(questionPrivkey);
 
+      // Opaque message id
+      const messageId = bytesToHex(randomBytes(32));
+
       // Create the question payload with the preimage if available
       const questionPayload: QuestionPayload = {
         content: params.question,
-        tags: [],
+        tags: [["message_id", messageId]],
       };
 
       // Add preimage tag if available
@@ -623,7 +625,7 @@ export async function sendQuestionsToExperts(
         kind: NOSTR_EVENT_KIND_QUESTION,
         created_at: Math.floor(Date.now() / 1000),
         tags: [
-          ["e", expert.context_id], // e-tag the bid payload event id or last answer id
+          ["e", expert.message_id], // e-tag the last message id (bid or last answer)
         ],
         content: encryptedContent,
         pubkey: questionPubkey,
@@ -644,9 +646,10 @@ export async function sendQuestionsToExperts(
 
       // Create the result object
       const result: QuestionSentResult = {
-        context_id: expert.context_id,
+        bid_id: expert.context.bid_id,
         expert_pubkey: expert.pubkey,
         question_id: questionEvent.id,
+        message_id: messageId,
         relays: publishedRelays,
         status: publishedRelays.length > 0 ? "sent" : "failed",
       };
@@ -658,9 +661,10 @@ export async function sendQuestionsToExperts(
       results.push(result);
     } catch (error) {
       const result: QuestionSentResult = {
-        context_id: expert.context_id,
+        bid_id: expert.context.bid_id,
         expert_pubkey: expert.pubkey,
         question_id: "",
+        message_id: "",
         relays: [],
         status: "failed",
         error: error instanceof Error ? error.message : String(error),
