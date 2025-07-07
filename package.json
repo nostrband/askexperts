@@ -1,11 +1,11 @@
 {
-  "name": "@askexperts/mcp",
+  "name": "askexperts",
   "version": "0.2.0",
   "description": "MCP server for finding experts and asking them questions",
   "main": "dist/index.js",
   "type": "module",
   "bin": {
-    "askexperts-mcp": "./bin/cli.js"
+    "askexperts": "./bin/cli.js"
   },
   "scripts": {
     "build": "tsc",

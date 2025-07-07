@@ -27,7 +27,7 @@ npm install
 You can run the MCP server directly using npx without installing it:
 
 ```bash
-npx -y @askexperts/mcp
+npx -y askexperts
 ```
 
 ## Usage
@@ -52,11 +52,11 @@ npm start
 
 ```bash
 # Run directly without installation
-npx -y @askexperts/mcp
+npx -y askexperts
 
 # Or install globally and run
-npm install -g @askexperts/mcp
-askexperts-mcp
+npm install -g askexperts
+askexperts
 ```
 
 ### Using the MCP Server
@@ -176,7 +176,7 @@ import { spawn } from "child_process";
 const client = new McpClient();
 
 // Spawn the MCP server as a child process using npx
-const serverProcess = spawn("npx", ["-y", "@askexperts/mcp"]);
+const serverProcess = spawn("npx", ["-y", "askexperts"]);
 
 // Connect to the server using child process transport
 const transport = new ChildProcessClientTransport(serverProcess);
