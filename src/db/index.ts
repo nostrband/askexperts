@@ -18,7 +18,7 @@ export class DB {
   private db: DatabaseSync;
   private dbPath: string;
 
-  constructor(dbPath: string = "./data/users.db") {
+  constructor(dbPath: string) {
     this.dbPath = dbPath;
 
     // Ensure the data directory exists

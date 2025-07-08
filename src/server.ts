@@ -35,8 +35,9 @@ app.use(express.json());
 // Map to store transports by session ID
 const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
 
-// Initialize the database
-const db = new DB();
+// Initialize the database with a server-specific database file
+const dbPath = `./data/mcp${MCP_SERVER_ID}.db`;
+const db = new DB(dbPath);
 
 // Initialize the parent client if parent token is provided
 let parentClient: ParentClient | null = null;
