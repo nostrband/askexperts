@@ -90,7 +90,7 @@ The parent server provides a centralized user management system for multiple MCP
 2. **GET /user**
    - Description: Get information about a user by their token
    - Authentication: Bearer token in Authorization header
-   - Response: User information (pubkey and timestamp)
+   - Response: User information (pubkey, timestamp, and mcp_server_url)
    - Error responses:
      - 401: Unauthorized (missing or invalid token)
 
@@ -108,7 +108,7 @@ The parent server provides a centralized user management system for multiple MCP
    - Description: Create a new user with automatically generated credentials
    - No authentication required (public endpoint)
    - No request body needed
-   - Response: Created user object with pubkey, nsec, nwc, and token
+   - Response: Created user object with pubkey, nsec, nwc, token, and mcp_server_url
    - Error responses:
      - 500: Failed to create user
      - 500: No MCP servers available
@@ -136,10 +136,10 @@ The parent server provides a public signup endpoint that automatically:
 1. Generates a new Nostr keypair (pubkey and nsec)
 2. Creates a new NWC wallet connection
 3. Assigns the user to the MCP server with the highest ID
-4. Returns credentials to the client
+4. Returns credentials to the client, including the MCP server URL
 5. Notifies the assigned MCP server about the new user
 
-This allows clients to implement a simple signup process without needing to generate Nostr keys or NWC connections themselves.
+This allows clients to implement a simple signup process without needing to generate Nostr keys or NWC connections themselves. The returned MCP server URL enables clients to directly connect to the appropriate MCP server without additional API calls.
 
 
 ### Server Architecture
@@ -504,6 +504,7 @@ async function signupNewUser() {
     console.log('Private key (nsec):', userData.nsec);
     console.log('NWC connection string:', userData.nwc);
     console.log('Authentication token:', userData.token);
+    console.log('MCP server URL:', userData.mcp_server_url);
     
     // Store the token for future API calls
     const authToken = userData.token;

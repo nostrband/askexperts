@@ -50,10 +50,14 @@ app.get("/user", async (req, res) => {
     return;
   }
 
+  // Get the MCP server information
+  const mcpServer = await db.getMcpServerById(user.mcp_server_id);
+  
   // Return user info without sensitive data
   res.json({
     pubkey: user.pubkey,
     timestamp: user.timestamp,
+    mcp_server_url: mcpServer ? mcpServer.url : null,
   });
 });
 
@@ -214,7 +218,8 @@ app.post("/signup", async (req, res) => {
       pubkey,
       nsec,
       nwc,
-      token: user.token
+      token: user.token,
+      mcp_server_url: mcpServer.url
     });
     
     // After sending the response, notify the MCP server
