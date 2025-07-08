@@ -298,4 +298,32 @@ export class ParentDB {
       this.db.close();
     }
   }
+
+  /**
+   * Get the MCP server with the maximum ID
+   * @returns The MCP server with the highest ID or null if no servers exist
+   */
+  async getMcpServerWithMaxId(): Promise<McpServer | null> {
+    if (!this.db) {
+      throw new Error("Database not initialized");
+    }
+
+    try {
+      const stmt = this.db.prepare("SELECT * FROM mcp_servers ORDER BY id DESC LIMIT 1");
+      const result = stmt.get() as SQLiteRecord | undefined;
+      
+      if (!result) {
+        return null;
+      }
+      
+      return {
+        id: result.id as number,
+        url: result.url as string,
+        token: result.token as string
+      };
+    } catch (error) {
+      console.error("Error getting MCP server with max ID:", error);
+      return null;
+    }
+  }
 }

@@ -1,6 +1,8 @@
 import express from "express";
 import cors from "cors";
 import { ParentDB } from "./db/parentDb.js";
+import { generateSecretKey, getPublicKey, nip19 } from "nostr-tools";
+import { createWallet } from "nwc-enclaved-utils";
 
 // Default port for the parent server
 const PORT = process.env.PARENT_PORT ? parseInt(process.env.PARENT_PORT) : 3001;
@@ -12,11 +14,14 @@ const app = express();
 app.use(
   cors({
     origin: "*", // Allow all origins
-    methods: ["GET", "OPTIONS"],
+    methods: ["GET", "POST", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
   })
 );
+
+// Parse JSON request bodies
+app.use(express.json());
 
 // Initialize the parent database
 const db = new ParentDB();
@@ -121,58 +126,124 @@ app.get("/users", async (req, res) => {
 //   }
 // });
 
-// Add user endpoint (for admin use)
-app.post("/admin/users", express.json(), async (req, res) => {
-  // In a production environment, this endpoint should be protected
-  // with proper authentication for administrators only
+// // Add user endpoint (for admin use)
+// app.post("/admin/users", express.json(), async (req, res) => {
+//   // In a production environment, this endpoint should be protected
+//   // with proper authentication for administrators only
   
-  const { pubkey, nsec, nwc, mcp_server_id } = req.body;
+//   const { pubkey, nsec, nwc, mcp_server_id } = req.body;
   
-  if (!pubkey || !nsec || !nwc || !mcp_server_id) {
-    res.status(400).json({ error: "Missing required fields" });
-    return;
-  }
+//   if (!pubkey || !nsec || !nwc || !mcp_server_id) {
+//     res.status(400).json({ error: "Missing required fields" });
+//     return;
+//   }
   
+//   try {
+//     // Add user to the database
+//     const user = await db.addUser({ pubkey, nsec, nwc, mcp_server_id });
+    
+//     // Get the MCP server information
+//     const mcpServer = await db.getMcpServerById(mcp_server_id);
+    
+//     // If MCP server exists, call its webhook to notify about the new user
+//     if (mcpServer) {
+//       try {
+//         // Call the webhook on the MCP server
+//         const webhookUrl = `${mcpServer.url}/new-user-webhook`;
+//         console.log(`Notifying MCP server at ${webhookUrl} about new user`);
+        
+//         const webhookResponse = await fetch(webhookUrl, {
+//           method: 'POST',
+//           headers: {
+//             'Authorization': `Bearer ${mcpServer.token}`,
+//             'Content-Type': 'application/json'
+//           },
+//           body: JSON.stringify({ action: 'new_user_added' })
+//         });
+        
+//         if (!webhookResponse.ok) {
+//           console.warn(`Failed to notify MCP server: ${webhookResponse.status} ${webhookResponse.statusText}`);
+//         } else {
+//           console.log(`MCP server notified successfully`);
+//         }
+//       } catch (webhookError) {
+//         console.error(`Error notifying MCP server:`, webhookError);
+//         // We don't want to fail the user creation if webhook notification fails
+//       }
+//     } else {
+//       console.warn(`MCP server with ID ${mcp_server_id} not found, couldn't notify about new user`);
+//     }
+    
+//     res.status(201).json(user);
+//   } catch (error) {
+//     console.error("Error adding user:", error);
+//     res.status(500).json({ error: "Failed to add user" });
+//   }
+// });
+
+// Signup endpoint (public)
+app.post("/signup", async (req, res) => {
   try {
-    // Add user to the database
-    const user = await db.addUser({ pubkey, nsec, nwc, mcp_server_id });
+    // Generate a new Nostr secret key
+    const secretKey = generateSecretKey();
+    const pubkey = getPublicKey(secretKey);
+    const nsec = nip19.nsecEncode(secretKey);
     
-    // Get the MCP server information
-    const mcpServer = await db.getMcpServerById(mcp_server_id);
+    // Create a wallet and get the NWC string
+    const wallet = await createWallet();
+    const nwc = wallet.nwcString;
     
-    // If MCP server exists, call its webhook to notify about the new user
-    if (mcpServer) {
-      try {
-        // Call the webhook on the MCP server
-        const webhookUrl = `${mcpServer.url}/new-user-webhook`;
-        console.log(`Notifying MCP server at ${webhookUrl} about new user`);
-        
-        const webhookResponse = await fetch(webhookUrl, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${mcpServer.token}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ action: 'new_user_added' })
-        });
-        
-        if (!webhookResponse.ok) {
-          console.warn(`Failed to notify MCP server: ${webhookResponse.status} ${webhookResponse.statusText}`);
-        } else {
-          console.log(`MCP server notified successfully`);
-        }
-      } catch (webhookError) {
-        console.error(`Error notifying MCP server:`, webhookError);
-        // We don't want to fail the user creation if webhook notification fails
-      }
-    } else {
-      console.warn(`MCP server with ID ${mcp_server_id} not found, couldn't notify about new user`);
+    // Get the MCP server with the maximum ID
+    const mcpServer = await db.getMcpServerWithMaxId();
+    
+    if (!mcpServer) {
+      res.status(500).json({ error: "No MCP servers available" });
+      return;
     }
     
-    res.status(201).json(user);
+    // Add user to the database
+    const user = await db.addUser({
+      pubkey,
+      nsec,
+      nwc,
+      mcp_server_id: mcpServer.id
+    });
+    
+    // Return user info to the caller
+    res.status(201).json({
+      pubkey,
+      nsec,
+      nwc,
+      token: user.token
+    });
+    
+    // After sending the response, notify the MCP server
+    try {
+      // Call the webhook on the MCP server
+      const webhookUrl = `${mcpServer.url}/new-user-webhook`;
+      console.log(`Notifying MCP server at ${webhookUrl} about new user`);
+      
+      const webhookResponse = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${mcpServer.token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ action: 'new_user_added' })
+      });
+      
+      if (!webhookResponse.ok) {
+        console.warn(`Failed to notify MCP server: ${webhookResponse.status} ${webhookResponse.statusText}`);
+      } else {
+        console.log(`MCP server notified successfully`);
+      }
+    } catch (webhookError) {
+      console.error(`Error notifying MCP server:`, webhookError);
+      // We don't want to fail the user creation if webhook notification fails
+    }
   } catch (error) {
-    console.error("Error adding user:", error);
-    res.status(500).json({ error: "Failed to add user" });
+    console.error("Error in signup:", error);
+    res.status(500).json({ error: "Failed to create user" });
   }
 });
 

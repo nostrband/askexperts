@@ -72,9 +72,75 @@ npm run parent
 # Development mode with auto-reload
 npm run parent:dev
 ```
-
 The parent server will start on port 3001 (or the port specified in the PARENT_PORT environment variable) with the following endpoints:
+- Health check: http://localhost:3001/health
+- User info: http://localhost:3001/user
 - Users endpoint: http://localhost:3001/users
+
+### Parent Server API
+
+The parent server provides a centralized user management system for multiple MCP servers. It allows MCP servers to fetch users assigned to them and receive notifications when new users are added.
+
+#### API Endpoints
+
+1. **GET /health**
+   - Description: Health check endpoint
+   - Response: `{ "status": "ok" }`
+
+2. **GET /user**
+   - Description: Get information about a user by their token
+   - Authentication: Bearer token in Authorization header
+   - Response: User information (pubkey and timestamp)
+   - Error responses:
+     - 401: Unauthorized (missing or invalid token)
+
+3. **GET /users**
+   - Description: Get users assigned to an MCP server since a specific timestamp
+   - Authentication: MCP server token in Authorization header
+   - Query parameters:
+     - `since` (optional): Timestamp to filter users (get users added after this timestamp)
+   - Response: Array of user objects with pubkey, nsec, nwc, timestamp, and token
+   - Error responses:
+     - 401: Unauthorized (missing or invalid token)
+     - 400: Invalid 'since' parameter
+
+4. **POST /signup**
+   - Description: Create a new user with automatically generated credentials
+   - No authentication required (public endpoint)
+   - No request body needed
+   - Response: Created user object with pubkey, nsec, nwc, and token
+   - Error responses:
+     - 500: Failed to create user
+     - 500: No MCP servers available
+
+#### MCP Server Integration
+
+MCP servers connect to the parent server using the following environment variables:
+- `PARENT_URL`: URL of the parent server
+- `PARENT_TOKEN`: Authentication token for the MCP server
+- `MCP_SERVER_ID`: ID of the MCP server in the parent database
+
+When an MCP server connects to the parent server, it:
+1. Fetches users assigned to it since the last known timestamp
+2. Polls for new users at regular intervals (default: 60 seconds)
+3. Listens for webhook notifications when new users are added
+
+The parent server notifies MCP servers about new users by calling a webhook endpoint:
+- `POST /new-user-webhook` on the MCP server
+- Authentication: MCP server token in Authorization header
+- Request body: `{ "action": "new_user_added" }`
+
+#### User Signup Flow
+
+The parent server provides a public signup endpoint that automatically:
+1. Generates a new Nostr keypair (pubkey and nsec)
+2. Creates a new NWC wallet connection
+3. Assigns the user to the MCP server with the highest ID
+4. Returns credentials to the client
+5. Notifies the assigned MCP server about the new user
+
+This allows clients to implement a simple signup process without needing to generate Nostr keys or NWC connections themselves.
+
 
 ### Server Architecture
 
@@ -412,6 +478,53 @@ main();
 ```
 
 A complete example client is available in the `examples/remote-client.js` file.
+
+#### Using the Signup Endpoint
+
+```javascript
+// Example of using the signup endpoint to create a new user
+async function signupNewUser() {
+  try {
+    // Call the signup endpoint
+    const response = await fetch('http://localhost:3001/signup', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Signup failed: ${response.status} ${response.statusText}`);
+    }
+    
+    // Get the user credentials
+    const userData = await response.json();
+    console.log('New user created:');
+    console.log('Public key:', userData.pubkey);
+    console.log('Private key (nsec):', userData.nsec);
+    console.log('NWC connection string:', userData.nwc);
+    console.log('Authentication token:', userData.token);
+    
+    // Store the token for future API calls
+    const authToken = userData.token;
+    
+    // Example: Use the token to get user info
+    const userInfoResponse = await fetch('http://localhost:3001/user', {
+      headers: {
+        'Authorization': `Bearer ${authToken}`
+      }
+    });
+    
+    const userInfo = await userInfoResponse.json();
+    console.log('User info:', userInfo);
+    
+    return userData;
+  } catch (error) {
+    console.error('Error signing up:', error);
+    throw error;
+  }
+}
+```
 
 ## User Authentication
 
