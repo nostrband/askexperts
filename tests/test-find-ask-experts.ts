@@ -1,4 +1,6 @@
-import { AskExpertsMCP, ExpertSessionStructure } from '../src/AskExpertsMCP.js';
+import { AskExpertsMCP } from '../src/AskExpertsMCP.js';
+import type { ExpertSessionStructure } from '../src/AskExpertsMCP.js';
+import type { FindExpertsParams, AskExpertsParams } from '../src/AskExpertsTools.js';
 import { DEFAULT_RELAYS } from '../src/nostr/constants.js';
 
 /**

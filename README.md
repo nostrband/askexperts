@@ -8,6 +8,7 @@ An MCP server that allows users to find experts on a subject, ask them questions
 - Experts can bid on answering your question
 - Pay experts for their answers
 - Manage list of expert scores
+- Parent server for centralized user management across multiple MCP servers
 
 ## Installation
 
@@ -34,10 +35,10 @@ npx -y askexperts
 
 ### Starting the Server
 
-#### Local Development
+#### Local Development (Stdio Mode)
 
 ```bash
-# Run the MCP server
+# Run the MCP server in stdio mode
 npm run mcp
 
 # Development mode with auto-reload
@@ -48,15 +49,152 @@ npm run build
 npm start
 ```
 
+#### Remote HTTP Server
+
+```bash
+# Run the MCP server as a remote HTTP server
+npm run server
+
+# Development mode with auto-reload
+npm run server:dev
+```
+
+The remote server will start on port 3000 (or the port specified in the PORT environment variable) with the following endpoints:
+- Session endpoint: http://localhost:3000/api/session
+- MCP endpoint: http://localhost:3000/api/mcp/:sessionId
+
+#### Parent Server
+
+```bash
+# Run the parent server
+npm run parent
+
+# Development mode with auto-reload
+npm run parent:dev
+```
+
+The parent server will start on port 3001 (or the port specified in the PARENT_PORT environment variable) with the following endpoints:
+- Users endpoint: http://localhost:3001/users
+
+### Server Architecture
+
+The AskExperts MCP server is built with a modular architecture:
+
+1. **AskExpertsTools** - Core functionality class that handles:
+   - Finding experts on Nostr
+   - Collecting bids from experts
+   - Sending encrypted questions to experts
+   - Receiving and processing answers
+   - Managing payments via NWC (Nostr Wallet Connect)
+
+2. **AskExpertsMCP** - MCP server class that:
+   - Extends the base McpServer class from the MCP SDK
+   - Encapsulates an instance of AskExpertsTools
+   - Registers and exposes the find_experts and ask_experts tools
+   - Handles tool registration and configuration
+
+3. **Server** - Express.js HTTP server that:
+   - Provides REST API endpoints for client connections
+   - Manages sessions for stateful client interactions
+   - Connects the AskExpertsMCP instance to HTTP transport
+   - Handles CORS and other HTTP-specific concerns
+
+4. **ParentServer** - Express.js HTTP server that:
+   - Provides a centralized user database for multiple MCP servers
+   - Distributes users to connected MCP servers
+   - Authenticates MCP servers using tokens
+   - Manages MCP server registrations
+
+### Launching the Server
+
+To launch the server, you have several options:
+
+#### Option 1: Run as a local stdio-based MCP server
+
+```bash
+# Install dependencies if you haven't already
+npm install
+
+# Run the server in stdio mode
+npm run mcp
+```
+
+This mode is suitable for direct integration with MCP clients that support stdio transport.
+
+#### Option 2: Run as a remote HTTP server
+
+```bash
+# Install dependencies if you haven't already
+npm install
+
+# Run the server in HTTP mode
+npm run server
+```
+
+The server will start on port 3000 by default (configurable via PORT environment variable) and output:
+```
+AskExperts MCP server is running on port 3000
+Session endpoint: http://localhost:3000/api/session
+MCP endpoint: http://localhost:3000/api/mcp/:sessionId
+```
+
+#### Option 3: Run with automatic payments enabled
+
+To enable automatic payments for expert bids, set the NWC_CONNECTION_STRING environment variable:
+
+```bash
+# Set the NWC connection string
+export NWC_CONNECTION_STRING="nostr+walletconnect://..."
+
+# Run the server
+npm run server
+```
+
+This allows the server to automatically pay Lightning invoices for expert bids without requiring clients to provide payment preimages.
+
+#### Option 4: Run with parent server connection
+
+To connect the MCP server to a parent server for centralized user management:
+
+```bash
+# Set the parent server connection details
+export PARENT_URL="http://localhost:3001"
+export PARENT_TOKEN="your-mcp-server-token"
+export MCP_SERVER_ID="your-mcp-server-id"
+
+# Run the server
+npm run server
+```
+
+This allows the MCP server to fetch users from the parent server.
+
+#### Option 5: Run the parent server
+
+```bash
+# Install dependencies if you haven't already
+npm install
+
+# Run the parent server
+npm run parent
+```
+
+The parent server will start on port 3001 by default (configurable via PARENT_PORT environment variable).
+
 #### Using NPX
 
 ```bash
-# Run directly without installation
+# Run directly without installation (stdio mode)
 npx -y askexperts
 
 # Or install globally and run
 npm install -g askexperts
 askexperts
+
+# Run as a remote HTTP server
+npx -y askexperts-server
+
+# Run as a parent server
+npx -y askexperts-parent
 ```
 
 ### Using the MCP Server
@@ -120,7 +258,7 @@ A JSON string containing:
 
 ### Example Usage with MCP Client
 
-#### Using with Local Server
+#### Using with Local Server (Stdio Mode)
 
 ```typescript
 import { McpClient } from "@modelcontextprotocol/sdk/client/mcp.js";
@@ -212,11 +350,236 @@ const askResult = await client.callTool("ask_experts", {
 console.log(askResult);
 ```
 
+#### Using with Remote HTTP Server
+
+```typescript
+import { McpClient } from "@modelcontextprotocol/sdk/client/mcp.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamable-http.js";
+import fetch from "node-fetch";
+
+// Default server URL
+const SERVER_URL = process.env.SERVER_URL || "http://localhost:3000";
+
+async function main() {
+  try {
+    // First, get a session ID from the server
+    console.log("Getting session ID from server...");
+    const sessionResponse = await fetch(`${SERVER_URL}/api/session`);
+    const sessionData = await sessionResponse.json();
+    const sessionId = sessionData.sessionId;
+    
+    console.log(`Session ID: ${sessionId}`);
+    
+    // Create a transport that connects to the MCP server
+    const transport = new StreamableHTTPClientTransport({
+      url: `${SERVER_URL}/api/mcp/${sessionId}`,
+      fetch: fetch,
+    });
+    
+    // Create an MCP client
+    const client = new McpClient();
+    
+    // Connect the client to the transport
+    await client.connect(transport);
+    
+    // Get server info
+    const serverInfo = await client.getServerInfo();
+    console.log("Server info:", serverInfo);
+    
+    // List available tools
+    const tools = await client.listTools();
+    console.log("Available tools:", tools);
+    
+    // Example: Find experts on a subject
+    if (tools.includes("find_experts")) {
+      console.log("\nFinding experts...");
+      const findExpertsResult = await client.useTool("find_experts", {
+        public_question_summary: "How to implement a Lightning Network wallet in JavaScript?",
+        tags: ["bitcoin", "lightning", "javascript"]
+      });
+      
+      // Process the result...
+    }
+    
+    // Close the connection
+    await client.disconnect();
+  } catch (error) {
+    console.error("Error:", error);
+  }
+}
+
+main();
+```
+
+A complete example client is available in the `examples/remote-client.js` file.
+
+## User Authentication
+
+The server supports user authentication using tokens. Users can be added to the SQLite database, and their tokens can be used to authenticate requests to the MCP endpoint.
+
+### Database Structure
+
+#### MCP Server Database
+
+The MCP server uses a SQLite database to store user information with the following fields:
+- `pubkey` (string): The user's public key
+- `nsec` (string): The user's private key
+- `nwc` (string): The user's NWC connection string
+- `timestamp` (number): Unix timestamp when the user was added
+- `token` (string): Authentication token for the user
+
+#### Parent Server Database
+
+The parent server uses a SQLite database with the following tables:
+
+**mcp_servers**
+- `id` (number): Autoincremented primary key
+- `url` (string): URL of the MCP server
+- `token` (string): Authentication token for the MCP server
+
+**users**
+- `pubkey` (string): The user's public key
+- `nsec` (string): The user's private key
+- `nwc` (string): The user's NWC connection string
+- `timestamp` (number): Unix timestamp when the user was added
+- `token` (string): Authentication token for the user
+- `mcp_server_id` (number): Foreign key referencing the mcp_servers table
+
+### Adding a User
+
+#### To MCP Server
+
+To add a user to the MCP server database, use the provided utility script:
+
+```bash
+# Build the project first
+npm run build
+
+# Add a user
+npm run add-user
+```
+
+This will generate a random token for the user and store it in the database. The script will output the token that can be used for authentication.
+
+#### To Parent Server
+
+To add a user to the parent server database, use the provided utility script:
+
+```bash
+# Build the project first
+npm run build
+
+# Add a user
+npm run add-parent-user
+```
+
+This will prompt you for the MCP server ID and user details, then add the user to the parent database.
+
+### Adding an MCP Server to Parent
+
+To register an MCP server with the parent server:
+
+```bash
+# Build the project first
+npm run build
+
+# Add an MCP server
+npm run add-mcp-server
+```
+
+This will prompt you for the MCP server URL and generate a token for authentication.
+
+### Getting User Information
+
+To retrieve user information by token:
+
+```bash
+npm run get-user <token>
+```
+
+### Authenticating Requests
+
+To authenticate requests to the MCP endpoint, include the token in the Authorization header:
+
+```
+Authorization: Bearer <token>
+```
+
+When a user is authenticated, the server will use their NWC string from the database instead of the environment variable.
+
+### User API Endpoint
+
+The server provides a `/user` endpoint to get information about the authenticated user:
+
+```bash
+curl -H "Authorization: Bearer <token>" http://localhost:3000/user
+```
+
 ## Environment Variables
+
+### PORT
+
+The `PORT` environment variable sets the port number for the remote HTTP server. If not specified, the server will run on port 3000.
+
+```bash
+# Set the port for the remote server
+export PORT=8080
+
+# Then start the server
+npm run server
+```
+
+### PARENT_PORT
+
+The `PARENT_PORT` environment variable sets the port number for the parent server. If not specified, the server will run on port 3001.
+
+```bash
+# Set the port for the parent server
+export PARENT_PORT=8081
+
+# Then start the parent server
+npm run parent
+```
+
+### PARENT_URL
+
+The `PARENT_URL` environment variable sets the URL of the parent server for the MCP server to connect to. If not specified, the MCP server will use "http://localhost:3001".
+
+```bash
+# Set the parent server URL
+export PARENT_URL="http://parent-server.example.com"
+
+# Then start the MCP server
+npm run server
+```
+
+### PARENT_TOKEN
+
+The `PARENT_TOKEN` environment variable sets the authentication token for the MCP server to use when connecting to the parent server. This token is generated when adding an MCP server to the parent database.
+
+```bash
+# Set the parent server token
+export PARENT_TOKEN="your-mcp-server-token"
+
+# Then start the MCP server
+npm run server
+```
+
+### MCP_SERVER_ID
+
+The `MCP_SERVER_ID` environment variable sets the ID of the MCP server in the parent database. This ID is generated when adding an MCP server to the parent database.
+
+```bash
+# Set the MCP server ID
+export MCP_SERVER_ID="your-mcp-server-id"
+
+# Then start the MCP server
+npm run server
+```
 
 ### NWC_CONNECTION_STRING
 
-The `NWC_CONNECTION_STRING` environment variable enables the built-in wallet functionality in the `ask_experts` tool. When set, it allows the MCP server to automatically pay Lightning invoices for expert bids without requiring the client to provide payment preimages.
+The `NWC_CONNECTION_STRING` environment variable enables the built-in wallet functionality in the `ask_experts` tool. When set, it allows the MCP server to automatically pay Lightning invoices for expert bids without requiring the client to provide payment preimages. This is used as a fallback when no authenticated user is present.
 
 #### What is NWC?
 

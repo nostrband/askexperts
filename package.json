@@ -1,20 +1,30 @@
 {
   "name": "askexperts",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "MCP server for finding experts and asking them questions",
   "main": "dist/index.js",
   "type": "module",
   "bin": {
-    "askexperts": "./bin/cli.js"
+    "askexperts": "./bin/cli.js",
+    "askexperts-server": "./bin/server.js",
+    "askexperts-parent": "./bin/parent-server.js"
   },
   "scripts": {
     "build": "tsc",
     "start": "tsx src/index.ts",
     "dev": "tsx --watch src/index.ts",
     "mcp": "tsx src/index.ts",
+    "server": "tsx src/server.ts",
+    "server:dev": "tsx --watch src/server.ts",
+    "parent": "tsx src/parentServer.ts",
+    "parent:dev": "tsx --watch src/parentServer.ts",
     "fake-expert": "tsx src/utils/fakeExpert.ts",
     "test": "npm run build && node bin/test-pay-experts.js",
     "test:pay-experts": "tsx tests/test-pay-experts.ts",
+    "add-user": "node bin/add-user.js",
+    "get-user": "node bin/get-user.js",
+    "add-mcp-server": "node bin/add-mcp-server.js",
+    "add-parent-user": "node bin/add-parent-user.js",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
@@ -52,10 +62,17 @@
     "@noble/hashes": "^1.8.0",
     "@types/node": "^24.0.8",
     "bolt11": "^1.4.1",
+    "cors": "^2.8.5",
+    "express": "^4.18.3",
     "nostr-tools": "^2.15.0",
     "nwc-enclaved-utils": "^2.0.8",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3",
+    "uuid": "^9.0.1",
     "zod": "^3.25.67"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3"
   }
 }
