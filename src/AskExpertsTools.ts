@@ -321,7 +321,6 @@ export class AskExpertsTools {
         sessionkey: ask.sessionkey,
         question: params.question,
         experts: validExperts,
-        timeout: params.timeout,
       });
     }
 
@@ -336,7 +335,7 @@ export class AskExpertsTools {
         expert_pubkey: q.expert_pubkey,
         relays: q.relays,
       })),
-      timeout: params.timeout || 5000,
+      timeout: params.timeout || 60000,
     };
 
     // Fetch answers from experts
