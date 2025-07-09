@@ -77,7 +77,7 @@ export class DB {
    * @param pubkey The user's public key
    * @returns The user object or null if not found
    */
-  async getUserByPubkey(pubkey: string): Promise<User | null> {
+  getUserByPubkey(pubkey: string): User | null {
     if (!this.db) {
       throw new Error("Database not initialized");
     }
@@ -104,41 +104,54 @@ export class DB {
   }
 
   /**
-   * Add a new user to the database
-   * @param user The user object to add
-   * @returns The added user with generated token
+   * Ensures a user exists in the database - creates if not exists or updates if exists
+   * @param user The user object to add or update
+   * @returns The added or updated user
    */
-  async addUser(user: Omit<User, "token" | "timestamp">): Promise<User> {
+  ensureUser(user: User): User {
     if (!this.db) {
       throw new Error("Database not initialized");
     }
 
-    // Generate a random token
-    const token = bytesToHex(randomBytes(32));
-    const timestamp = Math.floor(Date.now() / 1000);
-
-    const newUser: User = {
-      ...user,
-      token,
-      timestamp,
-    };
-
     try {
-      const stmt = this.db.prepare(
-        "INSERT INTO users (pubkey, nsec, nwc, timestamp, token) VALUES (?, ?, ?, ?, ?)"
-      );
+      // Check if user already exists
+      const existingUser = this.getUserByPubkey(user.pubkey);
+      
+      if (existingUser) {
+        // User exists, update all fields
+        const stmt = this.db.prepare(
+          "UPDATE users SET nsec = ?, nwc = ?, timestamp = ?, token = ? WHERE pubkey = ?"
+        );
 
-      stmt.run(
-        newUser.pubkey,
-        newUser.nsec,
-        newUser.nwc,
-        newUser.timestamp,
-        newUser.token
-      );
+        stmt.run(
+          user.nsec,
+          user.nwc,
+          user.timestamp,
+          user.token,
+          user.pubkey
+        );
+        
+        console.log(`Updated existing user ${user.pubkey}`);
+      } else {
+        // User doesn't exist, insert new user
+        const stmt = this.db.prepare(
+          "INSERT INTO users (pubkey, nsec, nwc, timestamp, token) VALUES (?, ?, ?, ?, ?)"
+        );
 
-      return newUser;
+        stmt.run(
+          user.pubkey,
+          user.nsec,
+          user.nwc,
+          user.timestamp,
+          user.token
+        );
+        
+        console.log(`Added new user ${user.pubkey}`);
+      }
+
+      return user;
     } catch (error) {
-      console.error("Error adding user:", error);
+      console.error("Error ensuring user:", error);
       throw error;
     }
   }

@@ -55,15 +55,17 @@ if (PARENT_TOKEN && MCP_SERVER_ID > 0) {
       // Process new users from parent server
       for (const user of users) {
         try {
-          // Add user to local database
-          await db.addUser({
+          // Ensure user exists in local database (create or update)
+          db.ensureUser({
             pubkey: user.pubkey,
             nsec: user.nsec,
-            nwc: user.nwc
+            nwc: user.nwc,
+            token: user.token,
+            timestamp: user.timestamp
           });
-          console.log(`Added user ${user.pubkey} from parent server`);
+          console.log(`Ensured user ${user.pubkey} in local database from parent server`);
         } catch (error) {
-          console.error(`Error adding user ${user.pubkey} from parent:`, error);
+          console.error(`Error ensuring user ${user.pubkey} from parent:`, error);
         }
       }
     },

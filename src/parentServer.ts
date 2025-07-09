@@ -57,7 +57,7 @@ app.get("/user", async (req, res) => {
   res.json({
     pubkey: user.pubkey,
     timestamp: user.timestamp,
-    mcp_server_url: mcpServer ? mcpServer.url : null,
+    mcp_server_url: mcpServer ? mcpServer.url + "/mcp" : null,
   });
 });
 
@@ -219,7 +219,7 @@ app.post("/signup", async (req, res) => {
       nsec,
       nwc,
       token: user.token,
-      mcp_server_url: mcpServer.url
+      mcp_server_url: mcpServer.url + "/mcp"
     });
     
     // After sending the response, notify the MCP server

@@ -21,7 +21,6 @@
     "fake-expert": "tsx src/utils/fakeExpert.ts",
     "test": "npm run build && node bin/test-pay-experts.js",
     "test:pay-experts": "tsx tests/test-pay-experts.ts",
-    "add-user": "node bin/add-user.js",
     "get-user": "node bin/get-user.js",
     "add-mcp-server": "node bin/add-mcp-server.js",
     "add-parent-user": "node bin/add-parent-user.js",
