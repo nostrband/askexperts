@@ -2,6 +2,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { DEFAULT_RELAYS } from "./nostr/constants.js";
 import { AskExpertsTools } from "./AskExpertsTools.js";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import type {
   Bid,
   ExpertSessionWithContext,
@@ -37,9 +40,15 @@ export class AskExpertsMCP extends McpServer {
    * @param nwcString - Optional NWC connection string for payments
    */
   constructor(relays: string[] = DEFAULT_RELAYS, nwcString?: string) {
+    // Read version from package.json
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = path.dirname(__filename);
+    const packageJsonPath = path.resolve(__dirname, '../package.json');
+    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+    
     super({
       name: "askexperts",
-      version: "0.2.0",
+      version: packageJson.version,
       description:
         "An MCP server that allows to find experts on a subject and ask them questions, pay them for their answers and post reviews.",
     });

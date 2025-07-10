@@ -2,10 +2,12 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { DEFAULT_RELAYS } from "./nostr/constants.js";
 import { AskExpertsSmartTools } from "./AskExpertsSmartTools.js";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import type {
   AskExpertsParams,
   AskExpertsResponse,
-  ExpertSessionStructure
 } from "./AskExpertsTools.js";
 
 /**
@@ -29,9 +31,15 @@ export class AskExpertsSmartMCP extends McpServer {
     openaiApiKey: string,
     nwcString: string
   ) {
+    // Read version from package.json
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = path.dirname(__filename);
+    const packageJsonPath = path.resolve(__dirname, '../package.json');
+    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+    
     super({
       name: "askexperts",
-      version: "0.1.0",
+      version: packageJson.version,
       description:
         "An MCP server that allows to find experts on a subject, ask them questions and pay for the answers.",
     });
