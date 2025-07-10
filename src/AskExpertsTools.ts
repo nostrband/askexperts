@@ -6,6 +6,7 @@ import {
   QuestionSentResult,
   AnswerResult,
   FetchAnswersParams,
+  BidWithData,
 } from "./nostr/index.js";
 import { payExperts } from "./utils/nwc.js";
 import * as bolt11 from "bolt11";
@@ -20,7 +21,6 @@ export interface Bid {
 
 // Define the response bid interface for findExperts
 export interface ResponseBid {
-  message_id: string;
   pubkey: string;
   bid_sats: number;
   offer: string;
@@ -37,14 +37,12 @@ export interface FindExpertsResponse {
 
 // Define the expert result interface for askExperts
 export interface ExpertResult {
-  message_id: string;
   expert_pubkey: string;
   payment_hash?: string;
   status: string; // Using string instead of union type for more flexibility
   content?: string;
   error?: string;
   followup_sats?: number;
-  followup_message_id?: string;
   followup_invoice?: string;
   [key: string]: unknown; // Index signature for compatibility with MCP
 }
@@ -75,7 +73,6 @@ export interface FindExpertsParams {
  * Interface for an expert session structure
  */
 export interface ExpertSessionStructure {
-  message_id: string;
   pubkey: string;
   preimage?: string;
   bid_sats?: number;
@@ -97,6 +94,7 @@ export interface ExpertContext {
   invoice: string;
   bid_sats: number;
   payment_hash: string;
+  followup_message_id?: string;
 }
 
 export interface ExpertSessionWithContext extends ExpertSessionStructure {
@@ -106,7 +104,7 @@ export interface ExpertSessionWithContext extends ExpertSessionStructure {
 export interface AskStructure {
   sessionkey: Uint8Array;
   timestamp: number;
-  contexts: Map<string, ExpertContext>;
+  contexts: Map<string, ExpertContext>; // Now indexed by expert pubkey
 }
 
 /**
@@ -192,11 +190,21 @@ export class AskExpertsTools {
       (b) => !params.max_bid_sats || b.bid_sats <= params.max_bid_sats
     );
 
+    // Filter bids to only keep one bid per expert pubkey (first one received)
+    const uniqueBids: BidWithData[] = [];
+    const seenPubkeys = new Set<string>();
+    
+    for (const bid of bids) {
+      if (!seenPubkeys.has(bid.pubkey)) {
+        uniqueBids.push(bid);
+        seenPubkeys.add(bid.pubkey);
+      }
+    }
+
     // Create the response object with bids and event ID
     const response: FindExpertsResponse = {
-      bids: bids.map((b) => {
+      bids: uniqueBids.map((b) => {
         const responseBid: ResponseBid = {
-          message_id: b.id,
           pubkey: b.pubkey,
           bid_sats: b.bid_sats,
           offer: b.offer,
@@ -208,12 +216,13 @@ export class AskExpertsTools {
     };
 
     // Register the ask's session key and contexts
-    if (bids.length > 0) {
+    if (uniqueBids.length > 0) {
       const contexts = new Map<string, ExpertContext>();
 
       // Store relays, invoices, payment_hash, and bid_sats for each bid in the contexts map
-      bids.forEach((bid) => {
-        contexts.set(bid.id, {
+      // Now indexed by expert pubkey instead of bid.id
+      uniqueBids.forEach((bid) => {
+        contexts.set(bid.pubkey, {
           bid_id: bid.id,
           relays: bid.relays,
           invoice: bid.invoice,
@@ -274,12 +283,12 @@ export class AskExpertsTools {
 
     // Get context for each expert
     const experts: ExpertSessionWithContext[] = params.experts.map((expert) => {
-      // Get context for this expert
-      const context = ask.contexts.get(expert.message_id);
+      // Get context for this expert using pubkey
+      const context = ask.contexts.get(expert.pubkey);
 
       if (!context) {
         throw new Error(
-          `Context not found for expert with message_id ${expert.message_id}`
+          `Context not found for expert with pubkey ${expert.pubkey}`
         );
       }
 
@@ -291,7 +300,6 @@ export class AskExpertsTools {
 
     // Validate each expert
     for (const expert of experts) {
-      if (!expert.message_id) throw new Error("Expert message_id is required");
       if (!expert.pubkey) throw new Error("Expert pubkey is required");
 
       // Bid_sats must be provided
@@ -303,7 +311,7 @@ export class AskExpertsTools {
       if (!expert.preimage) {
         if (expert.bid_sats !== expert.context.bid_sats)
           throw new Error(
-            `Invoice amount (${expert.context.bid_sats} sats) doesn't match bid_sats (${expert.bid_sats} sats) for bid ${expert.message_id}`
+            `Invoice amount (${expert.context.bid_sats} sats) doesn't match bid_sats (${expert.bid_sats} sats) for expert ${expert.pubkey}`
           );
       }
     }
@@ -337,18 +345,18 @@ export class AskExpertsTools {
         if (result.success) {
           // Find the corresponding expert and update it with the preimage
           const e = experts.find(
-            (b) => b.message_id === result.expert.message_id
+            (b) => b.pubkey === result.expert.pubkey
           );
           if (e) {
             e.preimage = result.preimage;
           }
         } else {
           console.error(
-            `Failed to pay for bid ${result.expert.message_id}: ${result.error}`
+            `Failed to pay for expert ${result.expert.pubkey}: ${result.error}`
           );
           if (result.error === "INSUFFICIENT_BALANCE")
             insufficientBalance = true;
-          failedExpertContextIds.push(result.expert.message_id);
+          failedExpertContextIds.push(result.expert.pubkey);
         }
       }
     }
@@ -393,7 +401,6 @@ export class AskExpertsTools {
       // If the question failed, just return the question result
       if (qResult.status === "failed") {
         return {
-          message_id: qResult.message_id,
           expert_pubkey: qResult.expert_pubkey,
           status: "failed",
           error: qResult.error,
@@ -407,7 +414,6 @@ export class AskExpertsTools {
 
       if (!answerResult) {
         return {
-          message_id: qResult.message_id,
           expert_pubkey: qResult.expert_pubkey,
           status: "timeout",
         };
@@ -418,7 +424,6 @@ export class AskExpertsTools {
       if (!expert) throw new Error("Invalid answers, expert not found");
 
       const result: ExpertResult = {
-        message_id: expert.message_id,
         expert_pubkey: qResult.expert_pubkey,
         payment_hash: expert.context.payment_hash,
         status: answerResult.status,
@@ -428,29 +433,26 @@ export class AskExpertsTools {
 
       if (answerResult.followup_invoice) {
         result.followup_sats = answerResult.followup_sats;
-        result.followup_message_id = answerResult.followup_message_id;
         if (!this.nwcString)
           result.followup_invoice = answerResult.followup_invoice;
       }
 
-      // If we have a followup invoice, create a new context for it
+      // If we have a followup invoice, update the context for this expert
       if (
         answerResult.followup_invoice &&
         answerResult.followup_message_id &&
         ask.contexts
       ) {
-        // Create new context with answer_id as the key
-        ask.contexts.set(answerResult.followup_message_id, {
+        // Update context for the expert pubkey
+        ask.contexts.set(expert.pubkey, {
           bid_id: expert.context.bid_id,
           relays: expert.context.relays,
           invoice: answerResult.followup_invoice,
           bid_sats: answerResult.followup_sats!,
           payment_hash: answerResult.followup_payment_hash!,
+          followup_message_id: answerResult.followup_message_id
         });
       }
-
-      // Drop the old context
-      ask.contexts.delete(qResult.bid_id);
 
       return result;
     });

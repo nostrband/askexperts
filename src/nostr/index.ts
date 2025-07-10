@@ -625,7 +625,7 @@ export async function sendQuestionsToExperts(
         kind: NOSTR_EVENT_KIND_QUESTION,
         created_at: Math.floor(Date.now() / 1000),
         tags: [
-          ["e", expert.message_id], // e-tag the last message id (bid or last answer)
+          ["e", expert.context.followup_message_id || expert.context.bid_id], // e-tag the bid id or last message
         ],
         content: encryptedContent,
         pubkey: questionPubkey,

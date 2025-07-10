@@ -59,7 +59,6 @@ export class AskExpertsMCP extends McpServer {
    */
   private registerTools(): void {
     let bidConfig = z.object({
-      message_id: z.string().describe("Bid message ID to pass to ask_experts tool"),
       pubkey: z.string().describe("Expert's public key"),
       bid_sats: z.number().describe("Amount of the bid in satoshis"),
       offer: z.string().describe("Expert's offer description"),
@@ -120,11 +119,6 @@ export class AskExpertsMCP extends McpServer {
     );
 
     let expertConfig = z.object({
-      message_id: z
-        .string()
-        .describe(
-          "Message ID from the bid or from last expert answer (if it's a followup question)"
-        ),
       pubkey: z.string().describe("Expert's public key"),
     });
 
@@ -143,7 +137,6 @@ export class AskExpertsMCP extends McpServer {
     }
 
     let resultConfig = z.object({
-      message_id: z.string().describe("Message ID that was provided as input"),
       expert_pubkey: z.string().describe("Expert's public key"),
       payment_hash: z
         .string()
@@ -162,10 +155,6 @@ export class AskExpertsMCP extends McpServer {
         .describe(
           "If followup is allowed by expert, includes the amount of sats to pay for a followup question"
         ),
-      followup_message_id: z
-        .string()
-        .optional()
-        .describe("ID of the message to ask a followup question, to be passed to ask_experts"),
     });
 
     if (!this.canPay) {
@@ -182,8 +171,8 @@ export class AskExpertsMCP extends McpServer {
     const askExpertsConfig = {
       title: "Ask Experts",
       description: this.canPay
-        ? "After you receive bids from experts, select good ones and you can send the question to these experts. For each bid, information received from find_experts tool must be included, you can pay invoices yourself and provide preimages, or leave preimages empty and we pay from built-in wallet. Relays and invoices are stored internally and clients don't have to pass them from bids to questions."
-        : "After you receive bids from experts, select good ones and pay their invoices, and then you can send the question to these experts. For each bid, information received from find_experts tool and a preimage of the payment must be included. Relays and invoices are stored internally and clients don't have to pass them from bids to questions.",
+        ? "After you receive bids from experts, select good ones and you can send the question to these experts. For each expert, provide the pubkey received from find_experts tool. You can pay invoices yourself and provide preimages, or leave preimages empty and we pay from built-in wallet. Relays and invoices are stored internally and clients don't have to pass them from bids to questions."
+        : "After you receive bids from experts, select good ones and pay their invoices, and then you can send the question to these experts. For each expert, provide the pubkey received from find_experts tool and a preimage of the payment. Relays and invoices are stored internally and clients don't have to pass them from bids to questions.",
       inputSchema: {
         ask_id: z.string().describe("Id of the ask, received from find_experts."),
         question: z

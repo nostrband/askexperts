@@ -58,7 +58,7 @@ async function testSmartAskExperts() {
       
       // Step 5: If there are answers with followup options, test the followupExperts method
       const answersWithFollowup = askExpertsResult.structuredContent.results.filter(
-        result => result.followup_message_id && result.followup_sats
+        result => result.followup_sats
       );
       
       if (answersWithFollowup.length > 0) {
@@ -66,10 +66,9 @@ async function testSmartAskExperts() {
         console.log('Calling followupExperts with a followup question...');
         
         const followupParams = {
-          ask_id: askExpertsResult.structuredContent.results[0].message_id.split(':')[0],
+          ask_id: askExpertsResult.structuredContent.ask_id,
           question: "Thank you for your answer! Could you elaborate more on how one can discover their own purpose in life?",
           experts: answersWithFollowup.map(result => ({
-            message_id: result.followup_message_id!,
             pubkey: result.expert_pubkey,
             bid_sats: result.followup_sats!
           })) as ExpertSessionStructure[],
