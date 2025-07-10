@@ -72,8 +72,8 @@ export class AskExpertsSmartTools {
             role: "developer",
             content: `Your job is to look at the user's detailed question that might include sensitive or private information, 
 and come up with a short anonymized summarized question that can be shared publicly to find experts on the subject, without revealing
-any private data. You must also determine which hashtags this summarized question might have to simplify discovery for experts - hashtags
-must be one word each, english, lowercase. Reply in a structured way in two lines:
+any private data. You must also determine up to 10 hashtags this summarized question might have to simplify discovery for experts - hashtags
+must be one word each, english, lowercase, and be as specific as possible. Reply in a structured way in two lines:
 \`\`\`
 hashtags: hashtag1, hashtag2, etc
 question: <summarized question>
@@ -106,11 +106,11 @@ If you believe the question is malformed or makes no sense, reply with one word 
       )
         throw new Error("Bad question parsing reply");
 
-      hashtags = lines[0]
+      hashtags = lines[0].substring("hashtags: ".length)
         .split(",")
         .map((t) => t.trim())
         .filter((t) => !!t);
-      publicQuestionSummary = lines[1].trim();
+      publicQuestionSummary = lines[1].substring("question: ".length).trim();
     } catch (error) {
       console.error("Error processing ask with OpenAI:", error);
       throw error;
@@ -136,6 +136,8 @@ If you believe the question is malformed or makes no sense, reply with one word 
     });
 
     console.log("Received bids", bids);
+    if (!bids.structuredContent.bids.length)
+      throw new Error("No bids from experts");
 
     // FIXME evaluate offers and bid sizes and select up to MAX_EXPERTS
 
