@@ -43,7 +43,5 @@ export const NOSTR_EVENT_KIND_ANSWER = 20178;
  * A list of reliable Nostr relays used for publishing events
  */
 export const DEFAULT_RELAYS = [
-  "wss://relay.nostr.band",
-  "wss://relay.damus.io",
-  "wss://nos.lol",
+  "wss://relay1.askexperts.io",
 ];
