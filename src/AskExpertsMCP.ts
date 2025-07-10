@@ -202,6 +202,7 @@ export class AskExpertsMCP extends McpServer {
           ),
       },
       outputSchema: {
+        ask_id: z.string().describe("Id of the ask, copied from input parameters"),
         total: z.number().describe("Total number of question results"),
         sent: z.number().describe("Number of questions successfully sent"),
         failed: z.number().describe("Number of questions that failed to send"),

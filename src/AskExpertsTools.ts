@@ -51,6 +51,7 @@ export interface ExpertResult {
 
 // Define the askExperts response structure
 export interface AskExpertsResponse {
+  ask_id: string;
   total: number;
   sent: number;
   failed: number;
@@ -456,6 +457,7 @@ export class AskExpertsTools {
 
     // Create a summary of the results
     const summary: AskExpertsResponse = {
+      ask_id: params.ask_id,
       total: params.experts.length,
       sent: questionResults.filter((r) => r.status === "sent").length,
       failed: questionResults.filter((r) => r.status === "failed").length,
