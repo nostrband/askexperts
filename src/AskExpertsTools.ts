@@ -18,6 +18,50 @@ export interface Bid {
   offer: string;
 }
 
+// Define the response bid interface for findExperts
+export interface ResponseBid {
+  message_id: string;
+  pubkey: string;
+  bid_sats: number;
+  offer: string;
+  invoice?: string; // Optional, only included if nwcString is not provided
+  [key: string]: unknown; // Index signature for compatibility with MCP
+}
+
+// Define the findExperts response structure
+export interface FindExpertsResponse {
+  bids: ResponseBid[];
+  id: string; // ask event ID
+  [key: string]: unknown; // Index signature for compatibility with MCP
+}
+
+// Define the expert result interface for askExperts
+export interface ExpertResult {
+  message_id: string;
+  expert_pubkey: string;
+  payment_hash?: string;
+  status: string; // Using string instead of union type for more flexibility
+  content?: string;
+  error?: string;
+  followup_sats?: number;
+  followup_message_id?: string;
+  followup_invoice?: string;
+  [key: string]: unknown; // Index signature for compatibility with MCP
+}
+
+// Define the askExperts response structure
+export interface AskExpertsResponse {
+  total: number;
+  sent: number;
+  failed: number;
+  failed_payments: number;
+  received: number;
+  timeout: number;
+  insufficient_balance?: boolean;
+  results: ExpertResult[];
+  [key: string]: unknown; // Index signature for compatibility with MCP
+}
+
 // Define the input parameters interface for findExperts
 export interface FindExpertsParams {
   public_question_summary: string;
@@ -112,7 +156,7 @@ export class AskExpertsTools {
    */
   async findExperts(params: FindExpertsParams): Promise<{
     content: Array<{ type: "text"; text: string }>;
-    structuredContent: any;
+    structuredContent: FindExpertsResponse;
   }> {
     // Validate that at least one of tags or expert_pubkeys is provided
     if (!params.tags && !params.expert_pubkeys) {
@@ -148,9 +192,9 @@ export class AskExpertsTools {
     );
 
     // Create the response object with bids and event ID
-    const response = {
+    const response: FindExpertsResponse = {
       bids: bids.map((b) => {
-        const responseBid: any = {
+        const responseBid: ResponseBid = {
           message_id: b.id,
           pubkey: b.pubkey,
           bid_sats: b.bid_sats,
@@ -207,7 +251,7 @@ export class AskExpertsTools {
    */
   async askExperts(params: AskExpertsParams): Promise<{
     content: Array<{ type: "text"; text: string }>;
-    structuredContent: any;
+    structuredContent: AskExpertsResponse;
   }> {
     const ask = this.getAsk(params.ask_id);
     if (!ask) {
@@ -372,7 +416,7 @@ export class AskExpertsTools {
       const expert = experts.find((b) => b.context.bid_id === qResult.bid_id);
       if (!expert) throw new Error("Invalid answers, expert not found");
 
-      const result: any = {
+      const result: ExpertResult = {
         message_id: expert.message_id,
         expert_pubkey: qResult.expert_pubkey,
         payment_hash: expert.context.payment_hash,
@@ -411,7 +455,7 @@ export class AskExpertsTools {
     });
 
     // Create a summary of the results
-    const summary: any = {
+    const summary: AskExpertsResponse = {
       total: params.experts.length,
       sent: questionResults.filter((r) => r.status === "sent").length,
       failed: questionResults.filter((r) => r.status === "failed").length,

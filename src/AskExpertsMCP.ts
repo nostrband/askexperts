@@ -2,10 +2,26 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { DEFAULT_RELAYS } from "./nostr/constants.js";
 import { AskExpertsTools } from "./AskExpertsTools.js";
-import type { Bid, ExpertSessionWithContext, ExpertSessionStructure, AskExpertsParams, FindExpertsParams } from "./AskExpertsTools.js";
+import type {
+  Bid,
+  ExpertSessionWithContext,
+  ExpertSessionStructure,
+  AskExpertsParams,
+  FindExpertsParams,
+  FindExpertsResponse,
+  AskExpertsResponse
+} from "./AskExpertsTools.js";
 
 // Re-export types from AskExpertsTools for backward compatibility
-export type { Bid, ExpertSessionWithContext, ExpertSessionStructure, AskExpertsParams, FindExpertsParams };
+export type {
+  Bid,
+  ExpertSessionWithContext,
+  ExpertSessionStructure,
+  AskExpertsParams,
+  FindExpertsParams,
+  FindExpertsResponse,
+  AskExpertsResponse
+};
 
 /**
  * AskExpertsMCP class that extends McpServer and encapsulates AskExpertsTools
@@ -182,7 +198,7 @@ export class AskExpertsMCP extends McpServer {
           .number()
           .optional()
           .describe(
-            "Timeout in milliseconds for sending the questions and receiving the answers (default: 5000ms)"
+            "Timeout in milliseconds for sending the questions and receiving the answers (default: 60000 ms)"
           ),
       },
       outputSchema: {
@@ -209,7 +225,7 @@ export class AskExpertsMCP extends McpServer {
     this.registerTool(
       "ask_experts",
       askExpertsConfig,
-      async (params: any, extra) => {
+      async (params: AskExpertsParams, extra) => {
         return await this.askExpertsTools.askExperts(params);
       }
     );
@@ -223,7 +239,7 @@ export class AskExpertsMCP extends McpServer {
    */
   async findExperts(params: FindExpertsParams): Promise<{
     content: Array<{ type: "text"; text: string }>;
-    structuredContent: any;
+    structuredContent: FindExpertsResponse;
   }> {
     return await this.askExpertsTools.findExperts(params);
   }
@@ -236,7 +252,7 @@ export class AskExpertsMCP extends McpServer {
    */
   async askExperts(params: AskExpertsParams): Promise<{
     content: Array<{ type: "text"; text: string }>;
-    structuredContent: any;
+    structuredContent: AskExpertsResponse;
   }> {
     return await this.askExpertsTools.askExperts(params);
   }

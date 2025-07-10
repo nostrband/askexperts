@@ -3,6 +3,10 @@ import cors from "cors";
 import { ParentDB } from "./db/parentDb.js";
 import { generateSecretKey, getPublicKey, nip19 } from "nostr-tools";
 import { createWallet } from "nwc-enclaved-utils";
+import dotenv from "dotenv";
+
+// Load environment variables from .env file
+dotenv.config();
 
 // Default port for the parent server
 const PORT = process.env.PARENT_PORT ? parseInt(process.env.PARENT_PORT) : 3001;

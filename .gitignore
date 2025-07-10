@@ -1,4 +1,5 @@
 dist
+.env
 .env.local
 node_modules
 data

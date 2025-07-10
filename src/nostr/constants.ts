@@ -44,4 +44,8 @@ export const NOSTR_EVENT_KIND_ANSWER = 20178;
  */
 export const DEFAULT_RELAYS = [
   "wss://relay1.askexperts.io",
+  "wss://relay2.askexperts.io",
 ];
+
+// Max number of experts we auto-select for the question/answer phase
+export const MAX_EXPERTS = 5;

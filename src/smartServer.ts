@@ -3,7 +3,7 @@ import cors from "cors";
 import { randomUUID } from "node:crypto";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
-import { AskExpertsMCP } from "./AskExpertsMCP.js";
+import { AskExpertsSmartMCP } from "./AskExpertsSmartMCP.js";
 import { DEFAULT_RELAYS } from "./nostr/constants.js";
 import { DB } from "./db/index.js";
 import { ParentClient } from "./utils/parentClient.js";
@@ -19,6 +19,16 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
 const PARENT_URL = process.env.PARENT_URL || "http://localhost:3001";
 const PARENT_TOKEN = process.env.PARENT_TOKEN || "";
 const MCP_SERVER_ID = process.env.MCP_SERVER_ID ? parseInt(process.env.MCP_SERVER_ID) : 0;
+
+// OpenAI configuration (required for AskExpertsSmartMCP)
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const OPENAI_BASE_URL = process.env.OPENAI_BASE_URL;
+
+// Check for required environment variables
+if (!OPENAI_API_KEY || !OPENAI_BASE_URL) {
+  console.error("Error: OPENAI_API_KEY and OPENAI_BASE_URL environment variables are required");
+  process.exit(1);
+}
 
 // Create an Express application
 const app = express();
@@ -111,6 +121,19 @@ app.post("/mcp", async (req, res) => {
     return;
   }
 
+  // Check if user has NWC connection string (required for AskExpertsSmartMCP)
+  if (!user.nwc) {
+    res.status(400).json({
+      jsonrpc: "2.0",
+      error: {
+        code: -32002,
+        message: "Bad Request: NWC connection string is required for Smart MCP",
+      },
+      id: null,
+    });
+    return;
+  }
+
   if (sessionId && transports[sessionId]) {
     // Reuse existing transport
     transport = transports[sessionId];
@@ -135,8 +158,13 @@ app.post("/mcp", async (req, res) => {
       }
     };
 
-    // Create a new AskExpertsMCP instance with user's NWC if authenticated
-    const server = new AskExpertsMCP(DEFAULT_RELAYS, user.nwc);
+    // Create a new AskExpertsSmartMCP instance with required parameters
+    const server = new AskExpertsSmartMCP(
+      DEFAULT_RELAYS,
+      OPENAI_BASE_URL,
+      OPENAI_API_KEY,
+      user.nwc // NWC is required for AskExpertsSmartMCP
+    );
 
     // Connect to the MCP server
     await server.connect(transport);
@@ -195,9 +223,11 @@ app.delete("/mcp", handleSessionRequest);
 
 // Health check endpoint
 app.get("/health", (req, res) => {
-  res.json({ status: "ok" });
+  res.json({ 
+    status: "ok",
+    type: "smart"
+  });
 });
-
 
 // New user webhook endpoint (protected by token)
 app.post("/new-user-webhook", async (req, res) => {
@@ -234,8 +264,9 @@ app.post("/new-user-webhook", async (req, res) => {
 
 // Start the server
 app.listen(PORT, () => {
-  console.log(`AskExperts MCP server is running on port ${PORT}`);
+  console.log(`AskExperts Smart MCP server is running on port ${PORT}`);
   console.log(`MCP endpoint: http://localhost:${PORT}/mcp`);
+  console.log(`Using OpenAI API with base URL: ${OPENAI_BASE_URL}`);
   
   if (parentClient) {
     console.log(`Connected to parent server at ${PARENT_URL}`);
