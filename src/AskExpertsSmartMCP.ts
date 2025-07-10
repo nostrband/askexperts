@@ -57,7 +57,7 @@ export class AskExpertsSmartMCP extends McpServer {
   private registerTools(): void {
     // Register the askExperts tool
     this.registerTool(
-      "askExperts",
+      "ask_experts",
       {
         title: "Ask Experts",
         description: "Ask a question to experts. Experts are automatically discovered and evaluated. Good experts are paid and provide their answers. Answers are evaluated and expert score lists are maintained.",
@@ -110,7 +110,7 @@ export class AskExpertsSmartMCP extends McpServer {
 
     // Register the followupExperts tool
     this.registerTool(
-      "followupExperts",
+      "followup_experts",
       {
         title: "Follow Up with Experts",
         description: "Send a followup question to experts who have previously answered your question and offered a followup option.",
