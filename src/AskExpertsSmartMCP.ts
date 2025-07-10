@@ -89,14 +89,12 @@ export class AskExpertsSmartMCP extends McpServer {
           timeout: z.number().describe("Number of answers that timed out"),
           insufficient_balance: z.boolean().describe("True if internal wallet is out of funds"),
           results: z.array(z.object({
-            message_id: z.string().describe("Message ID that was provided as input"),
             expert_pubkey: z.string().describe("Expert's public key"),
             payment_hash: z.string().optional().describe("Payment hash of the bid, useful to find the payment in client's wallet"),
             status: z.enum(["sent", "failed", "received", "timeout"]).describe("Status of the question/answer process"),
             content: z.string().optional().describe("Content of the answer if received"),
             error: z.string().optional().describe("Error message if failed"),
             followup_sats: z.number().optional().describe("If followup is allowed by expert, includes the amount of sats to pay for a followup question"),
-            followup_message_id: z.string().optional().describe("ID of the message to ask a followup question, to be passed to followupExperts"),
           })).describe("Detailed results for each expert question/answer"),
         },
       },
@@ -124,11 +122,6 @@ export class AskExpertsSmartMCP extends McpServer {
             ),
           experts: z
             .array(z.object({
-              message_id: z
-                .string()
-                .describe(
-                  "Message ID from the expert's answer that offered a followup option"
-                ),
               pubkey: z.string().describe("Expert's public key"),
               bid_sats: z
                 .number()
@@ -152,14 +145,12 @@ export class AskExpertsSmartMCP extends McpServer {
           timeout: z.number().describe("Number of answers that timed out"),
           insufficient_balance: z.boolean().describe("True if internal wallet is out of funds"),
           results: z.array(z.object({
-            message_id: z.string().describe("Message ID that was provided as input"),
             expert_pubkey: z.string().describe("Expert's public key"),
             payment_hash: z.string().optional().describe("Payment hash of the bid, useful to find the payment in client's wallet"),
             status: z.enum(["sent", "failed", "received", "timeout"]).describe("Status of the question/answer process"),
             content: z.string().optional().describe("Content of the answer if received"),
             error: z.string().optional().describe("Error message if failed"),
             followup_sats: z.number().optional().describe("If another followup is allowed by expert, includes the amount of sats to pay"),
-            followup_message_id: z.string().optional().describe("ID of the message to ask another followup question"),
           })).describe("Detailed results for each expert question/answer"),
         },
       },
