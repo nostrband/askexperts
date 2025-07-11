@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AskExpertsClient Browser Example</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      line-height: 1.6;
+    }
+    h1 {
+      color: #333;
+    }
+    button {
+      background-color: #4CAF50;
+      border: none;
+      color: white;
+      padding: 10px 20px;
+      text-align: center;
+      text-decoration: none;
+      display: inline-block;
+      font-size: 16px;
+      margin: 10px 2px;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    textarea {
+      width: 100%;
+      height: 100px;
+      padding: 12px 20px;
+      box-sizing: border-box;
+      border: 2px solid #ccc;
+      border-radius: 4px;
+      background-color: #f8f8f8;
+      resize: vertical;
+    }
+    input[type=text] {
+      width: 100%;
+      padding: 12px 20px;
+      margin: 8px 0;
+      box-sizing: border-box;
+      border: 2px solid #ccc;
+      border-radius: 4px;
+    }
+    .card {
+      box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2);
+      transition: 0.3s;
+      border-radius: 5px;
+      padding: 20px;
+      margin: 20px 0;
+      background-color: #f9f9f9;
+    }
+    .log {
+      background-color: #f1f1f1;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 10px;
+      margin-top: 20px;
+      height: 300px;
+      overflow-y: auto;
+      font-family: monospace;
+    }
+    .log p {
+      margin: 5px 0;
+    }
+    .expert-card {
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 10px;
+      margin: 10px 0;
+      background-color: white;
+    }
+  </style>
+</head>
+<body>
+  <h1>AskExpertsClient Browser Example</h1>
+  
+  <div class="card">
+    <h2>Find Experts</h2>
+    <div>
+      <label for="summary">Question Summary:</label>
+      <input type="text" id="summary" value="What is the meaning of life?">
+    </div>
+    <div>
+      <label for="hashtags">Hashtags (comma separated):</label>
+      <input type="text" id="hashtags" value="philosophy,life,test">
+    </div>
+    <button id="findExpertsBtn">Find Experts</button>
+  </div>
+  
+  <div class="card">
+    <h2>Expert Bids</h2>
+    <div id="bids-container"></div>
+    <button id="fetchExpertsBtn" disabled>Fetch Expert Profiles</button>
+  </div>
+  
+  <div class="card">
+    <h2>Expert Profiles</h2>
+    <div id="experts-container"></div>
+  </div>
+  
+  <div class="card">
+    <h2>Ask Expert</h2>
+    <div>
+      <label for="question">Detailed Question:</label>
+      <textarea id="question">What is the meaning of life? I've been pondering this question for a while and would appreciate your insights.</textarea>
+    </div>
+    <div>
+      <label for="expertSelect">Select Expert:</label>
+      <select id="expertSelect"></select>
+    </div>
+    <button id="askExpertBtn" disabled>Ask Expert</button>
+  </div>
+  
+  <div class="card">
+    <h2>Replies</h2>
+    <div id="replies-container"></div>
+  </div>
+  
+  <div class="log" id="log"></div>
+
+  <!-- Import the client from the browser build -->
+  <script type="module">
+    // In a real application, you would import from the package
+    // import { AskExpertsClient } from 'askexperts/client/browser';
+    
+    // For this example, we'll import from the local build
+    import {
+      AskExpertsClient,
+      FORMAT_TEXT,
+      COMPRESSION_PLAIN
+    } from '../dist/client/index.browser.js';
+    
+    // Store state
+    let client;
+    let bids = [];
+    let experts = [];
+    let selectedExpert = null;
+    
+    // DOM elements
+    const findExpertsBtn = document.getElementById('findExpertsBtn');
+    const fetchExpertsBtn = document.getElementById('fetchExpertsBtn');
+    const askExpertBtn = document.getElementById('askExpertBtn');
+    const bidsContainer = document.getElementById('bids-container');
+    const expertsContainer = document.getElementById('experts-container');
+    const expertSelect = document.getElementById('expertSelect');
+    const repliesContainer = document.getElementById('replies-container');
+    const logElement = document.getElementById('log');
+    
+    // Initialize the client
+    function init() {
+      client = new AskExpertsClient();
+      log('AskExpertsClient initialized');
+    }
+    
+    // Log to the UI
+    function log(message) {
+      const p = document.createElement('p');
+      p.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
+      logElement.appendChild(p);
+      logElement.scrollTop = logElement.scrollHeight;
+    }
+    
+    // Find experts
+    async function findExperts() {
+      try {
+        const summary = document.getElementById('summary').value;
+        const hashtags = document.getElementById('hashtags').value.split(',').map(tag => tag.trim());
+        
+        if (!summary || hashtags.length === 0) {
+          log('Error: Summary and hashtags are required');
+          return;
+        }
+        
+        log(`Finding experts for: ${summary}`);
+        log(`Hashtags: ${hashtags.join(', ')}`);
+        
+        bids = await client.findExperts({
+          summary,
+          hashtags,
+          formats: [FORMAT_TEXT],
+          comprs: [COMPRESSION_PLAIN],
+          methods: ['lightning'],
+        });
+        
+        log(`Found ${bids.length} bids from experts`);
+        
+        // Display bids
+        bidsContainer.innerHTML = '';
+        bids.forEach((bid, index) => {
+          const bidCard = document.createElement('div');
+          bidCard.className = 'expert-card';
+          bidCard.innerHTML = `
+            <h3>Bid #${index + 1}</h3>
+            <p><strong>Expert:</strong> ${bid.pubkey.substring(0, 10)}...</p>
+            <p><strong>Offer:</strong> ${bid.offer}</p>
+            <p><strong>Formats:</strong> ${bid.formats.join(', ')}</p>
+            <p><strong>Compressions:</strong> ${bid.compressions.join(', ')}</p>
+            <p><strong>Methods:</strong> ${bid.methods.join(', ')}</p>
+          `;
+          bidsContainer.appendChild(bidCard);
+        });
+        
+        // Enable fetch experts button if bids were found
+        fetchExpertsBtn.disabled = bids.length === 0;
+        
+      } catch (error) {
+        log(`Error finding experts: ${error.message}`);
+        console.error(error);
+      }
+    }
+    
+    // Fetch expert profiles
+    async function fetchExperts() {
+      try {
+        const expertPubkeys = bids.map(bid => bid.pubkey);
+        
+        log(`Fetching profiles for ${expertPubkeys.length} experts`);
+        
+        experts = await client.fetchExperts({
+          pubkeys: expertPubkeys,
+        });
+        
+        log(`Fetched ${experts.length} expert profiles`);
+        
+        // Display expert profiles
+        expertsContainer.innerHTML = '';
+        experts.forEach((expert, index) => {
+          const expertCard = document.createElement('div');
+          expertCard.className = 'expert-card';
+          expertCard.innerHTML = `
+            <h3>Expert #${index + 1}</h3>
+            <p><strong>Pubkey:</strong> ${expert.pubkey.substring(0, 10)}...</p>
+            <p><strong>Description:</strong> ${expert.description}</p>
+            <p><strong>Hashtags:</strong> ${expert.hashtags.join(', ')}</p>
+            <p><strong>Formats:</strong> ${expert.formats.join(', ')}</p>
+            <p><strong>Compressions:</strong> ${expert.compressions.join(', ')}</p>
+            <p><strong>Methods:</strong> ${expert.methods.join(', ')}</p>
+          `;
+          expertsContainer.appendChild(expertCard);
+        });
+        
+        // Populate expert select
+        expertSelect.innerHTML = '';
+        experts.forEach((expert, index) => {
+          const option = document.createElement('option');
+          option.value = index;
+          option.textContent = `Expert ${index + 1}: ${expert.pubkey.substring(0, 10)}...`;
+          expertSelect.appendChild(option);
+        });
+        
+        // Enable ask expert button if experts were found
+        askExpertBtn.disabled = experts.length === 0;
+        
+      } catch (error) {
+        log(`Error fetching experts: ${error.message}`);
+        console.error(error);
+      }
+    }
+    
+    // Ask expert
+    async function askExpert() {
+      try {
+        const question = document.getElementById('question').value;
+        const expertIndex = parseInt(expertSelect.value, 10);
+        
+        if (!question || isNaN(expertIndex) || expertIndex < 0 || expertIndex >= experts.length) {
+          log('Error: Question and expert selection are required');
+          return;
+        }
+        
+        const expert = experts[expertIndex];
+        
+        log(`Asking expert ${expert.pubkey.substring(0, 10)}...`);
+        log(`Question: ${question}`);
+        
+        // Clear previous replies
+        repliesContainer.innerHTML = '';
+        
+        // Define the onQuote callback
+        const onQuote = async (quote) => {
+          log('Received quote from expert');
+          
+          if (quote.error) {
+            log(`Quote error: ${quote.error}`);
+            return { error: 'Cannot proceed due to expert error' };
+          }
+          
+          if (!quote.invoices || quote.invoices.length === 0) {
+            log('No invoices provided');
+            return { error: 'No invoices provided' };
+          }
+          
+          const invoice = quote.invoices[0];
+          log(`Payment method: ${invoice.method}`);
+          log(`Amount: ${invoice.amount} ${invoice.unit}`);
+          
+          if (invoice.invoice) {
+            log(`Invoice: ${invoice.invoice.substring(0, 20)}...`);
+            
+            // In a real application, you would pay the invoice here
+            // and get the preimage from the payment result
+            
+            // For this example, we'll just return a fake preimage
+            // This will cause the expert to reject the proof in a real scenario
+            const fakePreimage = '0000000000000000000000000000000000000000000000000000000000000000';
+            log('Using fake preimage (this would fail in a real scenario)');
+            
+            return {
+              method: 'lightning',
+              preimage: fakePreimage,
+            };
+          } else {
+            log('No lightning invoice provided');
+            return { error: 'No lightning invoice provided' };
+          }
+        };
+        
+        // Ask the question
+        const replies = await client.askExpert({
+          expert,
+          content: question,
+          format: FORMAT_TEXT,
+          compr: COMPRESSION_PLAIN,
+          onQuote,
+        });
+        
+        log(`Prompt sent with ID: ${replies.promptId}`);
+        log('Waiting for replies...');
+        
+        // Process the replies
+        for await (const reply of replies) {
+          log('Received reply');
+          
+          const replyCard = document.createElement('div');
+          replyCard.className = 'expert-card';
+          
+          if (reply.error) {
+            replyCard.innerHTML = `
+              <h3>Error</h3>
+              <p>${reply.error}</p>
+              <p><strong>Done:</strong> ${reply.done ? 'Yes' : 'No'}</p>
+            `;
+          } else {
+            replyCard.innerHTML = `
+              <h3>Reply</h3>
+              <p>${reply.content}</p>
+              <p><strong>Done:</strong> ${reply.done ? 'Yes' : 'No'}</p>
+            `;
+          }
+          
+          repliesContainer.appendChild(replyCard);
+          
+          if (reply.done) {
+            log('This is the final reply');
+          }
+        }
+        
+        log('All replies received');
+        
+      } catch (error) {
+        log(`Error asking expert: ${error.message}`);
+        console.error(error);
+      }
+    }
+    
+    // Event listeners
+    findExpertsBtn.addEventListener('click', findExperts);
+    fetchExpertsBtn.addEventListener('click', fetchExperts);
+    askExpertBtn.addEventListener('click', askExpert);
+    
+    // Initialize on load
+    window.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>

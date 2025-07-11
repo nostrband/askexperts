@@ -13,6 +13,9 @@
   },
   "scripts": {
     "build": "tsc",
+    "build:client": "npm run build:client:node && npm run build:client:browser",
+    "build:client:node": "esbuild src/client/index.ts --bundle --platform=node --target=node18 --format=esm --outfile=dist/client/index.node.js",
+    "build:client:browser": "esbuild src/client/index.ts --bundle --platform=browser --target=es2020 --format=esm --outfile=dist/client/index.browser.js",
     "start": "tsx src/index.ts",
     "dev": "tsx --watch src/index.ts",
     "mcp": "tsx src/index.ts",
@@ -26,10 +29,11 @@
     "test": "npm run build && node bin/test-pay-experts.js",
     "test:pay-experts": "tsx tests/test-pay-experts.ts",
     "test:smart-ask-experts": "tsx tests/test-smart-ask-experts.ts",
+    "test:client": "tsx tests/test-ask-experts-client.ts",
     "get-user": "node bin/get-user.js",
     "add-mcp-server": "node bin/add-mcp-server.js",
     "add-parent-user": "node bin/add-parent-user.js",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build && npm run build:client"
   },
   "keywords": [
     "mcp",
@@ -45,6 +49,13 @@
     "bin",
     "README.md"
   ],
+  "exports": {
+    "./client": {
+      "node": "./dist/client/index.node.js",
+      "browser": "./dist/client/index.browser.js",
+      "default": "./dist/client/index.node.js"
+    }
+  },
   "publishConfig": {
     "access": "public"
   },
@@ -68,6 +79,7 @@
     "bolt11": "^1.4.1",
     "cors": "^2.8.5",
     "dotenv": "^17.2.0",
+    "esbuild": "^0.20.2",
     "express": "^4.18.3",
     "nostr-tools": "^2.15.0",
     "nwc-enclaved-utils": "^2.0.8",
