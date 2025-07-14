@@ -2,7 +2,7 @@
  * Test file for AskExpertsClient
  */
 
-import { AskExpertsClient, Bid, Expert, Quote, Proof, Prompt } from '../src/client/index.js';
+import { AskExpertsClient, Quote, Proof, Prompt } from '../src/client/index.js';
 import * as bolt11 from 'bolt11';
 
 /**

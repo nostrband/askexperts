@@ -9,7 +9,8 @@
     "askexperts-server": "./bin/server.js",
     "askexperts-smart": "./bin/smart-cli.js",
     "askexperts-smart-server": "./bin/smart-server.js",
-    "askexperts-parent": "./bin/parent-server.js"
+    "askexperts-parent": "./bin/parent-server.js",
+    "askexperts-expert": "./bin/run-expert-example.js"
   },
   "scripts": {
     "build": "tsc",
@@ -25,11 +26,7 @@
     "smart-server:dev": "tsx --watch src/smartServer.ts",
     "parent": "tsx src/parentServer.ts",
     "parent:dev": "tsx --watch src/parentServer.ts",
-    "fake-expert": "tsx src/utils/fakeExpert.ts",
-    "test": "npm run build && node bin/test-pay-experts.js",
-    "test:pay-experts": "tsx tests/test-pay-experts.ts",
-    "test:smart-ask-experts": "tsx tests/test-smart-ask-experts.ts",
-    "test:client": "tsx tests/test-ask-experts-client.ts",
+    "expert": "tsx examples/expert-example.ts",
     "get-user": "node bin/get-user.js",
     "add-mcp-server": "node bin/add-mcp-server.js",
     "add-parent-user": "node bin/add-parent-user.js",
@@ -54,6 +51,9 @@
       "node": "./dist/client/index.node.js",
       "browser": "./dist/client/index.browser.js",
       "default": "./dist/client/index.node.js"
+    },
+    "./expert": {
+      "default": "./dist/expert/index.js"
     }
   },
   "publishConfig": {

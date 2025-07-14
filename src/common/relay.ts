@@ -20,9 +20,9 @@ interface Sub {
 export async function publishToRelays(
   event: Event,
   relays: string[],
+  pool: SimplePool,
   timeout: number = 5000
 ): Promise<string[]> {
-  const pool = new SimplePool();
   const successfulRelays: string[] = [];
 
   try {
@@ -66,9 +66,8 @@ export async function publishToRelays(
 
     // Wait for all publish attempts to complete
     await Promise.all(publishPromises);
-  } finally {
-    // Clean up the pool
-    pool.close(relays);
+  } catch (error) {
+    console.error("Error in publishToRelays:", error);
   }
 
   // Return the list of relays where publication was successful
@@ -86,12 +85,12 @@ export async function publishToRelays(
 export function subscribeToRelays(
   filters: Filter[],
   relays: string[],
+  pool: SimplePool,
   options: {
     onevent?: (event: Event) => void;
     oneose?: () => void;
   } = {}
 ): Sub {
-  const pool = new SimplePool();
   return pool.subscribeMany(relays, filters, options);
 }
 
@@ -106,15 +105,10 @@ export function subscribeToRelays(
 export async function fetchFromRelays(
   filter: Filter,
   relays: string[],
+  pool: SimplePool,
   timeout: number = 5000
 ): Promise<Event[]> {
-  const pool = new SimplePool();
-  
-  try {
-    return await pool.querySync(relays, filter, { maxWait: timeout });
-  } finally {
-    pool.close(relays);
-  }
+  return await pool.querySync(relays, filter, { maxWait: timeout });
 }
 
 /**
@@ -128,10 +122,10 @@ export async function fetchFromRelays(
 export async function waitForEvent(
   filter: Filter,
   relays: string[],
+  pool: SimplePool,
   timeout: number = 30000
 ): Promise<Event | null> {
   return new Promise((resolve) => {
-    const pool = new SimplePool();
     let timeoutId: NodeJS.Timeout;
     let resolved = false;
 
@@ -141,7 +135,6 @@ export async function waitForEvent(
           resolved = true;
           clearTimeout(timeoutId);
           sub.close();
-          pool.close(relays);
           resolve(event);
         }
       },
@@ -151,7 +144,6 @@ export async function waitForEvent(
       if (!resolved) {
         resolved = true;
         sub.close();
-        pool.close(relays);
         resolve(null);
       }
     }, timeout);
@@ -169,13 +161,12 @@ export async function waitForEvent(
 export function createEventStream(
   filter: Filter,
   relays: string[],
+  pool: SimplePool,
   options: {
     closeOnEose?: boolean;
     timeout?: number;
   } = {}
 ): AsyncIterable<Event> {
-  const pool = new SimplePool();
-  
   return {
     [Symbol.asyncIterator]() {
       const queue: Event[] = [];
@@ -197,7 +188,6 @@ export function createEventStream(
         oneose() {
           if (options.closeOnEose && !done) {
             done = true;
-            pool.close(relays);
             
             if (resolveNext) {
               resolveNext({ value: undefined, done: true });
@@ -213,7 +203,6 @@ export function createEventStream(
         timeoutId = setTimeout(() => {
           if (!done) {
             done = true;
-            pool.close(relays);
             
             if (resolveNext) {
               resolveNext({ value: undefined, done: true });
@@ -246,7 +235,6 @@ export function createEventStream(
           if (!done) {
             done = true;
             sub.close();
-            pool.close(relays);
             
             if (timeoutId) {
               clearTimeout(timeoutId);
@@ -261,7 +249,6 @@ export function createEventStream(
             done = true;
             error = err instanceof Error ? err : new Error(String(err));
             sub.close();
-            pool.close(relays);
             
             if (timeoutId) {
               clearTimeout(timeoutId);

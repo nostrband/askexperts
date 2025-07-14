@@ -3,7 +3,7 @@
  */
 
 import { Event } from 'nostr-tools';
-import { Compression } from '../common/compression.js';
+import { Compression } from './compression.js';
 
 /**
  * Supported prompt formats
@@ -34,6 +34,36 @@ export type OnQuoteCallback = (quote: Quote, prompt: Prompt) => Promise<boolean>
  * Called after onQuote returns true, to process the actual payment
  */
 export type OnPayCallback = (quote: Quote, prompt: Prompt) => Promise<Proof>;
+
+/**
+ * Callback function type for handling asks
+ * Called when an expert receives an ask
+ * Returns a bid if the expert wants to respond, or undefined to ignore
+ */
+export type OnAskCallback = (ask: Ask) => Promise<ExpertBid | undefined>;
+
+/**
+ * ExpertQuote structure representing a simplified expert's price quote
+ * Used by the Expert class to generate a full Quote
+ */
+export interface ExpertQuote {
+  /** Payment invoices */
+  invoices: Invoice[];
+}
+
+/**
+ * Callback function type for handling prompts
+ * Called when an expert receives a prompt
+ * Returns a quote if the expert wants to respond, or undefined to ignore
+ */
+export type OnPromptCallback = (prompt: Prompt) => Promise<ExpertQuote>;
+
+/**
+ * Callback function type for handling proofs and executing prompts
+ * Called when an expert receives a proof of payment
+ * Returns replies to the prompt
+ */
+export type OnProofCallback = (prompt: Prompt, quote: ExpertQuote, proof: Proof) => Promise<Replies>;
 
 /**
  * Parameters for finding experts
@@ -259,4 +289,54 @@ export interface Replies extends AsyncIterable<Reply> {
   
   /** Compression instance for decompressing replies */
   compression: Compression;
+}
+
+/**
+ * Ask structure representing a client's question summary
+ */
+export interface Ask {
+  /** Ask event ID */
+  id: string;
+  
+  /** Client's public key */
+  pubkey: string;
+  
+  /** Summary of the question */
+  summary: string;
+  
+  /** Hashtags for discovery */
+  hashtags: string[];
+  
+  /** Accepted formats */
+  formats: PromptFormat[];
+  
+  /** Accepted compression methods */
+  compressions: CompressionMethod[];
+  
+  /** Accepted payment methods */
+  methods: PaymentMethod[];
+  
+  /** Original ask event */
+  event: Event;
+}
+
+/**
+ * ExpertBid structure representing a simplified expert's offer
+ * Used by the Expert class to generate a full Bid
+ */
+export interface ExpertBid {
+  /** Expert's offer text */
+  offer: string;
+  
+  /** Relays for prompting */
+  relays: string[];
+  
+  /** Supported formats (optional) */
+  formats?: PromptFormat[];
+  
+  /** Supported compression methods (optional) */
+  compressions?: CompressionMethod[];
+  
+  /** Supported payment methods (optional) */
+  methods?: PaymentMethod[];
 }

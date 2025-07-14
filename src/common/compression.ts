@@ -3,7 +3,7 @@
  * Supports both browser (using Compression Streams API) and Node.js (using zlib)
  */
 
-import { CompressionMethod } from '../types.js';
+import { CompressionMethod } from '../client/types.js';
 
 // Check if we're in a browser environment with Compression Streams API
 const isBrowser = typeof window !== 'undefined' && typeof window.CompressionStream !== 'undefined';
@@ -107,27 +107,36 @@ async function gzipDecompress(data: Uint8Array): Promise<Uint8Array> {
 export interface Compression {
   /**
    * Compresses data using the specified compression method
+   * For gzip, the data is compressed and then base64 encoded
    *
-   * @param data - The data to compress (string or Uint8Array)
+   * @param data - The data to compress as string
    * @param method - The compression method
-   * @returns Promise resolving to compressed data as Uint8Array
+   * @returns Promise resolving to compressed data as string
    */
   compress(
-    data: string | Uint8Array,
+    data: string,
     method: CompressionMethod
-  ): Promise<Uint8Array>;
+  ): Promise<string>;
 
   /**
    * Decompresses data using the specified compression method
+   * For gzip, the data is base64 decoded and then decompressed
    *
-   * @param data - The compressed data as Uint8Array
+   * @param data - The compressed data as string
    * @param method - The compression method
-   * @returns Promise resolving to decompressed data as Uint8Array
+   * @returns Promise resolving to decompressed data as string
    */
   decompress(
-    data: Uint8Array,
+    data: string,
     method: CompressionMethod
-  ): Promise<Uint8Array>;
+  ): Promise<string>;
+  
+  /**
+   * Returns a list of supported compression methods
+   *
+   * @returns Array of supported compression method names
+   */
+  list(): string[];
 }
 
 /**
@@ -137,41 +146,54 @@ export interface Compression {
 export class DefaultCompression implements Compression {
   /**
    * Compresses data using the specified compression method
+   * For gzip, the data is compressed and then base64 encoded
    *
-   * @param data - The data to compress (string or Uint8Array)
+   * @param data - The data to compress as string
    * @param method - The compression method
-   * @returns Promise resolving to compressed data as Uint8Array
+   * @returns Promise resolving to compressed data as string
    */
   async compress(
-    data: string | Uint8Array,
+    data: string,
     method: CompressionMethod
-  ): Promise<Uint8Array> {
+  ): Promise<string> {
     if (method === 'plain') {
-      return typeof data === 'string'
-        ? new TextEncoder().encode(data)
-        : data;
+      return data;
     } else if (method === 'gzip') {
-      return await gzipCompress(data);
+      const binaryData = new TextEncoder().encode(data);
+      const compressed = await gzipCompress(binaryData);
+      return Buffer.from(compressed).toString('base64');
     } else {
       throw new Error(`Unsupported compression method: ${method}`);
     }
   }
+  
+  /**
+   * Returns a list of supported compression methods
+   *
+   * @returns Array of supported compression method names
+   */
+  list(): string[] {
+    return ['plain', 'gzip'];
+  }
 
   /**
    * Decompresses data using the specified compression method
+   * For gzip, the data is base64 decoded and then decompressed
    *
-   * @param data - The compressed data as Uint8Array
+   * @param data - The compressed data as string
    * @param method - The compression method
-   * @returns Promise resolving to decompressed data as Uint8Array
+   * @returns Promise resolving to decompressed data as string
    */
   async decompress(
-    data: Uint8Array,
+    data: string,
     method: CompressionMethod
-  ): Promise<Uint8Array> {
+  ): Promise<string> {
     if (method === 'plain') {
       return data;
     } else if (method === 'gzip') {
-      return await gzipDecompress(data);
+      const binaryData = Buffer.from(data, 'base64');
+      const decompressed = await gzipDecompress(binaryData);
+      return new TextDecoder().decode(decompressed);
     } else {
       throw new Error(`Unsupported compression method: ${method}`);
     }

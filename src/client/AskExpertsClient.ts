@@ -3,14 +3,14 @@
  * Works in both browser and Node.js environments
  */
 
-import { Event } from "nostr-tools";
+import { Event, SimplePool } from "nostr-tools";
+import { z } from "zod";
 
 import {
   AskExpertsError,
   RelayError,
   TimeoutError,
   ExpertError,
-  InvalidEventError,
   PaymentRejectedError,
 } from "./errors.js";
 
@@ -51,26 +51,47 @@ import {
   OnPayCallback,
 } from "./types.js";
 
-import { Compression, DefaultCompression } from "./utils/compression.js";
+import { Compression, DefaultCompression } from "../common/compression.js";
 import {
   encrypt,
   decrypt,
   createEvent,
   generateRandomKeyPair,
   validateNostrEvent,
-} from "./utils/crypto.js";
+} from "../common/crypto.js";
 import {
   publishToRelays,
   subscribeToRelays,
   fetchFromRelays,
   waitForEvent,
   createEventStream,
-} from "./utils/relay.js";
+} from "../common/relay.js";
 
 /**
  * AskExpertsClient class for NIP-174 protocol
  */
 export class AskExpertsClient {
+  /**
+   * Zod schema for quote payload
+   */
+  private quotePayloadSchema = z.object({
+    invoices: z.array(z.object({
+      method: z.string(),
+      unit: z.string(),
+      amount: z.number(),
+      invoice: z.string().optional(),
+    })),
+    error: z.string().optional(),
+  });
+
+  /**
+   * Zod schema for reply payload
+   */
+  private replyPayloadSchema = z.object({
+    content: z.any(),
+    done: z.boolean().optional().default(false),
+    error: z.string().optional(),
+  });
   /**
    * Default onQuote callback
    */
@@ -87,6 +108,16 @@ export class AskExpertsClient {
   private compression: Compression;
 
   /**
+   * SimplePool instance for relay operations
+   */
+  private pool: SimplePool;
+
+  /**
+   * Flag indicating whether the pool was created internally
+   */
+  private poolCreatedInternally: boolean;
+
+  /**
    * Creates a new AskExpertsClient instance
    *
    * @param options - Optional configuration
@@ -98,10 +129,25 @@ export class AskExpertsClient {
     onQuote?: OnQuoteCallback;
     onPay?: OnPayCallback;
     compression?: Compression;
+    pool?: SimplePool;
   }) {
     this.defaultOnQuote = options?.onQuote;
     this.defaultOnPay = options?.onPay;
     this.compression = options?.compression || new DefaultCompression();
+    
+    // Check if pool is provided or needs to be created internally
+    this.poolCreatedInternally = !options?.pool;
+    this.pool = options?.pool || new SimplePool();
+  }
+
+  /**
+   * Disposes of resources when the client is no longer needed
+   */
+  [Symbol.dispose](): void {
+    // Only destroy the pool if it was created internally
+    if (this.poolCreatedInternally) {
+      this.pool.destroy(); // Properly destroy the pool
+    }
   }
 
   /**
@@ -147,7 +193,7 @@ export class AskExpertsClient {
     );
 
     // Publish the ask event to relays
-    const publishedRelays = await publishToRelays(askEvent, relays);
+    const publishedRelays = await publishToRelays(askEvent, relays, this.pool, 5000);
 
     if (publishedRelays.length === 0) {
       throw new RelayError("Failed to publish ask event to any relay");
@@ -165,14 +211,10 @@ export class AskExpertsClient {
     };
 
     // Subscribe to bid events
-    const sub = subscribeToRelays([filter], publishedRelays, {
+    const sub = subscribeToRelays([filter], publishedRelays, this.pool, {
       onevent: async (event: Event) => {
         try {
-          // Validate the event
-          if (!validateNostrEvent(event)) {
-            console.error("Invalid bid event:", event);
-            return;
-          }
+          // No need to validate events from relay - they're already validated
 
           // Ensure it's tagging our ask
           const eTag = event.tags.find((tag) => tag[0] === "e");
@@ -261,7 +303,7 @@ export class AskExpertsClient {
         } catch (error) {
           console.error("Error processing bid event:", error);
         }
-      },
+      }
     });
 
     // Wait for the specified timeout
@@ -301,6 +343,7 @@ export class AskExpertsClient {
     const events = await fetchFromRelays(
       filter,
       relays,
+      this.pool,
       DEFAULT_FETCH_EXPERTS_TIMEOUT
     );
 
@@ -313,11 +356,7 @@ export class AskExpertsClient {
 
     for (const event of events) {
       try {
-        // Validate the event
-        if (!validateNostrEvent(event)) {
-          console.error("Invalid expert profile event:", event);
-          continue;
-        }
+        // No need to validate events from relay - they're already validated
 
         // Only take the newest event for each pubkey
         if (seenPubkeys.has(event.pubkey)) {
@@ -412,12 +451,9 @@ export class AskExpertsClient {
       compr
     );
 
-    // Convert to base64 for encryption
-    const base64Payload = Buffer.from(compressedPayload).toString("base64");
-
     // Encrypt the payload
     const encryptedContent = encrypt(
-      base64Payload,
+      compressedPayload,
       expertPubkey,
       promptPrivkey
     );
@@ -434,7 +470,7 @@ export class AskExpertsClient {
     );
 
     // Publish the prompt event to the expert's relays
-    const publishedRelays = await publishToRelays(promptEvent, expertRelays);
+    const publishedRelays = await publishToRelays(promptEvent, expertRelays, this.pool, 5000);
 
     if (publishedRelays.length === 0) {
       throw new RelayError("Failed to publish prompt event to any relay");
@@ -479,6 +515,7 @@ export class AskExpertsClient {
     const quoteEvent = await waitForEvent(
       quoteFilter,
       publishedRelays,
+      this.pool,
       DEFAULT_QUOTE_TIMEOUT
     );
 
@@ -486,10 +523,7 @@ export class AskExpertsClient {
       throw new TimeoutError("Timeout waiting for quote event");
     }
 
-    // Validate the quote event
-    if (!validateNostrEvent(quoteEvent)) {
-      throw new InvalidEventError("Invalid quote event");
-    }
+    // No need to validate events from relay - they're already validated
 
     // Decrypt the quote payload
     const decryptedQuote = decrypt(
@@ -498,23 +532,31 @@ export class AskExpertsClient {
       promptPrivkey
     );
 
-    // Parse the quote payload
-    const quotePayload = JSON.parse(decryptedQuote);
+    try {
+      // Parse and validate the quote payload using Zod
+      const rawPayload = JSON.parse(decryptedQuote);
+      const quotePayload = this.quotePayloadSchema.parse(rawPayload);
 
-    // If there's an error in the quote payload, throw it
-    if (quotePayload.error) {
-      throw new ExpertError(`Expert error: ${quotePayload.error}`);
+      // If there's an error in the quote payload, throw it
+      if (quotePayload.error) {
+        throw new ExpertError(`Expert error: ${quotePayload.error}`);
+      }
+
+      // Create the Quote object
+      const quote: Quote = {
+        pubkey: expertPubkey,
+        promptId,
+        invoices: quotePayload.invoices,
+        event: quoteEvent,
+      };
+      
+      return quote;
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        throw new ExpertError(`Invalid quote payload: ${error.message}`);
+      }
+      throw error;
     }
-
-    // Create the Quote object
-    const quote: Quote = {
-      pubkey: expertPubkey,
-      promptId,
-      invoices: quotePayload.invoices,
-      event: quoteEvent,
-    };
-
-    return quote;
   }
 
   /**
@@ -563,7 +605,7 @@ export class AskExpertsClient {
     );
 
     // Publish the error proof event to the expert's relays
-    await publishToRelays(errorProofEvent, relays);
+    await publishToRelays(errorProofEvent, relays, this.pool, 5000);
   }
 
   /**
@@ -614,7 +656,9 @@ export class AskExpertsClient {
     // Publish the proof event to the expert's relays
     const proofPublishedRelays = await publishToRelays(
       proofEvent,
-      publishedRelays
+      publishedRelays,
+      this.pool,
+      5000
     );
 
     if (proofPublishedRelays.length === 0) {
@@ -642,6 +686,8 @@ export class AskExpertsClient {
     publishedRelays: string[],
     compression: Compression
   ): Replies {
+    // Get a reference to the replyPayloadSchema
+    const replyPayloadSchema = this.replyPayloadSchema;
     // Create a filter for reply events
     const replyFilter = {
       kinds: [EVENT_KIND_REPLY],
@@ -650,7 +696,7 @@ export class AskExpertsClient {
     };
 
     // Create an event stream for replies
-    const replyStream = createEventStream(replyFilter, publishedRelays, {
+    const replyStream = createEventStream(replyFilter, publishedRelays, this.pool, {
       timeout: DEFAULT_REPLY_TIMEOUT,
     });
 
@@ -664,11 +710,7 @@ export class AskExpertsClient {
       [Symbol.asyncIterator]: async function* () {
         for await (const event of replyStream) {
           try {
-            // Validate the event
-            if (!validateNostrEvent(event)) {
-              console.error("Invalid reply event:", event);
-              continue;
-            }
+            // No need to validate events from relay - they're already validated
 
             // Get the compression method from the c tag
             const cTag = event.tags.find((tag) => tag[0] === "c");
@@ -682,44 +724,48 @@ export class AskExpertsClient {
               promptPrivkey
             );
 
-            // Convert from base64 to Uint8Array
-            const base64Reply = Buffer.from(decryptedReply, "base64");
-
             // Decompress the payload using the compression instance from the Replies object (this)
-            const decompressedPayload = await this.compression.decompress(
-              base64Reply,
+            const replyPayloadStr = await this.compression.decompress(
+              decryptedReply,
               replyCompr
             );
+            
+            try {
+              // Parse and validate the reply payload using Zod
+              const rawPayload = JSON.parse(replyPayloadStr);
+              const replyPayload = replyPayloadSchema.parse(rawPayload);
 
-            // Convert to string and parse as JSON
-            const replyPayloadStr = new TextDecoder().decode(
-              decompressedPayload
-            );
-            const replyPayload = JSON.parse(replyPayloadStr);
+              // Check if there's an error in the reply payload
+              if (replyPayload.error) {
+                throw new ExpertError(
+                  `Expert reply error: ${replyPayload.error}`
+                );
+              }
 
-            // Check if there's an error in the reply payload
-            if (replyPayload.error) {
-              throw new ExpertError(
-                `Expert reply error: ${replyPayload.error}`
-              );
+              // Create the Reply object
+              const reply: Reply = {
+                pubkey: expertPubkey,
+                promptId,
+                done: !!replyPayload.done,
+                content: replyPayload.content,
+                event,
+              };
+              
+              // Yield the reply
+              yield reply;
+
+              // If this is the last reply, break the loop
+              if (reply.done) {
+                break;
+              }
+            } catch (error) {
+              if (error instanceof z.ZodError) {
+                throw new ExpertError(`Invalid reply payload: ${error.message}`);
+              }
+              throw error;
             }
 
-            // Create the Reply object
-            const reply: Reply = {
-              pubkey: expertPubkey,
-              promptId,
-              done: !!replyPayload.done,
-              content: replyPayload.content,
-              event,
-            };
-
-            // Yield the reply
-            yield reply;
-
-            // If this is the last reply, break the loop
-            if (reply.done) {
-              break;
-            }
+            // The reply is already yielded in the try block
           } catch (error) {
             console.error("Error processing reply event:", error);
           }
@@ -798,7 +844,7 @@ export class AskExpertsClient {
     const compressionInstance = params.compression || this.compression;
 
     // Generate a random key pair for the prompt
-    const { privateKey: promptPrivkey, publicKey: promptPubkey } =
+    const { privateKey: promptPrivkey } =
       generateRandomKeyPair();
 
     // Send the prompt to the expert

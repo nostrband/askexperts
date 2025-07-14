@@ -43,11 +43,11 @@ export {
   createEvent,
   generateRandomKeyPair,
   validateNostrEvent,
-} from './utils/crypto.js';
+} from '../common/crypto.js';
 export { 
   publishToRelays, 
   subscribeToRelays, 
   fetchFromRelays,
   waitForEvent,
   createEventStream,
-} from './utils/relay.js';
+} from '../common/relay.js';
