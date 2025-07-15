@@ -3,11 +3,11 @@
  */
 
 import { generateSecretKey, getPublicKey } from 'nostr-tools';
-import { Expert } from '../src/expert/index.js';
+import { AskExpertsServer } from '../src/expert/index.js';
 import { Ask, Prompt, Proof, Replies, ExpertQuote, ExpertBid } from '../src/common/types.js';
 import { DefaultCompression } from '../src/common/compression.js';
-import { FORMAT_TEXT, COMPRESSION_PLAIN, METHOD_LIGHTNING } from '../src/client/constants.js';
-import { DEFAULT_RELAYS } from '../dist/src/nostr/constants.js';
+import { FORMAT_TEXT, COMPRESSION_PLAIN, METHOD_LIGHTNING } from '../src/common/constants.js';
+import { DEFAULT_DISCOVERY_RELAYS, DEFAULT_PROPMT_RELAYS } from '../src/common/constants.js';
 import { createWallet } from 'nwc-enclaved-utils';
 import { nwc } from '@getalby/sdk';
 
@@ -35,10 +35,10 @@ async function runExampleExpert() {
   console.log('NWC client initialized');
 
   // Create an expert instance
-  const expert = new Expert({
+  const expert = new AskExpertsServer({
     privkey: privateKey,
-    discoveryRelays: DEFAULT_RELAYS,
-    promptRelays: DEFAULT_RELAYS,
+    discoveryRelays: DEFAULT_DISCOVERY_RELAYS,
+    promptRelays: DEFAULT_PROPMT_RELAYS,
     hashtags: ['ai', 'help', 'question', 'test'],
     formats: [FORMAT_TEXT],
     paymentMethods: [METHOD_LIGHTNING],
@@ -63,7 +63,7 @@ async function runExampleExpert() {
       console.log('Creating bid for ask');
       return {
         offer: 'I can help you with your question! I specialize in AI and programming topics.',
-        relays: DEFAULT_RELAYS,
+        relays: DEFAULT_PROPMT_RELAYS,
         formats: [FORMAT_TEXT],
         compressions: [COMPRESSION_PLAIN],
         methods: [METHOD_LIGHTNING]

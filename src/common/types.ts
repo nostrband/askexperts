@@ -43,15 +43,6 @@ export type OnPayCallback = (quote: Quote, prompt: Prompt) => Promise<Proof>;
 export type OnAskCallback = (ask: Ask) => Promise<ExpertBid | undefined>;
 
 /**
- * ExpertQuote structure representing a simplified expert's price quote
- * Used by the Expert class to generate a full Quote
- */
-export interface ExpertQuote {
-  /** Payment invoices */
-  invoices: Invoice[];
-}
-
-/**
  * Callback function type for handling prompts
  * Called when an expert receives a prompt
  * Returns a quote if the expert wants to respond, or undefined to ignore
@@ -339,4 +330,13 @@ export interface ExpertBid {
   
   /** Supported payment methods (optional) */
   methods?: PaymentMethod[];
+}
+
+/**
+ * ExpertQuote structure representing a simplified expert's price quote
+ * Used by the Expert class to generate a full Quote
+ */
+export interface ExpertQuote {
+  /** Payment invoices */
+  invoices: Invoice[];
 }

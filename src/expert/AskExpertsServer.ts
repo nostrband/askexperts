@@ -5,6 +5,7 @@
 
 import { SimplePool, Event, Filter, getPublicKey } from 'nostr-tools';
 import { z } from 'zod';
+import { debugExpert, debugError } from '../common/debug.js';
 
 import {
   EVENT_KIND_ASK,
@@ -17,7 +18,7 @@ import {
   EVENT_KIND_REPLY,
   COMPRESSION_PLAIN,
   METHOD_LIGHTNING,
-} from '../client/constants.js';
+} from '../common/constants.js';
 
 import {
   Ask,
@@ -66,7 +67,7 @@ export class AskExpertsServer {
    * Zod schema for proof payload
    */
   private proofPayloadSchema = z.object({
-    method: z.string(),
+    method: z.string().optional(),
     preimage: z.string().optional(),
     error: z.string().optional(),
   });
@@ -238,7 +239,7 @@ export class AskExpertsServer {
       this.pool
     );
 
-    console.log(`Published expert profile to ${publishedRelays.length} relays`);
+    debugExpert(`Published expert profile to ${publishedRelays.length} relays`);
   }
 
   /**
@@ -279,7 +280,7 @@ export class AskExpertsServer {
         try {
           await this.handleAskEvent(event);
         } catch (error) {
-          console.error('Error handling ask event:', error);
+          debugError('Error handling ask event:', error);
         }
       },
     });
@@ -298,16 +299,16 @@ export class AskExpertsServer {
       '#p': [this.pubkey],
       since: Math.floor(Date.now() / 1000) - 60, // Get events from the last minute
     };
-    console.log("prompt filter", filter);
+    debugExpert("prompt filter", filter);
 
     // Subscribe to prompt events
     const sub = subscribeToRelays([filter], this.promptRelays, this.pool, {
       onevent: async (event: Event) => {
-        console.log("prompt", event);
+        debugExpert("prompt", event);
         try {
           await this.handlePromptEvent(event);
         } catch (error) {
-          console.error('Error handling prompt event:', error);
+          debugError('Error handling prompt event:', error);
         }
       },
     });
@@ -323,7 +324,7 @@ export class AskExpertsServer {
    */
   private async handleAskEvent(askEvent: Event): Promise<void> {
     try {
-      console.log(`Received ask event: ${askEvent.id}`);
+      debugExpert(`Received ask event: ${askEvent.id}`);
 
       // Extract hashtags from the tags
       const hashtagTags = askEvent.tags.filter((tag) => tag[0] === 't');
@@ -361,7 +362,7 @@ export class AskExpertsServer {
         await this.sendBid(ask, bid);
       }
     } catch (error) {
-      console.error('Error handling ask event:', error);
+      debugError('Error handling ask event:', error);
     }
   }
 
@@ -427,9 +428,9 @@ export class AskExpertsServer {
         this.pool
       );
 
-      console.log(`Published bid to ${publishedRelays.length} relays`);
+      debugExpert(`Published bid to ${publishedRelays.length} relays`);
     } catch (error) {
-      console.error('Error sending bid:', error);
+      debugError('Error sending bid:', error);
     }
   }
 
@@ -440,7 +441,7 @@ export class AskExpertsServer {
    */
   private async handlePromptEvent(promptEvent: Event): Promise<void> {
     try {
-      console.log(`Received prompt event: ${promptEvent.id}`);
+      debugExpert(`Received prompt event: ${promptEvent.id}`);
 
       // Get the compression method from the c tag
       const cTag = promptEvent.tags.find((tag) => tag[0] === 'c');
@@ -511,12 +512,12 @@ export class AskExpertsServer {
           if (proofEvent) {
             await this.handleProofEvent(proofEvent, prompt);
           } else {
-            console.log(`No proof received for prompt ${prompt.id} after timeout`);
+            debugExpert(`No proof received for prompt ${prompt.id} after timeout`);
           }
         } catch (error) {
           // If the callback throws an error, send a quote with an error field
-          console.error('Error in onPrompt callback:', error);
-          
+          debugError('Error in onPrompt callback:', error);
+
           // Send an error quote
           await this.sendErrorQuote(
             prompt,
@@ -524,10 +525,10 @@ export class AskExpertsServer {
           );
         }
       } catch (error) {
-        console.error('Error processing prompt payload:', error);
+        debugError('Error processing prompt payload:', error);
       }
     } catch (error) {
-      console.error('Error handling prompt event:', error);
+      debugError('Error handling prompt event:', error);
     }
   }
 
@@ -572,9 +573,9 @@ export class AskExpertsServer {
         this.pool
       );
 
-      console.log(`Published quote to ${publishedRelays.length} relays`);
+      debugExpert(`Published quote to ${publishedRelays.length} relays`);
     } catch (error) {
-      console.error('Error sending quote:', error);
+      debugError('Error sending quote:', error);
     }
   }
 
@@ -619,9 +620,9 @@ export class AskExpertsServer {
         this.pool
       );
 
-      console.log(`Published error quote to ${publishedRelays.length} relays`);
+      debugExpert(`Published error quote to ${publishedRelays.length} relays`);
     } catch (error) {
-      console.error('Error sending error quote:', error);
+      debugError('Error sending error quote:', error);
     }
   }
 
@@ -634,7 +635,7 @@ export class AskExpertsServer {
    */
   private async handleProofEvent(proofEvent: Event, prompt: Prompt): Promise<void> {
     try {
-      console.log(`Received proof event: ${proofEvent.id}`);
+      debugExpert(`Received proof event: ${proofEvent.id}`);
 
       // Decrypt the proof payload
       const decryptedProof = decrypt(
@@ -650,7 +651,7 @@ export class AskExpertsServer {
 
         // Check if there's an error in the proof payload
         if (proofPayload.error) {
-          console.error(`Proof error: ${proofPayload.error}`);
+          debugError(`Proof error: ${proofPayload.error}`);
           return;
         }
 
@@ -665,7 +666,7 @@ export class AskExpertsServer {
           const expertQuote = this.expertQuotesByPromptId.get(prompt.id);
           
           if (!expertQuote) {
-            console.error(`No expert quote found for prompt ${prompt.id}`);
+            debugError(`No expert quote found for prompt ${prompt.id}`);
             throw new Error(`No expert quote found for prompt ${prompt.id}`);
           }
           
@@ -676,8 +677,8 @@ export class AskExpertsServer {
           this.sendReplies(prompt, replies);
         } catch (error) {
           // If the callback throws an error, send a single error reply with done=true
-          console.error('Error in onProof callback:', error);
-          
+          debugError('Error in onProof callback:', error);
+
           // Create a simple replies object with a single error message
           const errorReply: Reply = {
             pubkey: this.pubkey,
@@ -691,10 +692,10 @@ export class AskExpertsServer {
           await this.sendReply(prompt, errorReply);
         }
       } catch (error) {
-        console.error('Error processing proof payload:', error);
+        debugError('Error processing proof payload:', error);
       }
     } catch (error) {
-      console.error('Error handling proof event:', error);
+      debugError('Error handling proof event:', error);
     }
   }
 
@@ -711,7 +712,7 @@ export class AskExpertsServer {
         await this.sendReply(prompt, reply);
       }
     } catch (error) {
-      console.error('Error sending replies:', error);
+      debugError('Error sending replies:', error);
     }
   }
 
@@ -764,9 +765,9 @@ export class AskExpertsServer {
         this.pool
       );
 
-      console.log(`Published reply to ${publishedRelays.length} relays`);
+      debugExpert(`Published reply to ${publishedRelays.length} relays`);
     } catch (error) {
-      console.error('Error sending reply:', error);
+      debugError('Error sending reply:', error);
     }
   }
 

@@ -1,22 +1,28 @@
-// Export the AskExpertsMCP class
-export { AskExpertsMCP } from "./AskExpertsMCP.js";
+// Enable debug if DEBUG environment variable is set
+if (process.env.DEBUG) {
+  const { enableAllDebug } = require('./common/debug.js');
+  enableAllDebug();
+}
 
-// Export the AskExpertsSmartMCP class
-export { AskExpertsSmartMCP } from "./AskExpertsSmartMCP.js";
+// Export the AskExpertsMCP class (new implementation that extends McpServer)
+export { AskExpertsMCP, BidMCP, ReplyMCP } from "./mcp/AskExpertsMCP.js";
+
+// Export debug utilities
+export {
+  debugRelay,
+  debugMCP,
+  debugExpert,
+  debugClient,
+  debugError,
+  enableAllDebug,
+  disableAllDebug
+} from "./common/debug.js";
+
+// Export the LightningPaymentManager
+export { LightningPaymentManager } from "./lightning/LightningPaymentManager.js";
 
 // Export the Expert class
-export { Expert } from "./expert/index.js";
-
-// Export types from AskExpertsTools for convenience
-export type {
-  Bid,
-  ExpertSessionWithContext,
-  ExpertSessionStructure,
-  AskExpertsParams,
-  FindExpertsParams,
-  FindExpertsResponse,
-  AskExpertsResponse
-} from "./AskExpertsTools.js";
+export { AskExpertsServer } from "./expert/index.js";
 
 // Export common types for convenience
 export type {

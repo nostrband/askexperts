@@ -175,17 +175,39 @@ The AskExperts MCP server is built with a modular architecture:
 
 To launch the server, you have several options:
 
-#### Option 1: Run as a local stdio-based MCP server
+#### Option 1: Run as a local stdio-based MCP server using CLI
 
 ```bash
 # Install dependencies if you haven't already
 npm install
 
-# Run the server in stdio mode
-npm run mcp
+# Run the server in stdio mode using the CLI
+npm run cli mcp --nwc "your-nwc-connection-string" --relays "wss://relay1.example.com,wss://relay2.example.com" --debug
+
+# Or use environment variables
+export NWC_STRING="your-nwc-connection-string"
+export DISCOVERY_RELAYS="wss://relay1.example.com,wss://relay2.example.com"
+npm run cli mcp --debug
 ```
 
+The CLI supports the following options:
+- `--nwc, -n`: NWC connection string for payments (can also be set via NWC_STRING environment variable)
+- `--relays, -r`: Comma-separated list of discovery relays (can also be set via DISCOVERY_RELAYS environment variable)
+- `--debug, -d`: Enable debug logging
+
 This mode is suitable for direct integration with MCP clients that support stdio transport.
+
+#### Option 2: Run as a local stdio-based MCP server using NPX
+
+```bash
+# Run directly with npx
+npx -y askexperts mcp --nwc "your-nwc-connection-string" --relays "wss://relay1.example.com,wss://relay2.example.com" --debug
+
+# Or use environment variables
+export NWC_STRING="your-nwc-connection-string"
+export DISCOVERY_RELAYS="wss://relay1.example.com,wss://relay2.example.com"
+npx -y askexperts mcp --debug
+```
 
 #### Option 2: Run as a remote HTTP server
 
@@ -252,9 +274,13 @@ The parent server will start on port 3001 by default (configurable via PARENT_PO
 # Run directly without installation (stdio mode)
 npx -y askexperts
 
+# Run with specific command
+npx -y askexperts mcp --nwc "your-nwc-connection-string" --debug
+
 # Or install globally and run
 npm install -g askexperts
 askexperts
+askexperts mcp --nwc "your-nwc-connection-string" --debug
 
 # Run as a remote HTTP server
 npx -y askexperts-server
@@ -629,6 +655,40 @@ The server provides a `/user` endpoint to get information about the authenticate
 curl -H "Authorization: Bearer <token>" http://localhost:3000/user
 ```
 
+## Debugging
+
+This project uses the [debug](https://www.npmjs.com/package/debug) package for logging. To enable debug logs, set the `DEBUG` environment variable:
+
+```bash
+# Enable all logs
+DEBUG=askexperts:* npm run dev
+
+# Enable only error logs
+DEBUG=askexperts:error npm run dev
+
+# Enable specific module logs
+DEBUG=askexperts:relay,askexperts:mcp npm run dev
+```
+
+Available namespaces:
+- `askexperts:relay` - Relay operations
+- `askexperts:mcp` - MCP server operations
+- `askexperts:expert` - Expert server operations
+- `askexperts:client` - Client operations
+- `askexperts:error` - Error logs from all modules
+
+You can also enable/disable debug programmatically:
+
+```typescript
+import { enableAllDebug, disableAllDebug } from 'askexperts';
+
+// Enable all debug logs
+enableAllDebug();
+
+// Disable all debug logs
+disableAllDebug();
+```
+
 ## Environment Variables
 
 ### PORT
@@ -691,15 +751,31 @@ export MCP_SERVER_ID="your-mcp-server-id"
 npm run server
 ```
 
-### NWC_CONNECTION_STRING
+### NWC_STRING
 
-The `NWC_CONNECTION_STRING` environment variable enables the built-in wallet functionality in the `ask_experts` tool. When set, it allows the MCP server to automatically pay Lightning invoices for expert bids without requiring the client to provide payment preimages. This is used as a fallback when no authenticated user is present.
+The `NWC_STRING` environment variable enables the built-in wallet functionality in the `ask_experts` tool. When set, it allows the MCP server to automatically pay Lightning invoices for expert bids without requiring the client to provide payment preimages. This is used as a fallback when no authenticated user is present.
+
+This variable can also be provided via the `--nwc` or `-n` option when using the CLI.
+
+### DISCOVERY_RELAYS
+
+The `DISCOVERY_RELAYS` environment variable sets the list of Nostr relays to use for discovering experts. It should be a comma-separated list of WebSocket URLs.
+
+```bash
+# Set the discovery relays
+export DISCOVERY_RELAYS="wss://relay1.example.com,wss://relay2.example.com"
+
+# Then start the server
+npm run cli mcp
+```
+
+This variable can also be provided via the `--relays` or `-r` option when using the CLI.
 
 #### What is NWC?
 
 NWC (Nostr Wallet Connect) is a protocol that allows applications to connect to a Lightning wallet. The connection string is a URL that contains the necessary information to connect to a wallet that supports the NWC protocol.
 
-#### Setting up NWC_CONNECTION_STRING
+#### Setting up NWC_STRING
 
 To enable the built-in wallet:
 
@@ -708,17 +784,20 @@ To enable the built-in wallet:
 
 ```bash
 # Set the environment variable
-export NWC_CONNECTION_STRING="nostr+walletconnect://..."
+export NWC_STRING="nostr+walletconnect://..."
 
 # Then start the server
-npm run mcp
+npm run cli mcp
+
+# Or provide it directly to the CLI
+npm run cli mcp --nwc "nostr+walletconnect://..."
 ```
 
 #### How it works
 
 When a client calls the `ask_experts` tool with bids that include invoices but no preimages:
 
-1. The server checks if `NWC_CONNECTION_STRING` is set
+1. The server checks if `NWC_STRING` is set
 2. If set, it uses the NWC client to pay the invoices automatically
 3. It obtains payment preimages from successful payments
 4. These preimages are used to authenticate the questions sent to experts
@@ -728,7 +807,7 @@ Without this environment variable, clients must pay invoices themselves and prov
 #### Example with built-in wallet
 
 ```typescript
-// With NWC_CONNECTION_STRING set on the server, clients can simply provide bid information
+// With NWC_STRING set on the server, clients can simply provide bid information
 const askResult = await client.callTool("ask_experts", {
   ask_id: findResult.structuredContent.id,
   question: "My detailed question here...",

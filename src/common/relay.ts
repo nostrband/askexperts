@@ -3,6 +3,7 @@
  */
 
 import { SimplePool, Event, Filter } from 'nostr-tools';
+import { debugRelay, debugError } from './debug.js';
 
 // Define a type for subscription that has a close method
 interface Sub {
@@ -60,14 +61,14 @@ export async function publishToRelays(
         await Promise.race([publishPromise, timeoutPromise]);
       } catch (error) {
         // Log the error but don't fail the entire operation
-        console.error(`Failed to publish to ${relayUrl}:`, error);
+        debugError(`Failed to publish to ${relayUrl}:`, error);
       }
     });
 
     // Wait for all publish attempts to complete
     await Promise.all(publishPromises);
   } catch (error) {
-    console.error("Error in publishToRelays:", error);
+    debugError("Error in publishToRelays:", error);
   }
 
   // Return the list of relays where publication was successful

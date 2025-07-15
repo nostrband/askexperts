@@ -30,8 +30,14 @@ export const DEFAULT_DISCOVERY_RELAYS = [
   "wss://relay2.askexperts.io",
 ];
 
+export const DEFAULT_PROPMT_RELAYS = DEFAULT_DISCOVERY_RELAYS;
+
 // Default timeout values (in milliseconds)
 export const DEFAULT_DISCOVERY_TIMEOUT = 10000;
 export const DEFAULT_FETCH_EXPERTS_TIMEOUT = 5000;
 export const DEFAULT_QUOTE_TIMEOUT = 10000;
 export const DEFAULT_REPLY_TIMEOUT = 60000;
+
+
+// Default maximum number of parallel payments
+export const DEFAULT_MAX_PARALLEL_PAYMENTS = 5;

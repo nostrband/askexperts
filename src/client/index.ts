@@ -34,7 +34,7 @@ export {
   COMPRESSION_GZIP,
   METHOD_LIGHTNING,
   DEFAULT_DISCOVERY_RELAYS,
-} from './constants.js';
+} from '../common/constants.js';
 
 // Export utility functions
 export {

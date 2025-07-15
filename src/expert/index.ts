@@ -3,4 +3,4 @@
  * Server-side component that handles asks and prompts
  */
 
-export { AskExpertsServer as Expert } from './AskExpertsServer.js';
+export { AskExpertsServer } from './AskExpertsServer.js';

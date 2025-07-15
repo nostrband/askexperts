@@ -5,6 +5,7 @@
 
 import { Event, SimplePool } from "nostr-tools";
 import { z } from "zod";
+import { debugClient, debugError } from "../common/debug.js";
 
 import {
   AskExpertsError,
@@ -31,7 +32,8 @@ import {
   DEFAULT_FETCH_EXPERTS_TIMEOUT,
   DEFAULT_QUOTE_TIMEOUT,
   DEFAULT_REPLY_TIMEOUT,
-} from "./constants.js";
+  COMPRESSION_GZIP,
+} from "../common/constants.js";
 
 import {
   FindExpertsParams,
@@ -118,22 +120,31 @@ export class AskExpertsClient {
   private poolCreatedInternally: boolean;
 
   /**
+   * Array of discovery relay URLs to use as fallback
+   */
+  private discoveryRelays?: string[];
+
+  /**
    * Creates a new AskExpertsClient instance
    *
    * @param options - Optional configuration
    * @param options.onQuote - Default callback for handling quotes
    * @param options.onPay - Default callback for handling payments
    * @param options.compression - Custom compression implementation
+   * @param options.pool - SimplePool instance for relay operations
+   * @param options.discoveryRelays - Array of discovery relay URLs to use as fallback
    */
   constructor(options?: {
     onQuote?: OnQuoteCallback;
     onPay?: OnPayCallback;
     compression?: Compression;
     pool?: SimplePool;
+    discoveryRelays?: string[];
   }) {
     this.defaultOnQuote = options?.onQuote;
     this.defaultOnPay = options?.onPay;
     this.compression = options?.compression || new DefaultCompression();
+    this.discoveryRelays = options?.discoveryRelays;
     
     // Check if pool is provided or needs to be created internally
     this.poolCreatedInternally = !options?.pool;
@@ -168,9 +179,19 @@ export class AskExpertsClient {
 
     // Set default values
     const formats = params.formats || [FORMAT_TEXT];
-    const comprs = params.comprs || [COMPRESSION_PLAIN];
+    
+    // Validate compression methods if provided
+    const supportedComprs = this.compression.list();
+    if (params.comprs) {
+      const unsupportedComprs = params.comprs.filter(compr => !supportedComprs.includes(compr));
+      if (unsupportedComprs.length > 0) {
+        throw new AskExpertsError(`Unsupported compression method(s): ${unsupportedComprs.join(', ')}`);
+      }
+    }
+    
+    const comprs = params.comprs || supportedComprs;
     const methods = params.methods || [METHOD_LIGHTNING];
-    const relays = params.relays || DEFAULT_DISCOVERY_RELAYS;
+    const relays = params.relays || this.discoveryRelays || DEFAULT_DISCOVERY_RELAYS;
 
     // Generate a random key pair for the ask
     const { privateKey: askPrivkey, publicKey: askPubkey } =
@@ -219,7 +240,7 @@ export class AskExpertsClient {
           // Ensure it's tagging our ask
           const eTag = event.tags.find((tag) => tag[0] === "e");
           if (!eTag || eTag[1] !== askEvent.id) {
-            console.error("Bid event has wrong e-tag:", eTag);
+            debugError("Bid event has wrong e-tag:", eTag);
             return;
           }
 
@@ -231,13 +252,13 @@ export class AskExpertsClient {
 
           // Validate the bid payload event
           if (!validateNostrEvent(bidPayloadEvent)) {
-            console.error("Invalid bid payload event:", bidPayloadEvent);
+            debugError("Invalid bid payload event:", bidPayloadEvent);
             return;
           }
 
           // Check the kind
           if (bidPayloadEvent.kind !== EVENT_KIND_BID_PAYLOAD) {
-            console.error(
+            debugError(
               "Invalid bid payload event kind:",
               bidPayloadEvent.kind
             );
@@ -256,7 +277,7 @@ export class AskExpertsClient {
           const bidRelays = relayTags.map((tag) => tag[1]);
 
           if (bidRelays.length === 0) {
-            console.error(
+            debugError(
               "Bid payload event missing relay tags:",
               bidPayloadEvent
             );
@@ -301,7 +322,7 @@ export class AskExpertsClient {
           bids.push(bid);
           seenPubkeys.add(bidPayloadEvent.pubkey);
         } catch (error) {
-          console.error("Error processing bid event:", error);
+          debugError("Error processing bid event:", error);
         }
       }
     });
@@ -330,7 +351,7 @@ export class AskExpertsClient {
     }
 
     // Set default values
-    const relays = params.relays || DEFAULT_DISCOVERY_RELAYS;
+    const relays = params.relays || this.discoveryRelays || DEFAULT_DISCOVERY_RELAYS;
 
     // Create a filter for expert profile events
     const filter = {
@@ -368,7 +389,7 @@ export class AskExpertsClient {
         const expertRelays = relayTags.map((tag) => tag[1]);
 
         if (expertRelays.length === 0) {
-          console.error("Expert profile event missing relay tags:", event);
+          debugError("Expert profile event missing relay tags:", event);
           continue;
         }
 
@@ -408,7 +429,7 @@ export class AskExpertsClient {
         experts.push(expert);
         seenPubkeys.add(event.pubkey);
       } catch (error) {
-        console.error("Error processing expert profile event:", error);
+        debugError("Error processing expert profile event:", error);
       }
     }
 
@@ -767,7 +788,7 @@ export class AskExpertsClient {
 
             // The reply is already yielded in the try block
           } catch (error) {
-            console.error("Error processing reply event:", error);
+            debugError("Error processing reply event:", error);
           }
         }
       },
@@ -820,7 +841,7 @@ export class AskExpertsClient {
 
     // Determine format and compression
     const format = params.format || FORMAT_TEXT;
-    const compr = params.compr || COMPRESSION_PLAIN;
+    const compr = params.compr || COMPRESSION_GZIP;
 
     // Check if format is supported
     const supportedFormats =
