@@ -21,8 +21,9 @@ import OpenAI from "openai";
  */
 export interface ReplyMCP {
   expert_pubkey: string;
-  content: string;
-  amount_sats: number;
+  content?: string;
+  amount_sats?: number;
+  error?: string;
 }
 
 /**
@@ -116,8 +117,9 @@ export class AskExpertsSmartMCP extends McpServer {
           .array(
             z.object({
               expert_pubkey: z.string().describe("Expert's public key"),
-              content: z.string().describe("Content of the answer"),
-              amount_sats: z.number().describe("Amount paid in satoshis"),
+              content: z.string().optional().describe("Content of the answer"),
+              amount_sats: z.number().optional().describe("Amount paid in satoshis"),
+              error: z.string().optional().describe("Error message if the expert request failed"),
             })
           )
           .describe("Array of replies from experts"),
@@ -246,7 +248,6 @@ export class AskExpertsSmartMCP extends McpServer {
     // Parse question, prepare for findExperts call
     let publicQuestionSummary: string | undefined;
     let hashtags: string[] = [];
-    let max_bid_sats: number | undefined;
 
     try {
       // Use OpenAI to generate an answer
@@ -255,17 +256,20 @@ export class AskExpertsSmartMCP extends McpServer {
         messages: [
           {
             role: "developer",
-            content: `Your job is to look at the user's detailed question that might include sensitive or private information, 
-and come up with a short anonymized summarized question that can be shared publicly to find experts on the subject, without revealing
-any private data. You must also determine up to 10 hashtags this summarized question might have to simplify discovery for experts - hashtags
-must be one word each, english, lowercase, and be as specific as possible. Reply in a structured way in two lines:
+            content: `Your job is to look at the user's detailed question or prompt that might include sensitive or private information, 
+and come up with a short anonymized summarized version that can be shared publicly to find experts on the subject, without revealing
+any private data. You must also determine 1 to 10 hashtags that this summarized question/prompt might have to simplify discovery for experts - hashtags
+must be one word each, english, lowercase, and be as specific as possible. If the question is super simple and looks like a test, come up with appropriate
+hashtags but don't summarize the question - just return the input question as summarized one, don't invent your own question/summary.
+
+Reply in a structured way in two lines:
 \`\`\`
 hashtags: hashtag1, hashtag2, etc
 question: <summarized question>
 \`\`\`
-
-If you believe the question is malformed or makes no sense, reply with one word "error".
 `,
+// commented, doesn't work well:
+// If you believe the question/prompt is malformed or makes no sense, reply with one word "verbatim".
           },
           {
             role: "user",
@@ -276,7 +280,7 @@ If you believe the question is malformed or makes no sense, reply with one word 
 
       // Extract the response content
       const responseContent = completion.choices[0]?.message?.content;
-      console.log("prepare ask responseContent", responseContent);
+      debugMCP("prepare ask responseContent", { responseContent, question });
       if (!responseContent || responseContent === "error")
         throw new Error("Failed to parse the question");
       const lines = responseContent
@@ -296,7 +300,7 @@ If you believe the question is malformed or makes no sense, reply with one word 
         .filter((t) => !!t);
       publicQuestionSummary = lines[1].substring("question: ".length).trim();
     } catch (error) {
-      console.error("Error processing ask with OpenAI:", error);
+      debugError("Error processing ask with OpenAI:", error);
       throw error;
     }
 
@@ -328,25 +332,37 @@ If you believe the question is malformed or makes no sense, reply with one word 
     const results: ReplyMCP[] = [];
 
     // Process each bid in parallel
-    const promises = selectedBids.map(async (bid) => {
-      try {
+    const promiseResults = await Promise.allSettled(
+      selectedBids.map(async (bid) => {
         // Ask the expert
-        const reply = await this.askExpertInternal(
+        return this.askExpertInternal(
           question,
           bid,
           max_amount_sats
         );
+      })
+    );
 
-        // Add the result to the array
-        results.push(reply);
-      } catch (error) {
-        debugError(`Failed to ask expert ${bid.pubkey}:`, error);
-        // Don't add failed experts to the results
+    // Process the results, including errors
+    promiseResults.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        // Add successful result to the array
+        results.push(result.value);
+      } else {
+        // Create an error reply
+        const errorMessage = result.reason instanceof Error
+          ? result.reason.message
+          : String(result.reason);
+        
+        debugError(`Failed to ask expert ${selectedBids[index].pubkey}:`, result.reason);
+        
+        // Add error reply to results
+        results.push({
+          expert_pubkey: selectedBids[index].pubkey,
+          error: `Failed to ask expert: ${errorMessage}`
+        });
       }
     });
-
-    // Wait for all promises to resolve
-    await Promise.all(promises);
 
     return results;
   }

@@ -261,12 +261,50 @@ The standard MCP server provides the following tools:
    }
    ```
 
+   Response format:
+   ```json
+   {
+     "replies": [
+       {
+         "expert_pubkey": "expert_pubkey",
+         "content": "Answer content...",
+         "amount_sats": 100
+       },
+       {
+         "expert_pubkey": "another_expert_pubkey",
+         "error": "Failed to ask expert: Payment failed"
+       }
+     ]
+   }
+   ```
+
 3. **ask_expert**: Ask a single expert a question and receive their answer
    ```json
    {
      "question": "I need help implementing a Lightning Network wallet in JavaScript. What libraries should I use?",
      "expert_pubkey": "expert_pubkey",
      "max_amount_sats": 10000
+   }
+   ```
+
+   Response format:
+   ```json
+   {
+     "reply": {
+       "expert_pubkey": "expert_pubkey",
+       "content": "Answer content...",
+       "amount_sats": 100
+     }
+   }
+   ```
+   
+   Or in case of error:
+   ```json
+   {
+     "reply": {
+       "expert_pubkey": "expert_pubkey",
+       "error": "Failed to ask expert: Payment failed"
+     }
    }
    ```
 
@@ -282,12 +320,38 @@ The Smart MCP server provides a simplified API with LLM-powered capabilities:
    }
    ```
 
+   Response format:
+   ```json
+   {
+     "replies": [
+       {
+         "expert_pubkey": "expert_pubkey",
+         "content": "Answer content...",
+         "amount_sats": 100
+       },
+       {
+         "expert_pubkey": "another_expert_pubkey",
+         "error": "Failed to ask expert: Payment failed"
+       }
+     ]
+   }
+   ```
+
    This single tool handles:
    - Converting your detailed question to an anonymized summary
    - Generating relevant hashtags for expert discovery
    - Finding and selecting appropriate experts
    - Sending your question to selected experts
-   - Collecting and returning expert responses
+   - Collecting and returning expert responses, including any errors that occurred
+
+#### Error Handling in MCP Tools
+
+Both MCP servers now properly handle error cases when asking experts:
+
+- The `content` and `amount_sats` fields in replies are optional
+- An optional `error` field is included when an expert request fails
+- All expert requests are processed using `Promise.allSettled` to ensure that errors from one expert don't prevent responses from other experts
+- Errors are properly propagated to clients, allowing for better error handling and user feedback
 
 ## Development
 

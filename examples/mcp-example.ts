@@ -45,8 +45,13 @@ async function main() {
 
     console.log('\nExpert reply:');
     console.log(`Expert: ${reply.expert_pubkey.substring(0, 8)}...`);
-    console.log(`Amount paid: ${reply.amount_sats} sats`);
-    console.log(`Content: ${reply.content}`);
+    
+    if (reply.error) {
+      console.log(`Error: ${reply.error}`);
+    } else {
+      console.log(`Amount paid: ${reply.amount_sats ?? 0} sats`);
+      console.log(`Content: ${reply.content ?? ''}`);
+    }
 
     // Ask multiple experts
     if (bids.length > 1) {
@@ -65,8 +70,13 @@ async function main() {
       console.log(`\nReceived ${replies.length} replies:`);
       replies.forEach((reply, index) => {
         console.log(`${index + 1}. Expert: ${reply.expert_pubkey.substring(0, 8)}...`);
-        console.log(`   Amount paid: ${reply.amount_sats} sats`);
-        console.log(`   Content: ${reply.content.substring(0, 100)}...`);
+        
+        if (reply.error) {
+          console.log(`   Error: ${reply.error}`);
+        } else {
+          console.log(`   Amount paid: ${reply.amount_sats ?? 0} sats`);
+          console.log(`   Content: ${reply.content ? reply.content.substring(0, 100) + '...' : ''}`);
+        }
       });
     }
 

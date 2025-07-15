@@ -29,8 +29,9 @@ export interface BidMCP {
  */
 export interface ReplyMCP {
   expert_pubkey: string;
-  content: string;
-  amount_sats: number;
+  content?: string;
+  amount_sats?: number;
+  error?: string;
 }
 
 /**
@@ -147,8 +148,9 @@ export class AskExpertsMCP extends McpServer {
           .array(
             z.object({
               expert_pubkey: z.string().describe("Expert's public key"),
-              content: z.string().describe("Content of the answer"),
-              amount_sats: z.number().describe("Amount paid in satoshis"),
+              content: z.string().optional().describe("Content of the answer"),
+              amount_sats: z.number().optional().describe("Amount paid in satoshis"),
+              error: z.string().optional().describe("Error message if the expert request failed"),
             })
           )
           .describe("Array of replies from experts"),
@@ -193,8 +195,9 @@ export class AskExpertsMCP extends McpServer {
         reply: z
           .object({
             expert_pubkey: z.string().describe("Expert's public key"),
-            content: z.string().describe("Content of the answer"),
-            amount_sats: z.number().describe("Amount paid in satoshis"),
+            content: z.string().optional().describe("Content of the answer"),
+            amount_sats: z.number().optional().describe("Amount paid in satoshis"),
+            error: z.string().optional().describe("Error message if the expert request failed"),
           })
           .describe("Reply from the expert"),
       },
@@ -383,8 +386,8 @@ export class AskExpertsMCP extends McpServer {
     const results: ReplyMCP[] = [];
 
     // Process each bid in parallel
-    const promises = bids.map(async (bidMCP) => {
-      try {
+    const promiseResults = await Promise.allSettled(
+      bids.map(async (bidMCP) => {
         // Get the original bid from the map
         const bid = this.bidMap.get(bidMCP.id);
         if (!bid) {
@@ -392,22 +395,34 @@ export class AskExpertsMCP extends McpServer {
         }
 
         // Ask the expert
-        const replies = await this.askExpertInternal(
+        return this.askExpertInternal(
           question,
           bid,
           max_amount_sats
         );
+      })
+    );
 
-        // Add the result to the array
-        results.push(replies);
-      } catch (error) {
-        debugError(`Failed to ask expert ${bidMCP.expert_pubkey}:`, error);
-        // Don't add failed experts to the results
+    // Process the results, including errors
+    promiseResults.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        // Add successful result to the array
+        results.push(result.value);
+      } else {
+        // Create an error reply
+        const errorMessage = result.reason instanceof Error
+          ? result.reason.message
+          : String(result.reason);
+        
+        debugError(`Failed to ask expert:`, result.reason);
+        
+        // Add error reply to results
+        results.push({
+          expert_pubkey: bids[index].expert_pubkey,
+          error: `Failed to ask expert: ${errorMessage}`
+        });
       }
     });
-
-    // Wait for all promises to resolve
-    await Promise.all(promises);
 
     return results;
   }
