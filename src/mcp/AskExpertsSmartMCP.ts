@@ -14,18 +14,10 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { makeTool } from "./utils.js";
+import OpenAI from "openai";
 
 /**
- * Interface for BidMCP objects returned by findExperts
- */
-export interface BidMCP {
-  id: string;
-  expert_pubkey: string;
-  offer: string;
-}
-
-/**
- * Interface for ReplyMCP objects returned by askExperts/askExpert
+ * Interface for ReplyMCP objects returned by askExperts
  */
 export interface ReplyMCP {
   expert_pubkey: string;
@@ -34,23 +26,39 @@ export interface ReplyMCP {
 }
 
 /**
- * AskExpertsMCP class that extends McpServer and provides a simplified interface
- * for clients to interact with the AskExpertsClient
+ * AskExpertsSmartMCP class that extends McpServer and provides a simplified interface
+ * for clients to interact with the AskExpertsClient with LLM capabilities
  */
-export class AskExpertsMCP extends McpServer {
+export class AskExpertsSmartMCP extends McpServer {
   private client: AskExpertsClient;
   private paymentManager: LightningPaymentManager;
   private bidMap: Map<string, Bid> = new Map();
+  private openai: OpenAI;
 
   /**
-   * Creates a new AskExpertsMCP instance
+   * Creates a new AskExpertsSmartMCP instance
    *
    * @param nwcString - NWC connection string for payments
+   * @param openaiApiKey - OpenAI API key
+   * @param openaiBaseUrl - OpenAI base URL
    * @param discoveryRelays - Optional list of discovery relays
    */
-  constructor(nwcString: string, discoveryRelays?: string[]) {
+  constructor(
+    nwcString: string,
+    openaiApiKey: string,
+    openaiBaseUrl: string,
+    discoveryRelays?: string[]
+  ) {
     if (!nwcString) {
       throw new Error("NWC connection string is required");
+    }
+
+    if (!openaiApiKey) {
+      throw new Error("OpenAI API key is required");
+    }
+
+    if (!openaiBaseUrl) {
+      throw new Error("OpenAI base URL is required");
     }
 
     // Read version from package.json
@@ -60,10 +68,10 @@ export class AskExpertsMCP extends McpServer {
     const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
 
     super({
-      name: "askexpertsmcp",
+      name: "askexpertssmartmcp",
       version: packageJson.version,
       description:
-        "An MCP server that allows finding experts on a subject, asking them questions, and paying them for their answers.",
+        "An MCP server that allows asking questions to experts with LLM-powered summarization and expert selection.",
     });
 
     // Create the payment manager
@@ -74,6 +82,16 @@ export class AskExpertsMCP extends McpServer {
       discoveryRelays: discoveryRelays || DEFAULT_DISCOVERY_RELAYS,
     });
 
+    // Initialize OpenAI
+    this.openai = new OpenAI({
+      apiKey: openaiApiKey,
+      baseURL: openaiBaseUrl,
+      defaultHeaders: {
+        "HTTP-Referer": "https://askexperts.io", // Site URL for rankings on openrouter.ai
+        "X-Title": "AskExperts", // Site title for rankings on openrouter.ai
+      },
+    });
+
     // Register tools
     this.registerTools();
   }
@@ -82,62 +100,13 @@ export class AskExpertsMCP extends McpServer {
    * Register all tools with the MCP server
    */
   private registerTools(): void {
-    // Schema for find_experts tool
-    const findExpertsConfig = {
-      title: "Find Experts",
-      description:
-        "Find experts on a subject by posting an anonymous publicly visible summary of your question. It should omit all private details and personally identifiable information, be short, concise and include relevant hashtags. Returns a list of bids by experts who are willing to answer your question.",
-      inputSchema: {
-        summary: z.string().describe("A summary of the question"),
-        hashtags: z
-          .array(z.string())
-          .describe("List of hashtags for discovery"),
-      },
-      outputSchema: {
-        bids: z
-          .array(
-            z.object({
-              id: z.string().describe("Bid ID"),
-              expert_pubkey: z.string().describe("Expert's public key"),
-              offer: z.string().describe("Expert's offer description"),
-            })
-          )
-          .describe("List of bids from experts willing to answer the question"),
-      },
-      annotations: {
-        title: "Find experts on a subject",
-        readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: true,
-      },
-    };
-
-    // Register the find_experts tool
-    this.registerTool(
-      "find_experts",
-      findExpertsConfig,
-      makeTool(async (params, extra) => {
-        const { summary, hashtags } = params;
-        const bids = await this.findExperts(summary, hashtags);
-        return { bids };
-      })
-    );
-
-    // Schema for ask_experts tool
+    // Schema for askExperts tool
     const askExpertsConfig = {
       title: "Ask Experts",
       description:
-        "After you receive bids from experts, select good ones and you can send the question to these experts. Question should be detailed and may include sensitive data as it is encrypted. For each bid, provide the id you received from find_experts tool. Provide max amount of payment you are willing to pay to each expert, good default is 100 sats.",
+        "Ask a question to experts. The question should be detailed and may include sensitive data as it is encrypted. Provide max amount of payment you are willing to pay to each expert, good default is 100 sats.",
       inputSchema: {
         question: z.string().describe("The question to ask the experts"),
-        bids: z
-          .array(
-            z.object({
-              id: z.string().describe("Bid ID"),
-            })
-          )
-          .describe("Array of bids to send questions to"),
         max_amount_sats: z
           .number()
           .describe("Maximum amount to pay in satoshis"),
@@ -154,7 +123,7 @@ export class AskExpertsMCP extends McpServer {
           .describe("Array of replies from experts"),
       },
       annotations: {
-        title: "Ask multiple experts a question and receive their answers",
+        title: "Ask experts a question and receive their answers",
         readOnlyHint: false,
         destructiveHint: false,
         idempotentHint: false,
@@ -162,64 +131,14 @@ export class AskExpertsMCP extends McpServer {
       },
     };
 
-    // Register the ask_experts tool
+    // Register the askExperts tool
     this.registerTool(
-      "ask_experts",
+      "askExperts",
       askExpertsConfig,
       makeTool(async (params, extra) => {
-        const { question, bids, max_amount_sats } = params;
-        const replies = await this.askExperts(
-          question,
-          bids as BidMCP[],
-          max_amount_sats
-        );
+        const { question, max_amount_sats } = params;
+        const replies = await this.askExperts(question, max_amount_sats);
         return { replies };
-      })
-    );
-
-    // Schema for ask_expert tool
-    const askExpertConfig = {
-      title: "Ask Expert",
-      description:
-        "After you receive a bid from experts, you can send a question to a particular expert by their pubkey. Question should be detailed and may include sensitive data as it is encrypted. Provide max amount of payment you are willing to pay, good default is 100 sats.",
-      inputSchema: {
-        question: z.string().describe("The question to ask the expert"),
-        expert_pubkey: z.string().describe("Expert's public key"),
-        max_amount_sats: z
-          .number()
-          .describe("Maximum amount to pay in satoshis"),
-      },
-      outputSchema: {
-        reply: z
-          .object({
-            expert_pubkey: z.string().describe("Expert's public key"),
-            content: z.string().describe("Content of the answer"),
-            amount_sats: z.number().describe("Amount paid in satoshis"),
-          })
-          .describe("Reply from the expert"),
-      },
-      annotations: {
-        title:
-          "Ask a single expert a question and receive their answer",
-        readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: false,
-        openWorldHint: true,
-      },
-    };
-
-    // Register the ask_expert tool
-    this.registerTool(
-      "ask_expert",
-      askExpertConfig,
-      makeTool(async (params, extra) => {
-        const { question, expert_pubkey, max_amount_sats } = params;
-        const reply = await this.askExpert(
-          question,
-          expert_pubkey,
-          max_amount_sats
-        );
-        return { reply };
       })
     );
   }
@@ -306,102 +225,122 @@ export class AskExpertsMCP extends McpServer {
   }
 
   /**
-   * Finds experts based on a summary and hashtags
-   *
-   * @param summary - Summary of the question
-   * @param hashtags - Hashtags for discovery
-   * @returns Promise resolving to array of BidMCP objects
-   */
-  async findExperts(summary: string, hashtags: string[]): Promise<BidMCP[]> {
-    if (!summary || summary.trim() === "") {
-      throw new Error("Summary is required");
-    }
-
-    if (!hashtags || hashtags.length === 0) {
-      throw new Error("At least one hashtag is required");
-    }
-
-    try {
-      // Find experts using the client
-      const bids = await this.client.findExperts({
-        summary,
-        hashtags,
-        formats: [FORMAT_TEXT],
-        methods: [METHOD_LIGHTNING],
-      });
-
-      // Clear the bid map before adding new bids
-      this.bidMap.clear();
-
-      // Convert bids to BidMCP objects and store in the map
-      return bids.map((bid) => {
-        const bidMCP: BidMCP = {
-          id: bid.id,
-          expert_pubkey: bid.pubkey,
-          offer: bid.offer,
-        };
-
-        // Store the bid in the map for later use
-        this.bidMap.set(bidMCP.id, bid);
-
-        return bidMCP;
-      });
-    } catch (error) {
-      throw new Error(
-        `Failed to find experts: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
-    }
-  }
-
-  /**
-   * Asks multiple experts a question
+   * Asks experts a question with LLM-powered summarization and expert selection
    *
    * @param question - Question to ask
-   * @param bids - Array of BidMCP objects
    * @param max_amount_sats - Maximum amount to pay in satoshis
    * @returns Promise resolving to array of ReplyMCP objects
    */
   async askExperts(
     question: string,
-    bids: BidMCP[],
     max_amount_sats: number
   ): Promise<ReplyMCP[]> {
     if (!question || question.trim() === "") {
       throw new Error("Question is required");
     }
 
-    if (!bids || bids.length === 0) {
-      throw new Error("At least one bid is required");
-    }
-
     if (max_amount_sats <= 0) {
       throw new Error("Maximum amount must be greater than zero");
+    }
+
+    // Parse question, prepare for findExperts call
+    let publicQuestionSummary: string | undefined;
+    let hashtags: string[] = [];
+    let max_bid_sats: number | undefined;
+
+    try {
+      // Use OpenAI to generate an answer
+      const completion = await this.openai.chat.completions.create({
+        model: "openai/gpt-4o-mini",
+        messages: [
+          {
+            role: "developer",
+            content: `Your job is to look at the user's detailed question that might include sensitive or private information, 
+and come up with a short anonymized summarized question that can be shared publicly to find experts on the subject, without revealing
+any private data. You must also determine up to 10 hashtags this summarized question might have to simplify discovery for experts - hashtags
+must be one word each, english, lowercase, and be as specific as possible. Reply in a structured way in two lines:
+\`\`\`
+hashtags: hashtag1, hashtag2, etc
+question: <summarized question>
+\`\`\`
+
+If you believe the question is malformed or makes no sense, reply with one word "error".
+`,
+          },
+          {
+            role: "user",
+            content: question,
+          },
+        ],
+      });
+
+      // Extract the response content
+      const responseContent = completion.choices[0]?.message?.content;
+      console.log("prepare ask responseContent", responseContent);
+      if (!responseContent || responseContent === "error")
+        throw new Error("Failed to parse the question");
+      const lines = responseContent
+        .split("\n")
+        .map((s) => s.trim())
+        .filter((s) => !!s);
+      if (
+        lines.length !== 2 ||
+        !lines[0].startsWith("hashtags: ") ||
+        !lines[1].startsWith("question: ")
+      )
+        throw new Error("Bad question parsing reply");
+
+      hashtags = lines[0].substring("hashtags: ".length)
+        .split(",")
+        .map((t) => t.trim())
+        .filter((t) => !!t);
+      publicQuestionSummary = lines[1].substring("question: ".length).trim();
+    } catch (error) {
+      console.error("Error processing ask with OpenAI:", error);
+      throw error;
+    }
+
+    if (!hashtags.length || !publicQuestionSummary)
+      throw new Error("Parsed question or hashtags empty");
+
+    // Find experts using the client
+    const bids = await this.client.findExperts({
+      summary: publicQuestionSummary,
+      hashtags,
+      formats: [FORMAT_TEXT],
+      methods: [METHOD_LIGHTNING],
+    });
+
+    if (!bids || bids.length === 0) {
+      throw new Error("No experts found for the question");
+    }
+
+    // For now, just use all bids
+    // TODO: Implement bid evaluation using OpenAI
+    const selectedBids = bids;
+
+    // Store bids in the map for later use
+    this.bidMap.clear();
+    for (const bid of selectedBids) {
+      this.bidMap.set(bid.id, bid);
     }
 
     const results: ReplyMCP[] = [];
 
     // Process each bid in parallel
-    const promises = bids.map(async (bidMCP) => {
+    const promises = selectedBids.map(async (bid) => {
       try {
-        // Get the original bid from the map
-        const bid = this.bidMap.get(bidMCP.id);
-        if (!bid) {
-          throw new Error(`Bid not found for ID: ${bidMCP.id}`);
-        }
-
         // Ask the expert
-        const replies = await this.askExpertInternal(
+        const reply = await this.askExpertInternal(
           question,
           bid,
           max_amount_sats
         );
 
         // Add the result to the array
-        results.push(replies);
+        results.push(reply);
       } catch (error) {
-        debugError(`Failed to ask expert ${bidMCP.expert_pubkey}:`, error);
+        debugError(`Failed to ask expert ${bid.pubkey}:`, error);
         // Don't add failed experts to the results
       }
     });
@@ -410,43 +349,6 @@ export class AskExpertsMCP extends McpServer {
     await Promise.all(promises);
 
     return results;
-  }
-
-  /**
-   * Asks a single expert a question
-   *
-   * @param question - Question to ask
-   * @param expert_pubkey - Expert's public key
-   * @param max_amount_sats - Maximum amount to pay in satoshis
-   * @returns Promise resolving to ReplyMCP object
-   */
-  async askExpert(
-    question: string,
-    expert_pubkey: string,
-    max_amount_sats: number
-  ): Promise<ReplyMCP> {
-    if (!question || question.trim() === "") {
-      throw new Error("Question is required");
-    }
-
-    if (!expert_pubkey) {
-      throw new Error("Expert public key is required");
-    }
-
-    if (max_amount_sats <= 0) {
-      throw new Error("Maximum amount must be greater than zero");
-    }
-
-    // Find the bid for this expert
-    const bid = Array.from(this.bidMap.values()).find(
-      (b) => b.pubkey === expert_pubkey
-    );
-
-    if (!bid) {
-      throw new Error(`No bid found for expert: ${expert_pubkey}`);
-    }
-
-    return await this.askExpertInternal(question, bid, max_amount_sats);
   }
 
   /**

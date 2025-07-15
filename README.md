@@ -176,13 +176,17 @@ const expert = new AskExpertsServer({
 await expert.start();
 ```
 
-## MCP Server
+## MCP Servers
 
-The AskExperts SDK includes an MCP (Model Context Protocol) server that can be used to integrate with AI assistants. The MCP server provides a simplified interface for finding experts, asking questions, and receiving answers.
+The AskExperts SDK includes MCP (Model Context Protocol) servers that can be used to integrate with AI assistants. These servers provide simplified interfaces for finding experts, asking questions, and receiving answers.
 
-### Running the MCP Server
+### Standard MCP Server
 
-You can run the MCP server using the provided CLI:
+The standard MCP server provides direct access to the AskExperts protocol.
+
+#### Running the Standard MCP Server
+
+You can run the standard MCP server using the provided CLI:
 
 ```bash
 # Run the MCP server
@@ -194,6 +198,28 @@ export DISCOVERY_RELAYS=wss://relay1.example.com,wss://relay2.example.com
 npx askexperts mcp
 ```
 
+### Smart MCP Server
+
+The Smart MCP server enhances the standard server with LLM capabilities, providing an even simpler interface by handling expert discovery internally. It uses OpenAI to:
+
+1. Convert detailed questions into anonymized summaries and hashtags
+2. Evaluate expert bids (coming soon)
+3. Provide a single tool interface for asking questions
+
+#### Running the Smart MCP Server
+
+```bash
+# Run the Smart MCP server
+npx askexperts smart --nwc=your_nwc_connection_string --openai-api-key=your_openai_api_key
+
+# Or with environment variables
+export NWC_STRING=your_nwc_connection_string
+export OPENAI_API_KEY=your_openai_api_key
+export OPENAI_BASE_URL=https://api.openai.com/v1
+export DISCOVERY_RELAYS=wss://relay1.example.com,wss://relay2.example.com
+npx askexperts smart
+```
+
 ### Configuration
 
 Create a `.env` file with the following configuration:
@@ -202,11 +228,17 @@ Create a `.env` file with the following configuration:
 # MCP CLI configuration
 NWC_STRING=your_nwc_connection_string_here
 DISCOVERY_RELAYS=wss://relay1.example.com,wss://relay2.example.com
+
+# OpenAI configuration (required for Smart MCP server)
+OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_BASE_URL=https://api.openai.com/v1
 ```
 
-### MCP Server API
+### MCP Server APIs
 
-The MCP server provides the following tools:
+#### Standard MCP Server API
+
+The standard MCP server provides the following tools:
 
 1. **find_experts**: Find experts on a subject by providing a summary and hashtags
    ```json
@@ -222,9 +254,7 @@ The MCP server provides the following tools:
      "question": "I need help implementing a Lightning Network wallet in JavaScript. What libraries should I use?",
      "bids": [
        {
-         "id": "bid_id",
-         "expert_pubkey": "expert_pubkey",
-         "offer": "Expert's offer description"
+         "id": "bid_id"
        }
      ],
      "max_amount_sats": 10000
@@ -240,39 +270,24 @@ The MCP server provides the following tools:
    }
    ```
 
-### Using the MCP Server with AI Assistants
+#### Smart MCP Server API
 
-The MCP server can be used with AI assistants that support the Model Context Protocol. For example, with Claude:
+The Smart MCP server provides a simplified API with LLM-powered capabilities:
 
-```javascript
-import { McpClient } from '@modelcontextprotocol/sdk/client/mcp.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamable-http.js';
+1. **askExperts**: Ask a question to experts with automatic expert discovery
+   ```json
+   {
+     "question": "I need help implementing a Lightning Network wallet in JavaScript. What libraries should I use?",
+     "max_amount_sats": 10000
+   }
+   ```
 
-// Create a transport that connects to the MCP server
-const transport = new StreamableHTTPClientTransport({
-  url: 'http://localhost:3000/mcp',
-  fetch: fetch
-});
-
-// Create an MCP client
-const client = new McpClient();
-
-// Connect the client to the transport
-await client.connect(transport);
-
-// Find experts on a subject
-const findExpertsResult = await client.useTool('find_experts', {
-  summary: 'How to implement a Lightning Network wallet in JavaScript?',
-  hashtags: ['bitcoin', 'lightning', 'javascript']
-});
-
-// Ask experts
-const askExpertsResult = await client.useTool('ask_experts', {
-  question: 'I need help implementing a Lightning Network wallet in JavaScript. What libraries should I use?',
-  bids: findExpertsResult.structuredContent.bids,
-  max_amount_sats: 10000
-});
-```
+   This single tool handles:
+   - Converting your detailed question to an anonymized summary
+   - Generating relevant hashtags for expert discovery
+   - Finding and selecting appropriate experts
+   - Sending your question to selected experts
+   - Collecting and returning expert responses
 
 ## Development
 

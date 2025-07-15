@@ -4,6 +4,7 @@ import { dirname, resolve } from "path";
 import fs from "fs";
 import dotenv from "dotenv";
 import { startMcpServer } from "./commands/mcp.js";
+import { startSmartMcpServer } from "./commands/smart-mcp.js";
 import {
   debugError,
   enableAllDebug,
@@ -71,6 +72,36 @@ export function runCli(): void {
         await startMcpServer(options);
       } catch (error) {
         debugError("Error starting MCP server:", error);
+        process.exit(1);
+      }
+    });
+
+  // Smart MCP command
+  program
+    .command("smart")
+    .description("Launch the stdio Smart MCP server with LLM capabilities")
+    .option("-n, --nwc <string>", "NWC connection string for payments")
+    .option(
+      "-r, --relays <items>",
+      "Comma-separated list of discovery relays",
+      commaSeparatedList
+    )
+    .option(
+      "-k, --openai-api-key <string>",
+      "OpenAI API key"
+    )
+    .option(
+      "-u, --openai-base-url <string>",
+      "OpenAI base URL"
+    )
+    .option("-d, --debug", "Enable debug logging")
+    .action(async (options) => {
+      if (options.debug) enableAllDebug();
+      else enableErrorDebug();
+      try {
+        await startSmartMcpServer(options);
+      } catch (error) {
+        debugError("Error starting Smart MCP server:", error);
         process.exit(1);
       }
     });
