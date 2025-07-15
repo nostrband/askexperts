@@ -35,6 +35,8 @@ import {
   OnPromptCallback,
   OnProofCallback,
   ExpertQuote,
+  ExpertReplies,
+  ExpertReply,
 } from '../common/types.js';
 
 import { Compression, DefaultCompression } from '../common/compression.js';
@@ -671,25 +673,22 @@ export class AskExpertsServer {
           }
           
           // Call the onProof callback with prompt, expertQuote, and proof
-          const replies = await this.onProofCallback(prompt, expertQuote, proof);
+          const expertReplies = await this.onProofCallback(prompt, expertQuote, proof);
 
-          // Send the replies
-          this.sendReplies(prompt, replies);
+          // Send the expert replies
+          this.sendExpertReplies(prompt, expertReplies);
         } catch (error) {
           // If the callback throws an error, send a single error reply with done=true
           debugError('Error in onProof callback:', error);
 
-          // Create a simple replies object with a single error message
-          const errorReply: Reply = {
-            pubkey: this.pubkey,
-            promptId: prompt.id,
+          // Create a simple error reply
+          const errorReply: ExpertReply = {
             done: true,
-            content: error instanceof Error ? error.message : 'Unknown error in proof processing',
-            event: prompt.event, // Will be replaced in sendReply
+            content: error instanceof Error ? error.message : 'Unknown error in proof processing'
           };
           
           // Send the error reply
-          await this.sendReply(prompt, errorReply);
+          await this.sendExpertReply(prompt, errorReply);
         }
       } catch (error) {
         debugError('Error processing proof payload:', error);
@@ -700,34 +699,17 @@ export class AskExpertsServer {
   }
 
   /**
-   * Sends replies to a prompt
-   * 
+   * Sends an expert reply to a prompt
+   *
    * @param prompt - The prompt
-   * @param replies - The replies
+   * @param expertReply - The expert reply
    */
-  private async sendReplies(prompt: Prompt, replies: Replies): Promise<void> {
-    try {
-      // Iterate through the replies
-      for await (const reply of replies) {
-        await this.sendReply(prompt, reply);
-      }
-    } catch (error) {
-      debugError('Error sending replies:', error);
-    }
-  }
-
-  /**
-   * Sends a reply to a prompt
-   * 
-   * @param prompt - The prompt
-   * @param reply - The reply
-   */
-  private async sendReply(prompt: Prompt, reply: Reply): Promise<void> {
+  private async sendExpertReply(prompt: Prompt, expertReply: ExpertReply): Promise<void> {
     try {
       // Create the reply payload
       const replyPayload = {
-        content: reply.content,
-        done: reply.done,
+        content: expertReply.content,
+        done: expertReply.done,
       };
 
       // Convert to JSON string
@@ -767,7 +749,25 @@ export class AskExpertsServer {
 
       debugExpert(`Published reply to ${publishedRelays.length} relays`);
     } catch (error) {
-      debugError('Error sending reply:', error);
+      debugError('Error sending expert reply:', error);
+    }
+  }
+
+  /**
+   * Sends expert replies to a prompt
+   *
+   * @param prompt - The prompt
+   * @param expertReplies - The expert replies
+   */
+  private async sendExpertReplies(prompt: Prompt, expertReplies: ExpertReplies): Promise<void> {
+    try {
+      // Iterate through the expert replies
+      for await (const expertReply of expertReplies) {
+        // Send the expert reply
+        await this.sendExpertReply(prompt, expertReply);
+      }
+    } catch (error) {
+      debugError('Error sending expert replies:', error);
     }
   }
 

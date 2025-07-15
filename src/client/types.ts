@@ -256,7 +256,4 @@ export interface Replies extends AsyncIterable<Reply> {
   
   /** Expert's public key */
   expertPubkey: string;
-  
-  /** Compression instance for decompressing replies */
-  compression: Compression;
 }

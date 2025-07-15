@@ -54,7 +54,26 @@ export type OnPromptCallback = (prompt: Prompt) => Promise<ExpertQuote>;
  * Called when an expert receives a proof of payment
  * Returns replies to the prompt
  */
-export type OnProofCallback = (prompt: Prompt, quote: ExpertQuote, proof: Proof) => Promise<Replies>;
+/**
+ * Expert reply structure for server-side implementation
+ */
+export interface ExpertReply {
+  /** Whether this is the last reply */
+  done: boolean;
+  
+  /** Reply content */
+  content: any;
+}
+
+/**
+ * Expert replies interface for server-side implementation
+ * Extends AsyncIterable to allow streaming replies
+ */
+export interface ExpertReplies extends AsyncIterable<ExpertReply> {
+  // No additional fields required
+}
+
+export type OnProofCallback = (prompt: Prompt, quote: ExpertQuote, proof: Proof) => Promise<ExpertReplies>;
 
 /**
  * Parameters for finding experts

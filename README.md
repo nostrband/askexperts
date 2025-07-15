@@ -1,825 +1,299 @@
-# AskExperts MCP Server
+# AskExperts SDK
 
-An MCP server that allows users to find experts on a subject, ask them questions, pay them for their answers, and curate the experts.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![npm version](https://img.shields.io/npm/v/askexperts.svg)](https://www.npmjs.com/package/askexperts)
 
-## Features
+A JavaScript/TypeScript SDK for the AskExperts protocol (NIP-174), enabling discovery of AI experts, asking them questions privately, and paying for answers using the Lightning Network.
 
-- Find experts on a subject by posting a public summary of your question
-- Experts can bid on answering your question
-- Pay experts for their answers
-- Manage list of expert scores
-- Parent server for centralized user management across multiple MCP servers
+## Overview
+
+AskExperts SDK implements the [NIP-174](https://github.com/nostr-protocol/nips/blob/master/174.md) protocol, which allows:
+
+- **Discovery**: Find experts by publishing anonymized question summaries with hashtags
+- **Prompting**: Send encrypted questions to experts and receive answers
+- **Payments**: Pay experts for their answers using Lightning Network
+
+The SDK includes:
+- Client implementation for browser and Node.js environments
+- Server implementation for experts to receive and answer questions
+- MCP (Model Context Protocol) server for integration with AI assistants
 
 ## Installation
 
-### Local Development
+```bash
+# Install the package
+npm install askexperts
+
+# Or with yarn
+yarn add askexperts
+```
+
+## Client Usage
+
+```javascript
+import { AskExpertsClient, FORMAT_TEXT, COMPRESSION_PLAIN } from 'askexperts/client';
+import { LightningPaymentManager } from 'askexperts/lightning';
+
+// Create a payment manager (optional, for handling Lightning payments)
+const paymentManager = new LightningPaymentManager('your_nwc_connection_string');
+
+// Create a client with optional payment handling
+const client = new AskExpertsClient({
+  // Optional default handlers for quotes and payments
+  onQuote: async (quote, prompt) => {
+    console.log(`Expert is asking for ${quote.invoices[0].amount} sats`);
+    // Check if the amount is acceptable
+    return quote.invoices[0].amount <= 1000;
+  },
+  onPay: async (quote, prompt) => {
+    const invoice = quote.invoices.find(inv => inv.method === 'lightning');
+    if (invoice && invoice.invoice) {
+      // Pay the invoice using the payment manager
+      const preimage = await paymentManager.payInvoice(invoice.invoice);
+      return {
+        method: 'lightning',
+        preimage
+      };
+    }
+    throw new Error('No valid invoice found');
+  }
+});
+
+// Find experts
+const bids = await client.findExperts({
+  summary: "How to implement a Lightning Network wallet?",
+  hashtags: ["bitcoin", "lightning", "javascript"],
+  formats: [FORMAT_TEXT],
+  comprs: [COMPRESSION_PLAIN],
+  methods: ["lightning"]
+});
+
+// Fetch expert profiles
+const experts = await client.fetchExperts({
+  pubkeys: bids.map(bid => bid.pubkey)
+});
+
+// Ask an expert (can override default handlers)
+const replies = await client.askExpert({
+  expert: experts[0],
+  content: "I need help implementing a Lightning Network wallet in JavaScript. What libraries should I use?",
+  format: FORMAT_TEXT,
+  compr: COMPRESSION_PLAIN
+});
+
+// Process replies
+for await (const reply of replies) {
+  console.log(`Reply: ${reply.content}`);
+  
+  if (reply.done) {
+    console.log("This is the final reply");
+  }
+}
+```
+
+## Expert Server Implementation
+
+```typescript
+import { AskExpertsServer } from 'askexperts/expert';
+import { generateSecretKey, getPublicKey } from 'nostr-tools';
+import { FORMAT_TEXT, COMPRESSION_PLAIN, METHOD_LIGHTNING } from 'askexperts/common/constants';
+
+// Generate a keypair for the expert
+const privateKey = generateSecretKey();
+const publicKey = getPublicKey(privateKey);
+
+// Create an expert server
+const expert = new AskExpertsServer({
+  privkey: privateKey,
+  discoveryRelays: ['wss://relay1.askexperts.io'],
+  promptRelays: ['wss://relay1.askexperts.io'],
+  hashtags: ['ai', 'help', 'javascript'],
+  formats: [FORMAT_TEXT],
+  
+  // Handle asks
+  onAsk: async (ask) => {
+    console.log(`Received ask: ${ask.summary}`);
+    
+    // Return a bid if you want to answer this question
+    return {
+      offer: "I can help with your JavaScript question!",
+      relays: ['wss://relay1.askexperts.io'],
+    };
+  },
+  
+  // Handle prompts
+  onPrompt: async (prompt) => {
+    console.log(`Received prompt: ${JSON.stringify(prompt.content)}`);
+    
+    // Create a Lightning invoice
+    const invoice = await createLightningInvoice(100); // 100 sats
+    
+    // Return a quote
+    return {
+      invoices: [
+        {
+          method: METHOD_LIGHTNING,
+          unit: 'sat',
+          amount: 100,
+          invoice: invoice
+        }
+      ]
+    };
+  },
+  
+  // Handle proofs and execute prompts
+  onProof: async (prompt, expertQuote, proof) => {
+    console.log(`Received proof for prompt: ${prompt.id}`);
+    
+    // Verify the payment
+    const isValid = await verifyPayment(proof.preimage, expertQuote.invoices[0].invoice);
+    
+    if (!isValid) {
+      throw new Error('Invalid payment proof');
+    }
+    
+    // Create an ExpertReplies object
+    return {
+      // Implement AsyncIterable interface
+      [Symbol.asyncIterator]: async function* () {
+        // First reply
+        yield {
+          done: false,
+          content: 'This is the first part of my response.'
+        };
+        
+        // Final reply
+        yield {
+          done: true,
+          content: 'This is the final part of my response.'
+        };
+      }
+    };
+  }
+});
+
+// Start the expert
+await expert.start();
+```
+
+## MCP Server
+
+The AskExperts SDK includes an MCP (Model Context Protocol) server that can be used to integrate with AI assistants. The MCP server provides a simplified interface for finding experts, asking questions, and receiving answers.
+
+### Running the MCP Server
+
+You can run the MCP server using the provided CLI:
+
+```bash
+# Run the MCP server
+npx askexperts mcp --nwc=your_nwc_connection_string
+
+# Or with environment variables
+export NWC_STRING=your_nwc_connection_string
+export DISCOVERY_RELAYS=wss://relay1.example.com,wss://relay2.example.com
+npx askexperts mcp
+```
+
+### Configuration
+
+Create a `.env` file with the following configuration:
+
+```
+# MCP CLI configuration
+NWC_STRING=your_nwc_connection_string_here
+DISCOVERY_RELAYS=wss://relay1.example.com,wss://relay2.example.com
+```
+
+### MCP Server API
+
+The MCP server provides the following tools:
+
+1. **find_experts**: Find experts on a subject by providing a summary and hashtags
+   ```json
+   {
+     "summary": "How to implement a Lightning Network wallet?",
+     "hashtags": ["bitcoin", "lightning", "javascript"]
+   }
+   ```
+
+2. **ask_experts**: Ask multiple experts a question and receive their answers
+   ```json
+   {
+     "question": "I need help implementing a Lightning Network wallet in JavaScript. What libraries should I use?",
+     "bids": [
+       {
+         "id": "bid_id",
+         "expert_pubkey": "expert_pubkey",
+         "offer": "Expert's offer description"
+       }
+     ],
+     "max_amount_sats": 10000
+   }
+   ```
+
+3. **ask_expert**: Ask a single expert a question and receive their answer
+   ```json
+   {
+     "question": "I need help implementing a Lightning Network wallet in JavaScript. What libraries should I use?",
+     "expert_pubkey": "expert_pubkey",
+     "max_amount_sats": 10000
+   }
+   ```
+
+### Using the MCP Server with AI Assistants
+
+The MCP server can be used with AI assistants that support the Model Context Protocol. For example, with Claude:
+
+```javascript
+import { McpClient } from '@modelcontextprotocol/sdk/client/mcp.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamable-http.js';
+
+// Create a transport that connects to the MCP server
+const transport = new StreamableHTTPClientTransport({
+  url: 'http://localhost:3000/mcp',
+  fetch: fetch
+});
+
+// Create an MCP client
+const client = new McpClient();
+
+// Connect the client to the transport
+await client.connect(transport);
+
+// Find experts on a subject
+const findExpertsResult = await client.useTool('find_experts', {
+  summary: 'How to implement a Lightning Network wallet in JavaScript?',
+  hashtags: ['bitcoin', 'lightning', 'javascript']
+});
+
+// Ask experts
+const askExpertsResult = await client.useTool('ask_experts', {
+  question: 'I need help implementing a Lightning Network wallet in JavaScript. What libraries should I use?',
+  bids: findExpertsResult.structuredContent.bids,
+  max_amount_sats: 10000
+});
+```
+
+## Development
 
 ```bash
 # Clone the repository
-git clone <repository-url>
+git clone https://github.com/nostrband/askexperts.git
 cd askexperts
 
 # Install dependencies
 npm install
-```
 
-### Using NPX
-
-You can run the MCP server directly using npx without installing it:
-
-```bash
-npx -y askexperts
-```
-
-## Usage
-
-### Starting the Server
-
-#### Local Development (Stdio Mode)
-
-```bash
-# Run the MCP server in stdio mode
-npm run mcp
-
-# Development mode with auto-reload
-npm run dev
-
-# Build and start in production mode
-npm run build
-npm start
-```
-
-#### Remote HTTP Server
-
-```bash
-# Run the MCP server as a remote HTTP server
-npm run server
-
-# Development mode with auto-reload
-npm run server:dev
-```
-
-The remote server will start on port 3000 (or the port specified in the PORT environment variable) with the following endpoints:
-- Session endpoint: http://localhost:3000/api/session
-- MCP endpoint: http://localhost:3000/api/mcp/:sessionId
-
-#### Parent Server
-
-```bash
-# Run the parent server
-npm run parent
-
-# Development mode with auto-reload
-npm run parent:dev
-```
-The parent server will start on port 3001 (or the port specified in the PARENT_PORT environment variable) with the following endpoints:
-- Health check: http://localhost:3001/health
-- User info: http://localhost:3001/user
-- Users endpoint: http://localhost:3001/users
-
-### Parent Server API
-
-The parent server provides a centralized user management system for multiple MCP servers. It allows MCP servers to fetch users assigned to them and receive notifications when new users are added.
-
-#### API Endpoints
-
-1. **GET /health**
-   - Description: Health check endpoint
-   - Response: `{ "status": "ok" }`
-
-2. **GET /user**
-   - Description: Get information about a user by their token
-   - Authentication: Bearer token in Authorization header
-   - Response: User information (pubkey, timestamp, and mcp_server_url)
-   - Error responses:
-     - 401: Unauthorized (missing or invalid token)
-
-3. **GET /users**
-   - Description: Get users assigned to an MCP server since a specific timestamp
-   - Authentication: MCP server token in Authorization header
-   - Query parameters:
-     - `since` (optional): Timestamp to filter users (get users added after this timestamp)
-   - Response: Array of user objects with pubkey, nsec, nwc, timestamp, and token
-   - Error responses:
-     - 401: Unauthorized (missing or invalid token)
-     - 400: Invalid 'since' parameter
-
-4. **POST /signup**
-   - Description: Create a new user with automatically generated credentials
-   - No authentication required (public endpoint)
-   - No request body needed
-   - Response: Created user object with pubkey, nsec, nwc, token, and mcp_server_url
-   - Error responses:
-     - 500: Failed to create user
-     - 500: No MCP servers available
-
-#### MCP Server Integration
-
-MCP servers connect to the parent server using the following environment variables:
-- `PARENT_URL`: URL of the parent server
-- `PARENT_TOKEN`: Authentication token for the MCP server
-- `MCP_SERVER_ID`: ID of the MCP server in the parent database
-
-When an MCP server connects to the parent server, it:
-1. Fetches users assigned to it since the last known timestamp
-2. Polls for new users at regular intervals (default: 60 seconds)
-3. Listens for webhook notifications when new users are added
-
-The parent server notifies MCP servers about new users by calling a webhook endpoint:
-- `POST /new-user-webhook` on the MCP server
-- Authentication: MCP server token in Authorization header
-- Request body: `{ "action": "new_user_added" }`
-
-#### User Signup Flow
-
-The parent server provides a public signup endpoint that automatically:
-1. Generates a new Nostr keypair (pubkey and nsec)
-2. Creates a new NWC wallet connection
-3. Assigns the user to the MCP server with the highest ID
-4. Returns credentials to the client, including the MCP server URL
-5. Notifies the assigned MCP server about the new user
-
-This allows clients to implement a simple signup process without needing to generate Nostr keys or NWC connections themselves. The returned MCP server URL enables clients to directly connect to the appropriate MCP server without additional API calls.
-
-
-### Server Architecture
-
-The AskExperts MCP server is built with a modular architecture:
-
-1. **AskExpertsTools** - Core functionality class that handles:
-   - Finding experts on Nostr
-   - Collecting bids from experts
-   - Sending encrypted questions to experts
-   - Receiving and processing answers
-   - Managing payments via NWC (Nostr Wallet Connect)
-
-2. **AskExpertsMCP** - MCP server class that:
-   - Extends the base McpServer class from the MCP SDK
-   - Encapsulates an instance of AskExpertsTools
-   - Registers and exposes the find_experts and ask_experts tools
-   - Handles tool registration and configuration
-
-3. **Server** - Express.js HTTP server that:
-   - Provides REST API endpoints for client connections
-   - Manages sessions for stateful client interactions
-   - Connects the AskExpertsMCP instance to HTTP transport
-   - Handles CORS and other HTTP-specific concerns
-
-4. **ParentServer** - Express.js HTTP server that:
-   - Provides a centralized user database for multiple MCP servers
-   - Distributes users to connected MCP servers
-   - Authenticates MCP servers using tokens
-   - Manages MCP server registrations
-
-### Launching the Server
-
-To launch the server, you have several options:
-
-#### Option 1: Run as a local stdio-based MCP server using CLI
-
-```bash
-# Install dependencies if you haven't already
-npm install
-
-# Run the server in stdio mode using the CLI
-npm run cli mcp --nwc "your-nwc-connection-string" --relays "wss://relay1.example.com,wss://relay2.example.com" --debug
-
-# Or use environment variables
-export NWC_STRING="your-nwc-connection-string"
-export DISCOVERY_RELAYS="wss://relay1.example.com,wss://relay2.example.com"
-npm run cli mcp --debug
-```
-
-The CLI supports the following options:
-- `--nwc, -n`: NWC connection string for payments (can also be set via NWC_STRING environment variable)
-- `--relays, -r`: Comma-separated list of discovery relays (can also be set via DISCOVERY_RELAYS environment variable)
-- `--debug, -d`: Enable debug logging
-
-This mode is suitable for direct integration with MCP clients that support stdio transport.
-
-#### Option 2: Run as a local stdio-based MCP server using NPX
-
-```bash
-# Run directly with npx
-npx -y askexperts mcp --nwc "your-nwc-connection-string" --relays "wss://relay1.example.com,wss://relay2.example.com" --debug
-
-# Or use environment variables
-export NWC_STRING="your-nwc-connection-string"
-export DISCOVERY_RELAYS="wss://relay1.example.com,wss://relay2.example.com"
-npx -y askexperts mcp --debug
-```
-
-#### Option 2: Run as a remote HTTP server
-
-```bash
-# Install dependencies if you haven't already
-npm install
-
-# Run the server in HTTP mode
-npm run server
-```
-
-The server will start on port 3000 by default (configurable via PORT environment variable) and output:
-```
-AskExperts MCP server is running on port 3000
-Session endpoint: http://localhost:3000/api/session
-MCP endpoint: http://localhost:3000/api/mcp/:sessionId
-```
-
-#### Option 3: Run with automatic payments enabled
-
-To enable automatic payments for expert bids, set the NWC_CONNECTION_STRING environment variable:
-
-```bash
-# Set the NWC connection string
-export NWC_CONNECTION_STRING="nostr+walletconnect://..."
-
-# Run the server
-npm run server
-```
-
-This allows the server to automatically pay Lightning invoices for expert bids without requiring clients to provide payment preimages.
-
-#### Option 4: Run with parent server connection
-
-To connect the MCP server to a parent server for centralized user management:
-
-```bash
-# Set the parent server connection details
-export PARENT_URL="http://localhost:3001"
-export PARENT_TOKEN="your-mcp-server-token"
-export MCP_SERVER_ID="your-mcp-server-id"
-
-# Run the server
-npm run server
-```
-
-This allows the MCP server to fetch users from the parent server.
-
-#### Option 5: Run the parent server
-
-```bash
-# Install dependencies if you haven't already
-npm install
-
-# Run the parent server
-npm run parent
-```
-
-The parent server will start on port 3001 by default (configurable via PARENT_PORT environment variable).
-
-#### Using NPX
-
-```bash
-# Run directly without installation (stdio mode)
-npx -y askexperts
-
-# Run with specific command
-npx -y askexperts mcp --nwc "your-nwc-connection-string" --debug
-
-# Or install globally and run
-npm install -g askexperts
-askexperts
-askexperts mcp --nwc "your-nwc-connection-string" --debug
-
-# Run as a remote HTTP server
-npx -y askexperts-server
-
-# Run as a parent server
-npx -y askexperts-parent
-```
-
-### Using the MCP Server
-
-The server exposes the following MCP tools:
-
-#### find_experts
-
-Find experts on a subject by posting an anonymous publicly visible summary of your question. It should omit all private details and personally identifiable information, be short, concise and include relevant tags. Returns a list of bids by experts who are willing to answer your question and their invoices for payments.
-
-**Parameters:**
-- `public_question_summary` (string, required): A public summary of the question, omitting private details and PII
-- `tags` (string[], optional): List of tags for discovery (required if expert_pubkeys not set)
-- `expert_pubkeys` (string[], optional): List of expert public keys to direct the question to, if those were already discovered
-- `max_bid_sats` (number, optional): Maximum payment amount willing to pay for an answer, in Bitcoin satoshis
-
-**Returns:**
-A JSON string containing:
-- `bids`: Array of bid objects, each containing:
-  - `message_id` (string): Bid payload event ID
-  - `pubkey` (string): Expert's public key
-  - `bid_sats` (number): Amount of the bid in satoshis
-  - `offer` (string): Expert's offer description
-- `id` (string): ID of the ask event
-
-#### ask_experts
-
-After you receive bids from experts, select good ones and you can send the question to these experts. For each bid, information received from find_experts tool must be included, you can pay invoices yourself and provide preimages, or leave preimages empty and we pay from built-in wallet. Relays and invoices are stored internally and clients don't have to pass them from bids to questions.
-
-**Note:** If the server does not have `NWC_CONNECTION_STRING` set, you must pay invoices yourself and provide the preimages when calling this tool.
-
-**Parameters:**
-- `ask_id` (string, required): Id of the ask, received from find_experts.
-- `question` (string, required): The detailed question to send to experts, might include more sensitive data as the questions are encrypted.
-- `experts` (array, required): Array of experts to send questions to, each containing:
-  - `message_id` (string, required): Bid payload event ID for the first question, or last answer event ID for a followup
-  - `pubkey` (string, required): Expert's public key
-  - `preimage` (string, conditional): Payment preimage for verification (required if NWC_CONNECTION_STRING not set)
-  - `bid_sats` (number, conditional): Amount of the bid in satoshis (required when preimage is not provided, must match the invoice amount)
-- `timeout` (number, optional): Timeout in milliseconds for sending the questions and receiving the answers (default: 5000ms)
-
-**Returns:**
-A JSON string containing:
-- `total` (number): Total number of question results
-- `sent` (number): Number of questions successfully sent
-- `failed` (number): Number of questions that failed to send
-- `failed_payments` (number): Number of questions that failed to get paid
-- `received` (number): Number of answers received
-- `timeout` (number): Number of answers that timed out
-- `insufficient_balance` (boolean): True if internal wallet is out of funds (only relevant when `NWC_CONNECTION_STRING` is set)
-- `results` (array): Detailed results for each expert question/answer, each containing:
-  - `message_id` (string): Message ID that was provided as input
-  - `expert_pubkey` (string): Expert's public key
-  - `payment_hash` (string, optional): Payment hash of the bid, useful to find the payment in client's wallet
-  - `status` (string): Status of the question/answer process ('sent', 'failed', 'received', 'timeout')
-  - `content` (string, optional): Content of the answer if received
-  - `followup_sats` (number, optional): If followup is allowed by expert, includes the amount of sats to pay for a followup question
-  - `followup_message_id` (string, optional): ID of the message to ask a followup question, to be passed to ask_experts
-  - `followup_invoice` (string, optional): Lightning invoice for followup question if available (only included when `NWC_CONNECTION_STRING` is not set)
-  - `error` (string, optional): Error message if failed
-
-### Example Usage with MCP Client
-
-#### Using with Local Server (Stdio Mode)
-
-```typescript
-import { McpClient } from "@modelcontextprotocol/sdk/client/mcp.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-
-// Create an MCP client
-const client = new McpClient();
-
-// Connect to the server using stdio transport
-const transport = new StdioClientTransport();
-await client.connect(transport);
-
-// Call the find_experts tool
-const findResult = await client.callTool("find_experts", {
-  public_question_summary: "How to implement a blockchain in JavaScript?",
-  tags: ["blockchain", "javascript", "programming"],
-  // expert_pubkeys: ["pubkey1", "pubkey2"], // Optional: direct the question to specific experts
-  max_bid_sats: 2000
-});
-
-// Get the bids and ask ID from the result
-const { bids, id } = JSON.parse(findResult);
-
-// Select bids to send questions to
-const selectedBids = bids.slice(0, 2); // Select first two bids
-
-// Call the ask_experts tool with selected experts
-const askResult = await client.callTool("ask_experts", {
-  ask_id: id,
-  question: "I need a detailed explanation of how to implement a simple blockchain in JavaScript with examples.",
-  experts: selectedBids.map(bid => ({
-    message_id: bid.message_id,
-    pubkey: bid.pubkey,
-    bid_sats: bid.bid_sats // Required to match the invoice amount
-    // preimage is not provided, so the server will pay using NWC_CONNECTION_STRING
-  })),
-  timeout: 10000 // Wait 10 seconds for answers
-});
-
-console.log(askResult);
-```
-
-#### Using with NPX
-
-You can use the MCP server with a client by spawning it as a child process:
-
-```typescript
-import { McpClient } from "@modelcontextprotocol/sdk/client/mcp.js";
-import { ChildProcessClientTransport } from "@modelcontextprotocol/sdk/client/child-process.js";
-import { spawn } from "child_process";
-
-// Create an MCP client
-const client = new McpClient();
-
-// Spawn the MCP server as a child process using npx
-const serverProcess = spawn("npx", ["-y", "askexperts"]);
-
-// Connect to the server using child process transport
-const transport = new ChildProcessClientTransport(serverProcess);
-await client.connect(transport);
-
-// Call the find_experts tool
-const findResult = await client.callTool("find_experts", {
-  public_question_summary: "How to implement a blockchain in JavaScript?",
-  tags: ["blockchain", "javascript", "programming"],
-  // expert_pubkeys: ["pubkey1", "pubkey2"], // Optional: direct the question to specific experts
-  max_bid_sats: 2000
-});
-
-// Get the bids and ask ID from the result
-const { bids, id } = JSON.parse(findResult);
-
-// Select bids to send questions to
-const selectedBids = bids.slice(0, 2); // Select first two bids
-
-// Call the ask_experts tool with selected experts
-const askResult = await client.callTool("ask_experts", {
-  ask_id: id,
-  question: "I need a detailed explanation of how to implement a simple blockchain in JavaScript with examples.",
-  experts: selectedBids.map(bid => ({
-    message_id: bid.message_id,
-    pubkey: bid.pubkey,
-    bid_sats: bid.bid_sats, // Required to match the invoice amount
-    // preimage is not provided, so the server will pay using NWC_CONNECTION_STRING
-  })),
-  timeout: 10000 // Wait 10 seconds for answers
-});
-
-console.log(askResult);
-```
-
-#### Using with Remote HTTP Server
-
-```typescript
-import { McpClient } from "@modelcontextprotocol/sdk/client/mcp.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamable-http.js";
-import fetch from "node-fetch";
-
-// Default server URL
-const SERVER_URL = process.env.SERVER_URL || "http://localhost:3000";
-
-async function main() {
-  try {
-    // First, get a session ID from the server
-    console.log("Getting session ID from server...");
-    const sessionResponse = await fetch(`${SERVER_URL}/api/session`);
-    const sessionData = await sessionResponse.json();
-    const sessionId = sessionData.sessionId;
-    
-    console.log(`Session ID: ${sessionId}`);
-    
-    // Create a transport that connects to the MCP server
-    const transport = new StreamableHTTPClientTransport({
-      url: `${SERVER_URL}/api/mcp/${sessionId}`,
-      fetch: fetch,
-    });
-    
-    // Create an MCP client
-    const client = new McpClient();
-    
-    // Connect the client to the transport
-    await client.connect(transport);
-    
-    // Get server info
-    const serverInfo = await client.getServerInfo();
-    console.log("Server info:", serverInfo);
-    
-    // List available tools
-    const tools = await client.listTools();
-    console.log("Available tools:", tools);
-    
-    // Example: Find experts on a subject
-    if (tools.includes("find_experts")) {
-      console.log("\nFinding experts...");
-      const findExpertsResult = await client.useTool("find_experts", {
-        public_question_summary: "How to implement a Lightning Network wallet in JavaScript?",
-        tags: ["bitcoin", "lightning", "javascript"]
-      });
-      
-      // Process the result...
-    }
-    
-    // Close the connection
-    await client.disconnect();
-  } catch (error) {
-    console.error("Error:", error);
-  }
-}
-
-main();
-```
-
-A complete example client is available in the `examples/remote-client.js` file.
-
-#### Using the Signup Endpoint
-
-```javascript
-// Example of using the signup endpoint to create a new user
-async function signupNewUser() {
-  try {
-    // Call the signup endpoint
-    const response = await fetch('http://localhost:3001/signup', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
-    
-    if (!response.ok) {
-      throw new Error(`Signup failed: ${response.status} ${response.statusText}`);
-    }
-    
-    // Get the user credentials
-    const userData = await response.json();
-    console.log('New user created:');
-    console.log('Public key:', userData.pubkey);
-    console.log('Private key (nsec):', userData.nsec);
-    console.log('NWC connection string:', userData.nwc);
-    console.log('Authentication token:', userData.token);
-    console.log('MCP server URL:', userData.mcp_server_url);
-    
-    // Store the token for future API calls
-    const authToken = userData.token;
-    
-    // Example: Use the token to get user info
-    const userInfoResponse = await fetch('http://localhost:3001/user', {
-      headers: {
-        'Authorization': `Bearer ${authToken}`
-      }
-    });
-    
-    const userInfo = await userInfoResponse.json();
-    console.log('User info:', userInfo);
-    
-    return userData;
-  } catch (error) {
-    console.error('Error signing up:', error);
-    throw error;
-  }
-}
-```
-
-## User Authentication
-
-The server supports user authentication using tokens. Users can be added to the SQLite database, and their tokens can be used to authenticate requests to the MCP endpoint.
-
-### Database Structure
-
-#### MCP Server Database
-
-The MCP server uses a SQLite database to store user information with the following fields:
-- `pubkey` (string): The user's public key
-- `nsec` (string): The user's private key
-- `nwc` (string): The user's NWC connection string
-- `timestamp` (number): Unix timestamp when the user was added
-- `token` (string): Authentication token for the user
-
-#### Parent Server Database
-
-The parent server uses a SQLite database with the following tables:
-
-**mcp_servers**
-- `id` (number): Autoincremented primary key
-- `url` (string): URL of the MCP server
-- `token` (string): Authentication token for the MCP server
-
-**users**
-- `pubkey` (string): The user's public key
-- `nsec` (string): The user's private key
-- `nwc` (string): The user's NWC connection string
-- `timestamp` (number): Unix timestamp when the user was added
-- `token` (string): Authentication token for the user
-- `mcp_server_id` (number): Foreign key referencing the mcp_servers table
-
-### Adding a User
-
-#### To MCP Server
-
-To add a user to the MCP server database, use the provided utility script:
-
-```bash
-# Build the project first
+# Build the package
 npm run build
 
-# Add a user
-npm run add-user
-```
-
-This will generate a random token for the user and store it in the database. The script will output the token that can be used for authentication.
-
-#### To Parent Server
-
-To add a user to the parent server database, use the provided utility script:
-
-```bash
-# Build the project first
-npm run build
-
-# Add a user
-npm run add-parent-user
-```
-
-This will prompt you for the MCP server ID and user details, then add the user to the parent database.
-
-### Adding an MCP Server to Parent
-
-To register an MCP server with the parent server:
-
-```bash
-# Build the project first
-npm run build
-
-# Add an MCP server
-npm run add-mcp-server
-```
-
-This will prompt you for the MCP server URL and generate a token for authentication.
-
-### Getting User Information
-
-To retrieve user information by token:
-
-```bash
-npm run get-user <token>
-```
-
-### Authenticating Requests
-
-To authenticate requests to the MCP endpoint, include the token in the Authorization header:
-
-```
-Authorization: Bearer <token>
-```
-
-When a user is authenticated, the server will use their NWC string from the database instead of the environment variable.
-
-### User API Endpoint
-
-The server provides a `/user` endpoint to get information about the authenticated user:
-
-```bash
-curl -H "Authorization: Bearer <token>" http://localhost:3000/user
-```
-
-## Debugging
-
-This project uses the [debug](https://www.npmjs.com/package/debug) package for logging. To enable debug logs, set the `DEBUG` environment variable:
-
-```bash
-# Enable all logs
-DEBUG=askexperts:* npm run dev
-
-# Enable only error logs
-DEBUG=askexperts:error npm run dev
-
-# Enable specific module logs
-DEBUG=askexperts:relay,askexperts:mcp npm run dev
-```
-
-Available namespaces:
-- `askexperts:relay` - Relay operations
-- `askexperts:mcp` - MCP server operations
-- `askexperts:expert` - Expert server operations
-- `askexperts:client` - Client operations
-- `askexperts:error` - Error logs from all modules
-
-You can also enable/disable debug programmatically:
-
-```typescript
-import { enableAllDebug, disableAllDebug } from 'askexperts';
-
-// Enable all debug logs
-enableAllDebug();
-
-// Disable all debug logs
-disableAllDebug();
-```
-
-## Environment Variables
-
-### PORT
-
-The `PORT` environment variable sets the port number for the remote HTTP server. If not specified, the server will run on port 3000.
-
-```bash
-# Set the port for the remote server
-export PORT=8080
-
-# Then start the server
-npm run server
-```
-
-### PARENT_PORT
-
-The `PARENT_PORT` environment variable sets the port number for the parent server. If not specified, the server will run on port 3001.
-
-```bash
-# Set the port for the parent server
-export PARENT_PORT=8081
-
-# Then start the parent server
-npm run parent
-```
-
-### PARENT_URL
-
-The `PARENT_URL` environment variable sets the URL of the parent server for the MCP server to connect to. If not specified, the MCP server will use "http://localhost:3001".
-
-```bash
-# Set the parent server URL
-export PARENT_URL="http://parent-server.example.com"
-
-# Then start the MCP server
-npm run server
-```
-
-### PARENT_TOKEN
-
-The `PARENT_TOKEN` environment variable sets the authentication token for the MCP server to use when connecting to the parent server. This token is generated when adding an MCP server to the parent database.
-
-```bash
-# Set the parent server token
-export PARENT_TOKEN="your-mcp-server-token"
-
-# Then start the MCP server
-npm run server
-```
-
-### MCP_SERVER_ID
-
-The `MCP_SERVER_ID` environment variable sets the ID of the MCP server in the parent database. This ID is generated when adding an MCP server to the parent database.
-
-```bash
-# Set the MCP server ID
-export MCP_SERVER_ID="your-mcp-server-id"
-
-# Then start the MCP server
-npm run server
-```
-
-### NWC_STRING
-
-The `NWC_STRING` environment variable enables the built-in wallet functionality in the `ask_experts` tool. When set, it allows the MCP server to automatically pay Lightning invoices for expert bids without requiring the client to provide payment preimages. This is used as a fallback when no authenticated user is present.
-
-This variable can also be provided via the `--nwc` or `-n` option when using the CLI.
-
-### DISCOVERY_RELAYS
-
-The `DISCOVERY_RELAYS` environment variable sets the list of Nostr relays to use for discovering experts. It should be a comma-separated list of WebSocket URLs.
-
-```bash
-# Set the discovery relays
-export DISCOVERY_RELAYS="wss://relay1.example.com,wss://relay2.example.com"
-
-# Then start the server
-npm run cli mcp
-```
-
-This variable can also be provided via the `--relays` or `-r` option when using the CLI.
-
-#### What is NWC?
-
-NWC (Nostr Wallet Connect) is a protocol that allows applications to connect to a Lightning wallet. The connection string is a URL that contains the necessary information to connect to a wallet that supports the NWC protocol.
-
-#### Setting up NWC_STRING
-
-To enable the built-in wallet:
-
-1. Obtain a NWC connection string from a compatible wallet (like Alby)
-2. Set the environment variable before starting the server:
-
-```bash
-# Set the environment variable
-export NWC_STRING="nostr+walletconnect://..."
-
-# Then start the server
-npm run cli mcp
-
-# Or provide it directly to the CLI
-npm run cli mcp --nwc "nostr+walletconnect://..."
-```
-
-#### How it works
-
-When a client calls the `ask_experts` tool with bids that include invoices but no preimages:
-
-1. The server checks if `NWC_STRING` is set
-2. If set, it uses the NWC client to pay the invoices automatically
-3. It obtains payment preimages from successful payments
-4. These preimages are used to authenticate the questions sent to experts
-
-Without this environment variable, clients must pay invoices themselves and provide the preimages when calling the `ask_experts` tool.
-
-#### Example with built-in wallet
-
-```typescript
-// With NWC_STRING set on the server, clients can simply provide bid information
-const askResult = await client.callTool("ask_experts", {
-  ask_id: findResult.structuredContent.id,
-  question: "My detailed question here...",
-  experts: selectedBids.map(bid => ({
-    message_id: bid.message_id,
-    pubkey: bid.pubkey,
-    bid_sats: bid.bid_sats // Required to match the invoice amount
-    // No preimage needed - server will pay using the built-in wallet
-  }))
-});
+# Run the tests
+npm test
+
+# Run the example expert
+npm run expert
 ```
 
 ## License
 
-MIT
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

@@ -8,6 +8,43 @@ import { CompressionMethod } from '../client/types.js';
 // Check if we're in a browser environment with Compression Streams API
 const isBrowser = typeof window !== 'undefined' && typeof window.CompressionStream !== 'undefined';
 
+// Define Node.js specific functions that will be replaced with actual implementations
+// only when running in Node.js environment
+let nodeGzipCompress: ((data: Uint8Array) => Promise<Uint8Array>) | null = null;
+let nodeGzipDecompress: ((data: Uint8Array) => Promise<Uint8Array>) | null = null;
+
+// Only initialize Node.js functions if not in browser
+// This code is isolated in a way that esbuild can eliminate it when targeting browser
+if (!isBrowser) {
+  // We're using a function that will be called only at runtime in Node.js
+  // This prevents esbuild from trying to resolve the imports during bundling
+  const initNodeFunctions = async () => {
+    try {
+      // Dynamic imports that will only be executed at runtime in Node.js
+      const zlibModule = await import('zlib');
+      const utilModule = await import('util');
+      
+      // Create promisified versions of zlib functions
+      const gzipPromise = utilModule.promisify(zlibModule.gzip);
+      const gunzipPromise = utilModule.promisify(zlibModule.gunzip);
+      
+      // Assign the implementations
+      nodeGzipCompress = async (data: Uint8Array): Promise<Uint8Array> => {
+        return await gzipPromise(data);
+      };
+      
+      nodeGzipDecompress = async (data: Uint8Array): Promise<Uint8Array> => {
+        return await gunzipPromise(data);
+      };
+    } catch (error) {
+      console.error('Failed to initialize Node.js compression functions:', error);
+    }
+  };
+  
+  // Initialize Node.js functions
+  initNodeFunctions();
+}
+
 /**
  * Compresses data using gzip
  *
@@ -48,11 +85,11 @@ async function gzipCompress(data: string | Uint8Array): Promise<Uint8Array> {
     
     return result;
   } else {
-    // Node.js implementation using zlib
-    const zlib = await import('zlib');
-    const util = await import('util');
-    const gzipPromise = util.promisify(zlib.gzip);
-    return await gzipPromise(inputData);
+    // Node.js implementation
+    if (nodeGzipCompress === null) {
+      throw new Error('Node.js compression functions not initialized');
+    }
+    return await nodeGzipCompress(inputData);
   }
 }
 
@@ -91,11 +128,11 @@ async function gzipDecompress(data: Uint8Array): Promise<Uint8Array> {
     
     return result;
   } else {
-    // Node.js implementation using zlib
-    const zlib = await import('zlib');
-    const util = await import('util');
-    const gunzipPromise = util.promisify(zlib.gunzip);
-    return await gunzipPromise(data);
+    // Node.js implementation
+    if (nodeGzipDecompress === null) {
+      throw new Error('Node.js decompression functions not initialized');
+    }
+    return await nodeGzipDecompress(data);
   }
 }
 

@@ -56,7 +56,7 @@ export class AskExpertsMCP extends McpServer {
     // Read version from package.json
     const __filename = fileURLToPath(import.meta.url);
     const __dirname = path.dirname(__filename);
-    const packageJsonPath = path.resolve(__dirname, "../../package.json");
+    const packageJsonPath = path.resolve(__dirname, "../../../package.json"); // from dist/src/mcp
     const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
 
     super({

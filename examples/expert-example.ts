@@ -4,7 +4,7 @@
 
 import { generateSecretKey, getPublicKey } from 'nostr-tools';
 import { AskExpertsServer } from '../src/expert/index.js';
-import { Ask, Prompt, Proof, Replies, ExpertQuote, ExpertBid } from '../src/common/types.js';
+import { Ask, Prompt, Proof, ExpertReplies, ExpertReply, ExpertQuote, ExpertBid } from '../src/common/types.js';
 import { DefaultCompression } from '../src/common/compression.js';
 import { FORMAT_TEXT, COMPRESSION_PLAIN, METHOD_LIGHTNING } from '../src/common/constants.js';
 import { DEFAULT_DISCOVERY_RELAYS, DEFAULT_PROPMT_RELAYS } from '../src/common/constants.js';
@@ -110,7 +110,7 @@ async function runExampleExpert() {
     },
     
     // Handle proofs and execute prompts
-    onProof: async (prompt: Prompt, expertQuote: ExpertQuote, proof: Proof): Promise<Replies> => {
+    onProof: async (prompt: Prompt, expertQuote: ExpertQuote, proof: Proof): Promise<ExpertReplies> => {
       console.log(`Received proof for prompt: ${prompt.id}`);
       console.log(`Payment method: ${proof.method}, preimage: ${proof.preimage}`);
       console.log(`Quote invoices: ${JSON.stringify(expertQuote.invoices)}`);
@@ -123,26 +123,19 @@ async function runExampleExpert() {
         }
 
         // NOTE: in real expert you must extract payment_hash from quote's invoice,
-        // check the sha256(preimage) === payment_hash and 
+        // check the sha256(preimage) === payment_hash and
         // that invoice for this payment_hash was paid
         
         console.log('Payment verified successfully');
         
-        // Create a replies object
-        const replies: Replies = {
-          promptId: prompt.id,
-          expertPubkey: publicKey,
-          compression: new DefaultCompression(),
-          
+        // Create an ExpertReplies object
+        const expertReplies: ExpertReplies = {
           // Implement AsyncIterable interface
           [Symbol.asyncIterator]: async function* () {
             // First reply
             yield {
-              pubkey: publicKey,
-              promptId: prompt.id,
               done: false,
-              content: 'This is the first part of my response.',
-              event: prompt.event, // Placeholder
+              content: 'This is the first part of my response.'
             };
             
             // Wait a bit to simulate processing time
@@ -150,11 +143,8 @@ async function runExampleExpert() {
             
             // Second reply
             yield {
-              pubkey: publicKey,
-              promptId: prompt.id,
               done: false,
-              content: 'This is the second part of my response.',
-              event: prompt.event, // Placeholder
+              content: 'This is the second part of my response.'
             };
             
             // Wait a bit more
@@ -162,16 +152,13 @@ async function runExampleExpert() {
             
             // Final reply
             yield {
-              pubkey: publicKey,
-              promptId: prompt.id,
               done: true,
-              content: 'This is the final part of my response. Thank you for your question!',
-              event: prompt.event, // Placeholder
+              content: 'This is the final part of my response. Thank you for your question!'
             };
           },
         };
         
-        return replies;
+        return expertReplies;
       } catch (error) {
         console.error('Error verifying payment:', error);
         throw error; // Rethrow to be handled by the Expert class

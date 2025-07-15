@@ -725,7 +725,6 @@ export class AskExpertsClient {
     const replies: Replies = {
       promptId,
       expertPubkey,
-      compression,
 
       // Implement AsyncIterable interface
       [Symbol.asyncIterator]: async function* () {
@@ -746,7 +745,7 @@ export class AskExpertsClient {
             );
 
             // Decompress the payload using the compression instance from the Replies object (this)
-            const replyPayloadStr = await this.compression.decompress(
+            const replyPayloadStr = await compression.decompress(
               decryptedReply,
               replyCompr
             );
