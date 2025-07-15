@@ -22,6 +22,11 @@ export function enableAllDebug(): void {
   debug.enable(`${BASE_NAMESPACE}:*`);
 }
 
+// Helper function to enable error debug namespaces
+export function enableErrorDebug(): void {
+  debug.enable(`${BASE_NAMESPACE}:error`);
+}
+
 // Helper function to disable all debug namespaces
 export function disableAllDebug(): void {
   debug.disable();

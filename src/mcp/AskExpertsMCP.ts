@@ -124,7 +124,7 @@ export class AskExpertsMCP extends McpServer {
     const findExpertsConfig = {
       title: "Find Experts",
       description:
-        "Find experts on a subject by providing a summary and hashtags. Returns a list of experts willing to answer your question.",
+        "Find experts on a subject by posting an anonymous publicly visible summary of your question. It should omit all private details and personally identifiable information, be short, concise and include relevant hashtags. Returns a list of bids by experts who are willing to answer your question.",
       inputSchema: {
         summary: z.string().describe("A summary of the question"),
         hashtags: z
@@ -143,8 +143,7 @@ export class AskExpertsMCP extends McpServer {
           .describe("List of bids from experts willing to answer the question"),
       },
       annotations: {
-        title:
-          "Find experts on a subject by providing a summary and hashtags. Returns a list of experts willing to answer your question.",
+        title: "Find experts on a subject",
         readOnlyHint: false,
         destructiveHint: false,
         idempotentHint: true,
@@ -167,15 +166,13 @@ export class AskExpertsMCP extends McpServer {
     const askExpertsConfig = {
       title: "Ask Experts",
       description:
-        "Ask multiple experts a question and receive their answers. Payments are handled automatically.",
+        "After you receive bids from experts, select good ones and you can send the question to these experts. Question should be detailed and may include sensitive data as it is encrypted. For each bid, provide the id you received from find_experts tool. Provide max amount of payment you are willing to pay to each expert, good default is 100 sats.",
       inputSchema: {
         question: z.string().describe("The question to ask the experts"),
         bids: z
           .array(
             z.object({
               id: z.string().describe("Bid ID"),
-              expert_pubkey: z.string().describe("Expert's public key"),
-              offer: z.string().describe("Expert's offer description"),
             })
           )
           .describe("Array of bids to send questions to"),
@@ -195,8 +192,7 @@ export class AskExpertsMCP extends McpServer {
           .describe("Array of replies from experts"),
       },
       annotations: {
-        title:
-          "Ask multiple experts a question and receive their answers. Payments are handled automatically.",
+        title: "Ask multiple experts a question and receive their answers",
         readOnlyHint: false,
         destructiveHint: false,
         idempotentHint: false,
@@ -223,7 +219,7 @@ export class AskExpertsMCP extends McpServer {
     const askExpertConfig = {
       title: "Ask Expert",
       description:
-        "Ask a single expert a question and receive their answer. Payment is handled automatically.",
+        "After you receive a bid from experts, you can send a question to a particular expert by their pubkey. Question should be detailed and may include sensitive data as it is encrypted. Provide max amount of payment you are willing to pay, good default is 100 sats.",
       inputSchema: {
         question: z.string().describe("The question to ask the expert"),
         expert_pubkey: z.string().describe("Expert's public key"),
@@ -242,7 +238,7 @@ export class AskExpertsMCP extends McpServer {
       },
       annotations: {
         title:
-          "Ask a single expert a question and receive their answer. Payment is handled automatically.",
+          "Ask a single expert a question and receive their answer",
         readOnlyHint: false,
         destructiveHint: false,
         idempotentHint: false,

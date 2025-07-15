@@ -8,7 +8,6 @@ import { enableAllDebug, debugMCP, debugError } from '../../common/debug.js';
 export interface McpCommandOptions {
   nwc?: string;
   relays?: string[];
-  debug?: boolean;
 }
 
 /**
@@ -17,10 +16,6 @@ export interface McpCommandOptions {
  * @param options Command line options
  */
 export async function startMcpServer(options: McpCommandOptions): Promise<void> {
-  // Enable debug logging if requested
-  if (options.debug) {
-    enableAllDebug();
-  }
 
   // Try to get NWC connection string from options or environment variables
   const nwcString = options.nwc || process.env.NWC_STRING;

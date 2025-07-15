@@ -1,10 +1,14 @@
-import { Command } from 'commander';
-import { fileURLToPath } from 'url';
-import { dirname, resolve } from 'path';
-import fs from 'fs';
-import dotenv from 'dotenv';
-import { startMcpServer } from './commands/mcp.js';
-import { debugError } from '../common/debug.js';
+import { Command } from "commander";
+import { fileURLToPath } from "url";
+import { dirname, resolve } from "path";
+import fs from "fs";
+import dotenv from "dotenv";
+import { startMcpServer } from "./commands/mcp.js";
+import {
+  debugError,
+  enableAllDebug,
+  enableErrorDebug,
+} from "../common/debug.js";
 
 // Load environment variables from .env file without debug logs
 dotenv.config({ debug: false });
@@ -16,16 +20,16 @@ dotenv.config({ debug: false });
 function getPackageVersion(): string {
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = dirname(__filename);
-  
+
   // First try to find package.json in the project root
-  let packageJsonPath = resolve(__dirname, '../../../package.json');
-  
+  let packageJsonPath = resolve(__dirname, "../../../package.json");
+
   // If that doesn't exist (when running from dist), try one level up
   if (!fs.existsSync(packageJsonPath)) {
-    packageJsonPath = resolve(__dirname, '../../package.json');
+    packageJsonPath = resolve(__dirname, "../../package.json");
   }
-  
-  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+
+  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
   return packageJson.version;
 }
 
@@ -35,7 +39,7 @@ function getPackageVersion(): string {
  * @returns Array of trimmed strings
  */
 function commaSeparatedList(value: string): string[] {
-  return value.split(',').map(item => item.trim());
+  return value.split(",").map((item) => item.trim());
 }
 
 /**
@@ -45,22 +49,28 @@ export function runCli(): void {
   const program = new Command();
 
   program
-    .name('askexperts')
-    .description('CLI utility for AskExperts')
+    .name("askexperts")
+    .description("CLI utility for AskExperts")
     .version(getPackageVersion());
 
   // MCP command
   program
-    .command('mcp')
-    .description('Launch the stdio MCP server')
-    .option('-n, --nwc <string>', 'NWC connection string for payments')
-    .option('-r, --relays <items>', 'Comma-separated list of discovery relays', commaSeparatedList)
-    .option('-d, --debug', 'Enable debug logging')
+    .command("mcp")
+    .description("Launch the stdio MCP server")
+    .option("-n, --nwc <string>", "NWC connection string for payments")
+    .option(
+      "-r, --relays <items>",
+      "Comma-separated list of discovery relays",
+      commaSeparatedList
+    )
+    .option("-d, --debug", "Enable debug logging")
     .action(async (options) => {
+      if (options.debug) enableAllDebug();
+      else enableErrorDebug();
       try {
         await startMcpServer(options);
       } catch (error) {
-        debugError('Error starting MCP server:', error);
+        debugError("Error starting MCP server:", error);
         process.exit(1);
       }
     });
