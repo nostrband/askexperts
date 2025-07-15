@@ -4,6 +4,7 @@
  */
 
 import { CompressionMethod } from '../client/types.js';
+import { debugError } from './debug.js';
 
 // Check if we're in a browser environment with Compression Streams API
 const isBrowser = typeof window !== 'undefined' && typeof window.CompressionStream !== 'undefined';
@@ -37,7 +38,7 @@ if (!isBrowser) {
         return await gunzipPromise(data);
       };
     } catch (error) {
-      console.error('Failed to initialize Node.js compression functions:', error);
+      debugError('Failed to initialize Node.js compression functions:', error);
     }
   };
   

@@ -4,6 +4,7 @@ import { dirname, resolve } from 'path';
 import fs from 'fs';
 import dotenv from 'dotenv';
 import { startMcpServer } from './commands/mcp.js';
+import { debugError } from '../common/debug.js';
 
 // Load environment variables from .env file without debug logs
 dotenv.config({ debug: false });
@@ -59,7 +60,7 @@ export function runCli(): void {
       try {
         await startMcpServer(options);
       } catch (error) {
-        console.error('Error starting MCP server:', error);
+        debugError('Error starting MCP server:', error);
         process.exit(1);
       }
     });

@@ -1,6 +1,6 @@
 import { AskExpertsMCP } from '../../mcp/index.js';
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { enableAllDebug } from '../../common/debug.js';
+import { enableAllDebug, debugMCP, debugError } from '../../common/debug.js';
 
 /**
  * Options for the MCP server command
@@ -45,7 +45,7 @@ export async function startMcpServer(options: McpCommandOptions): Promise<void> 
     
     // Handle SIGINT (Ctrl+C)
     process.on('SIGINT', async () => {
-      console.log('\nReceived SIGINT. Shutting down...');
+      debugMCP('\nReceived SIGINT. Shutting down...');
       
       try {
         // Close the server connection
@@ -56,9 +56,9 @@ export async function startMcpServer(options: McpCommandOptions): Promise<void> 
           server[Symbol.dispose]();
         }
         
-        console.log('Server shutdown complete.');
+        debugMCP('Server shutdown complete.');
       } catch (error) {
-        console.error('Error during shutdown:', error);
+        debugError('Error during shutdown:', error);
       }
       
       // Exit the process
@@ -68,9 +68,9 @@ export async function startMcpServer(options: McpCommandOptions): Promise<void> 
     // Connect the server to the transport
     await server.connect(transport);
     
-    console.log('MCP server started. Press Ctrl+C to exit.');
+    debugMCP('MCP server started. Press Ctrl+C to exit.');
   } catch (error) {
-    console.error('Failed to start MCP server:', error);
+    debugError('Failed to start MCP server:', error);
     throw error;
   }
 }
