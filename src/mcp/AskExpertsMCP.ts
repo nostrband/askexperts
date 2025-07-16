@@ -538,5 +538,8 @@ export class AskExpertsMCP extends McpServer {
 
     // Dispose of the payment manager
     this.paymentManager[Symbol.dispose]();
+
+    // Stop itself
+    this.close().catch(() => debugError("Failed to close the MCP server"));
   }
 }

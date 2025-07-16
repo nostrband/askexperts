@@ -26,8 +26,6 @@ import {
   Prompt,
   Quote,
   Proof,
-  Replies,
-  Reply,
   PromptFormat,
   CompressionMethod,
   PaymentMethod,

@@ -372,9 +372,6 @@ export class AskExpertsClient {
     const experts: Expert[] = [];
     const seenPubkeys = new Set<string>();
 
-    // Sort events by created_at (newest first)
-    events.sort((a, b) => b.created_at - a.created_at);
-
     for (const event of events) {
       try {
         // No need to validate events from relay - they're already validated

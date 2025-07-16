@@ -7,6 +7,9 @@ if (process.env.DEBUG) {
 // Export the AskExpertsMCP class (new implementation that extends McpServer)
 export { AskExpertsMCP, BidMCP, ReplyMCP } from "./mcp/AskExpertsMCP.js";
 
+// Export the OpenAIProxy class
+export { OpenAIProxy } from "./proxy/index.js";
+
 // Export debug utilities
 export {
   debugRelay,

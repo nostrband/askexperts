@@ -5,6 +5,8 @@ import fs from "fs";
 import dotenv from "dotenv";
 import { startMcpServer } from "./commands/mcp.js";
 import { startSmartMcpServer } from "./commands/smart-mcp.js";
+import { startProxyServer } from "./commands/proxy.js";
+import { startHttpServer } from "./commands/http.js";
 import {
   debugError,
   enableAllDebug,
@@ -102,6 +104,70 @@ export function runCli(): void {
         await startSmartMcpServer(options);
       } catch (error) {
         debugError("Error starting Smart MCP server:", error);
+        process.exit(1);
+      }
+    });
+
+  // Proxy command
+  program
+    .command("proxy")
+    .description("Launch an OpenAI-compatible proxy server for NIP-174")
+    .requiredOption("-p, --port <number>", "Port to listen on")
+    .option("-b, --base-path <string>", "Base path for the API", "/")
+    .option(
+      "-r, --relays <items>",
+      "Comma-separated list of discovery relays",
+      commaSeparatedList
+    )
+    .option("-d, --debug", "Enable debug logging")
+    .action(async (options) => {
+      if (options.debug) enableAllDebug();
+      else enableErrorDebug();
+      try {
+        await startProxyServer(options);
+      } catch (error) {
+        debugError("Error starting OpenAI Proxy server:", error);
+        process.exit(1);
+      }
+    });
+
+  // HTTP command
+  program
+    .command("http")
+    .description("Launch an HTTP MCP server")
+    .requiredOption("-p, --port <number>", "Port to listen on (default: 3000)")
+    .option(
+      "-r, --relays <items>",
+      "Comma-separated list of discovery relays",
+      commaSeparatedList
+    )
+    .option("-b, --base-path <string>", "Base path for the server")
+    .option(
+      "-t, --type <string>",
+      "Server type: 'mcp' or 'smart' (default: 'mcp')",
+      (value) => {
+        if (value !== "mcp" && value !== "smart") {
+          throw new Error("Type must be either 'mcp' or 'smart'");
+        }
+        return value;
+      }
+    )
+    .option(
+      "-k, --openai-api-key <string>",
+      "OpenAI API key (required for 'smart' type)"
+    )
+    .option(
+      "-u, --openai-base-url <string>",
+      "OpenAI base URL (required for 'smart' type)"
+    )
+    .option("-d, --debug", "Enable debug logging")
+    .action(async (options) => {
+      if (options.debug) enableAllDebug();
+      else enableErrorDebug();
+      try {
+        await startHttpServer(options);
+      } catch (error) {
+        debugError("Error starting HTTP server:", error);
         process.exit(1);
       }
     });

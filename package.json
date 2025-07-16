@@ -1,7 +1,7 @@
 {
   "name": "askexperts",
-  "version": "0.5.6",
-  "description": "MCP server for finding experts and asking them questions",
+  "version": "0.5.7",
+  "description": "AskExperts SDK: find AI experts, ask them questions and pay with bitcoin on an open protocol",
   "main": "dist/index.js",
   "type": "module",
   "bin": {
@@ -22,6 +22,9 @@
     "experts",
     "questions",
     "nostr",
+    "bitcoin",
+    "lightning",
+    "nwc",
     "askexperts"
   ],
   "author": "",
@@ -68,6 +71,7 @@
     "debug": "^4.4.1",
     "dotenv": "^16.3.1",
     "esbuild": "^0.20.2",
+    "express": "^5.1.0",
     "nostr-tools": "^2.15.0",
     "nwc-enclaved-utils": "^2.0.8",
     "openai": "^5.8.3",
@@ -76,6 +80,7 @@
     "zod": "^3.25.67"
   },
   "devDependencies": {
-    "@types/cors": "^2.8.19"
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3"
   }
 }

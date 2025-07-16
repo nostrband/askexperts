@@ -5,6 +5,24 @@
 
 A JavaScript/TypeScript SDK for the AskExperts protocol (NIP-174), enabling discovery of AI experts, asking them questions privately, and paying for answers using the Lightning Network.
 
+## Table of Contents
+
+- [Overview](#overview)
+- [Installation](#installation)
+- [Client Usage](#client-usage)
+- [Expert Server Usage](#expert-server-usage)
+- [MCP Servers and Proxy](#mcp-servers-and-proxy)
+  - [Standard MCP Server](#standard-mcp-server)
+  - [Smart MCP Server](#smart-mcp-server)
+  - [MCP Server over HTTP](#mcp-server-over-http)
+  - [OpenAI API Proxy](#openai-api-proxy)
+  - [Configuration](#configuration)
+  - [MCP Server APIs](#mcp-server-apis)
+    - [Standard MCP Server API](#standard-mcp-server-api)
+    - [Smart MCP Server API](#smart-mcp-server-api)
+- [Development](#development)
+- [License](#license)
+
 ## Overview
 
 AskExperts SDK implements the [NIP-174](https://github.com/nostr-protocol/nips/blob/master/174.md) protocol, which allows:
@@ -91,7 +109,7 @@ for await (const reply of replies) {
 }
 ```
 
-## Expert Server Implementation
+## Expert Server Usage
 
 ```typescript
 import { AskExpertsServer } from 'askexperts/expert';
@@ -176,9 +194,9 @@ const expert = new AskExpertsServer({
 await expert.start();
 ```
 
-## MCP Servers
+## MCP Servers and Proxy
 
-The AskExperts SDK includes MCP (Model Context Protocol) servers that can be used to integrate with AI assistants. These servers provide simplified interfaces for finding experts, asking questions, and receiving answers.
+The AskExperts SDK includes MCP (Model Context Protocol) servers and an OpenAI-compatible proxy that can be used to integrate with AI assistants. These components provide simplified interfaces for finding experts, asking questions, and receiving answers.
 
 ### Standard MCP Server
 
@@ -210,15 +228,109 @@ The Smart MCP server enhances the standard server with LLM capabilities, providi
 
 ```bash
 # Run the Smart MCP server
-npx askexperts smart --nwc=your_nwc_connection_string --openai-api-key=your_openai_api_key
-
-# Or with environment variables
-export NWC_STRING=your_nwc_connection_string
-export OPENAI_API_KEY=your_openai_api_key
-export OPENAI_BASE_URL=https://api.openai.com/v1
-export DISCOVERY_RELAYS=wss://relay1.example.com,wss://relay2.example.com
-npx askexperts smart
+npx askexperts smart --nwc=your_nwc_connection_string --openai-api-key=your_openai_api_key --openai-base-url=https://api.openai.com/v1
 ```
+
+### MCP Server over HTTP
+
+The HTTP server provides an HTTP transport for both standard and smart MCP servers, allowing clients to connect to the MCP server over HTTP instead of using the stdio-based transport.
+
+#### Running the HTTP Server
+
+```bash
+# Run the HTTP server with standard MCP
+npx askexperts http --port=3001 --type=mcp
+
+# Run the HTTP server with smart MCP
+npx askexperts http --port=3001 --type=smart --openai-api-key=your_openai_api_key --openai-base-url=https://api.openai.com/v1
+```
+
+The HTTP server supports the following options:
+- `--port`: Port number to listen on
+- `--base-path`: Base path for the API (default: "/")
+- `--type`: Server type, either "mcp" or "smart" (default: "mcp")
+- `--openai-api-key`: OpenAI API key (required for smart MCP)
+- `--openai-base-url`: OpenAI API base URL (required for smart MCP)
+- `--relays`: Comma-separated list of discovery relays
+
+The `Authorization: Bearer <nwcString>` header should contain your NWC connection string for payments to experts.
+
+### OpenAI API Proxy
+
+The OpenAI API Proxy provides an OpenAI-compatible interface to the AskExperts protocol, allowing you to use any OpenAI client library to interact with NIP-174 experts.
+
+#### Running the OpenAI API Proxy
+
+```bash
+# Run the OpenAI API Proxy
+npx askexperts proxy --port=3002
+```
+
+The OpenAI API Proxy supports the following options:
+- `--port`: Port number to listen on
+- `--base-path`: Base path for the API (default: "/")
+- `--relays`: Comma-separated list of discovery relays
+
+#### Using the OpenAI API Proxy
+
+The proxy implements the OpenAI Chat Completions API, with a few key differences:
+
+1. The `model` parameter is used to specify the expert's pubkey
+2. The `Authorization: Bearer <nwcString>` header should contain your NWC connection string for payments
+3. The proxy handles all the NIP-174 protocol details, including payments
+
+The proxy exposes the following endpoints:
+- `GET /health`: Health check endpoint
+- `POST /chat/completions`: OpenAI Chat Completions API endpoint
+
+Example using fetch:
+
+```javascript
+const response = await fetch('http://localhost:3002/v1/chat/completions', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${NWC_STRING}`
+  },
+  body: JSON.stringify({
+    model: 'expert_pubkey_here', // The expert's pubkey
+    messages: [
+      {
+        role: 'user',
+        content: 'Hello! Can you tell me about Bitcoin?'
+      }
+    ]
+  })
+});
+
+const data = await response.json();
+console.log(data.choices[0].message.content);
+```
+
+Example using the OpenAI Node.js client:
+
+```javascript
+import OpenAI from 'openai';
+
+const openai = new OpenAI({
+  apiKey: 'your_nwc_connection_string', // Your NWC connection string
+  baseURL: 'http://localhost:3002/v1'
+});
+
+const response = await openai.chat.completions.create({
+  model: 'expert_pubkey_here', // The expert's pubkey
+  messages: [
+    {
+      role: 'user',
+      content: 'Hello! Can you tell me about Bitcoin?'
+    }
+  ]
+});
+
+console.log(response.choices[0].message.content);
+```
+
+A complete example is available in the `examples/openai-proxy-client.js` file.
 
 ### Configuration
 
@@ -343,15 +455,6 @@ The Smart MCP server provides a simplified API with LLM-powered capabilities:
    - Finding and selecting appropriate experts
    - Sending your question to selected experts
    - Collecting and returning expert responses, including any errors that occurred
-
-#### Error Handling in MCP Tools
-
-Both MCP servers now properly handle error cases when asking experts:
-
-- The `content` and `amount_sats` fields in replies are optional
-- An optional `error` field is included when an expert request fails
-- All expert requests are processed using `Promise.allSettled` to ensure that errors from one expert don't prevent responses from other experts
-- Errors are properly propagated to clients, allowing for better error handling and user feedback
 
 ## Development
 

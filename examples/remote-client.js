@@ -3,6 +3,10 @@
 import { McpClient } from '@modelcontextprotocol/sdk/client/mcp.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamable-http.js';
 import fetch from 'node-fetch';
+import dotenv from 'dotenv';
+
+// Load environment variables from .env file
+dotenv.config();
 
 // Default server URL
 const SERVER_URL = process.env.SERVER_URL || 'http://localhost:3000';

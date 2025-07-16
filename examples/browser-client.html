@@ -128,6 +128,10 @@
     // In a real application, you would import from the package
     // import { AskExpertsClient } from 'askexperts/client/browser';
     
+    // Note: Browser environments can't use dotenv directly.
+    // For production, consider using environment variables through your build process
+    // or a service like Vite's import.meta.env, Next.js's process.env, etc.
+    
     // For this example, we'll import from the local build
     import {
       AskExpertsClient,

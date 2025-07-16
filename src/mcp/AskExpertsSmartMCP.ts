@@ -135,7 +135,7 @@ export class AskExpertsSmartMCP extends McpServer {
 
     // Register the askExperts tool
     this.registerTool(
-      "askExperts",
+      "ask_experts",
       askExpertsConfig,
       makeTool(async (params, extra) => {
         const { question, max_amount_sats } = params;
@@ -441,5 +441,8 @@ question: <summarized question>
 
     // Dispose of the payment manager
     this.paymentManager[Symbol.dispose]();
+
+    // Stop itself
+    this.close().catch(() => debugError("Failed to close the MCP server"));
   }
 }
