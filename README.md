@@ -170,22 +170,9 @@ const expert = new AskExpertsServer({
       throw new Error('Invalid payment proof');
     }
     
-    // Create an ExpertReplies object
+    // Create an ExpertReply object
     return {
-      // Implement AsyncIterable interface
-      [Symbol.asyncIterator]: async function* () {
-        // First reply
-        yield {
-          done: false,
-          content: 'This is the first part of my response.'
-        };
-        
-        // Final reply
-        yield {
-          done: true,
-          content: 'This is the final part of my response.'
-        };
-      }
+      content: 'This is my response.'
     };
   }
 });
@@ -233,7 +220,7 @@ npx askexperts smart --nwc=your_nwc_connection_string --openai-api-key=your_open
 
 ### MCP Server over HTTP
 
-The HTTP server provides an HTTP transport for both standard and smart MCP servers, allowing clients to connect to the MCP server over HTTP instead of using the stdio-based transport.
+The HTTP server provides an HTTP transport for both standard and smart MCP servers, allowing clients to connect to the MCP server over HTTP instead of using the stdio-based transport. To try with our hosted version, use `https://mcp.askexperts.io/mcp`.
 
 #### Running the HTTP Server
 

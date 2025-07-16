@@ -671,10 +671,17 @@ export class AskExpertsServer {
           }
           
           // Call the onProof callback with prompt, expertQuote, and proof
-          const expertReplies = await this.onProofCallback(prompt, expertQuote, proof);
+          const result = await this.onProofCallback(prompt, expertQuote, proof);
 
-          // Send the expert replies
-          this.sendExpertReplies(prompt, expertReplies);
+          // Check if the result is a single ExpertReply or ExpertReplies
+          if (Symbol.asyncIterator in result) {
+            // It's ExpertReplies
+            await this.sendExpertReplies(prompt, result);
+          } else {
+            // It's a single ExpertReply, enforce done=true
+            result.done = true;
+            await this.sendExpertReply(prompt, result);
+          }
         } catch (error) {
           // If the callback throws an error, send a single error reply with done=true
           debugError('Error in onProof callback:', error);
@@ -707,7 +714,7 @@ export class AskExpertsServer {
       // Create the reply payload
       const replyPayload = {
         content: expertReply.content,
-        done: expertReply.done,
+        done: expertReply.done || false,
       };
 
       // Convert to JSON string

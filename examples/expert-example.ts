@@ -11,6 +11,7 @@ import {
   ExpertReplies,
   ExpertQuote,
   ExpertBid,
+  ExpertReply,
 } from "../src/common/types.js";
 import {
   FORMAT_TEXT,
@@ -138,7 +139,7 @@ async function runExampleExpert() {
       prompt: Prompt,
       expertQuote: ExpertQuote,
       proof: Proof
-    ): Promise<ExpertReplies> => {
+    ): Promise<ExpertReplies | ExpertReply> => {
       console.log(`Received proof for prompt: ${prompt.id}`);
       console.log(
         `Payment method: ${proof.method}, preimage: ${proof.preimage}`
@@ -158,11 +159,11 @@ async function runExampleExpert() {
 
         console.log("Payment verified successfully");
 
-        // Create an ExpertReplies object
-        const expertReplies: ExpertReplies = {
-          // Implement AsyncIterable interface
-          [Symbol.asyncIterator]: async function* () {
-            if (prompt.format === FORMAT_TEXT) {
+        if (prompt.format === FORMAT_TEXT) {
+          // Create an ExpertReplies object
+          const expertReplies: ExpertReplies = {
+            // Implement AsyncIterable interface
+            [Symbol.asyncIterator]: async function* () {
               // First reply
               yield {
                 done: false,
@@ -187,50 +188,49 @@ async function runExampleExpert() {
                 content:
                   "This is the final part of my response. Thank you for your question!",
               };
-            } else {
-              yield {
-                done: true,
-                content: {
-                  id: prompt.id,
-                  object: "chat.completion",
-                  created: prompt.event.created_at,
-                  model: publicKey,
-                  choices: [
-                    {
-                      index: 0,
-                      message: {
-                        role: "assistant",
-                        content: "Hello! How can I assist you today?",
-                        refusal: null,
-                        annotations: [],
-                      },
-                      logprobs: null,
-                      finish_reason: "stop",
-                    },
-                  ],
-                  usage: {
-                    prompt_tokens: 19,
-                    completion_tokens: 10,
-                    total_tokens: 29,
-                    prompt_tokens_details: {
-                      cached_tokens: 0,
-                      audio_tokens: 0,
-                    },
-                    completion_tokens_details: {
-                      reasoning_tokens: 0,
-                      audio_tokens: 0,
-                      accepted_prediction_tokens: 0,
-                      rejected_prediction_tokens: 0,
-                    },
-                  },
-                  service_tier: "default",
-                },
-              };
-            }
-          },
-        };
+            },
+          };
 
-        return expertReplies;
+          return expertReplies;
+        } else {
+          return {
+            content: {
+              id: prompt.id,
+              object: "chat.completion",
+              created: prompt.event.created_at,
+              model: publicKey,
+              choices: [
+                {
+                  index: 0,
+                  message: {
+                    role: "assistant",
+                    content: "Hello! How can I assist you today?",
+                    refusal: null,
+                    annotations: [],
+                  },
+                  logprobs: null,
+                  finish_reason: "stop",
+                },
+              ],
+              usage: {
+                prompt_tokens: 19,
+                completion_tokens: 10,
+                total_tokens: 29,
+                prompt_tokens_details: {
+                  cached_tokens: 0,
+                  audio_tokens: 0,
+                },
+                completion_tokens_details: {
+                  reasoning_tokens: 0,
+                  audio_tokens: 0,
+                  accepted_prediction_tokens: 0,
+                  rejected_prediction_tokens: 0,
+                },
+              },
+              service_tier: "default",
+            },
+          };
+        }
       } catch (error) {
         console.error("Error verifying payment:", error);
         throw error; // Rethrow to be handled by the Expert class

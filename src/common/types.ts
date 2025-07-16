@@ -59,7 +59,7 @@ export type OnPromptCallback = (prompt: Prompt) => Promise<ExpertQuote>;
  */
 export interface ExpertReply {
   /** Whether this is the last reply */
-  done: boolean;
+  done?: boolean;
   
   /** Reply content */
   content: any;
@@ -73,7 +73,7 @@ export interface ExpertReplies extends AsyncIterable<ExpertReply> {
   // No additional fields required
 }
 
-export type OnProofCallback = (prompt: Prompt, quote: ExpertQuote, proof: Proof) => Promise<ExpertReplies>;
+export type OnProofCallback = (prompt: Prompt, quote: ExpertQuote, proof: Proof) => Promise<ExpertReplies | ExpertReply>;
 
 /**
  * Parameters for finding experts
