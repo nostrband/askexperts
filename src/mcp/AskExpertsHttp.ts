@@ -44,7 +44,7 @@ export class AskExpertsHttp {
    * @param options - Configuration options
    */
   constructor(options: AskExpertsHttpOptions) {
-    if (options.type === "smart" && !(this.openaiApiKey && this.openaiBaseUrl))
+    if (options.type === "smart" && !(options.openaiApiKey && options.openaiBaseUrl))
       throw new Error("OpenAI base URL and API key required for smart server");
 
     this.port = options.port;
