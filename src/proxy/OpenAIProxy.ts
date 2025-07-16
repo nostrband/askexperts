@@ -12,7 +12,7 @@ import { debugClient, debugError } from "../common/debug.js";
  * OpenAI Chat Completions API request schema
  */
 const OpenAIChatCompletionsRequestSchema = z.object({
-  model: z.string().min(1).describe("Expert's pubkey"),
+  model: z.string().min(1).describe("Expert's pubkey, optionally followed by ?max_amount_sats=N to limit payment amount"),
   messages: z
     .array(
       z.object({
@@ -180,8 +180,26 @@ export class OpenAIProxy {
 
       const requestBody = parseResult.data;
 
-      // Extract the expert pubkey from the model field
-      const expertPubkey = requestBody.model;
+      // Extract the expert pubkey and query parameters from the model field
+      let expertPubkey = requestBody.model;
+      let maxAmountSats: number | undefined;
+      
+      // Check if the model field contains query parameters
+      const queryParamIndex = expertPubkey.indexOf('?');
+      if (queryParamIndex !== -1) {
+        const queryString = expertPubkey.substring(queryParamIndex + 1);
+        expertPubkey = expertPubkey.substring(0, queryParamIndex);
+        
+        // Parse query parameters
+        const params = new URLSearchParams(queryString);
+        const maxAmountParam = params.get('max_amount_sats');
+        if (maxAmountParam) {
+          maxAmountSats = parseInt(maxAmountParam, 10);
+          if (isNaN(maxAmountSats)) {
+            maxAmountSats = undefined;
+          }
+        }
+      }
 
       // Create a LightningPaymentManager for this request
       const paymentManager = new LightningPaymentManager(nwcString);
@@ -206,7 +224,17 @@ export class OpenAIProxy {
           quote: Quote,
           prompt: Prompt
         ): Promise<boolean> => {
-          // Always accept the quote in this implementation,
+          // If maxAmountSats is specified, check if the invoice amount is acceptable
+          if (maxAmountSats !== undefined) {
+            const lightningInvoice = quote.invoices.find(
+              (inv) => inv.method === "lightning"
+            );
+            if (lightningInvoice && lightningInvoice.amount) {
+              return lightningInvoice.amount <= maxAmountSats;
+            }
+          }
+          
+          // Otherwise, always accept the quote
           // clients should only use this proxy for experts they trust
           return true;
         };

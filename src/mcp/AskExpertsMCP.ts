@@ -253,14 +253,14 @@ export class AskExpertsMCP extends McpServer {
 
     // Parse the invoice to get the amount
     try {
-      const { bid_sats } = parseBolt11(lightningInvoice.invoice);
+      const { amount_sats } = parseBolt11(lightningInvoice.invoice);
 
       // Check if the amount is within the max amount
-      if (bid_sats <= max_amount_sats) {
-        return bid_sats;
+      if (amount_sats <= max_amount_sats) {
+        return amount_sats;
       } else {
         debugMCP(
-          `Invoice amount (${bid_sats}) exceeds max amount (${max_amount_sats})`
+          `Invoice amount (${amount_sats}) exceeds max amount (${max_amount_sats})`
         );
         return 0;
       }

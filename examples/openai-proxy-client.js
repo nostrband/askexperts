@@ -8,7 +8,10 @@
  * 
  * Usage:
  * 1. Start the proxy server: node bin/askexperts proxy
- * 2. Run this example: node examples/openai-proxy-client.js
+ * 2. Run this example: node examples/openai-proxy-client.js <expert_pubkey> [max_amount_sats]
+ *
+ * The optional max_amount_sats parameter sets a maximum payment limit in satoshis.
+ * If the expert requests more than this amount, the request will be rejected.
  */
 
 import fetch from 'node-fetch';
@@ -18,7 +21,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 // Configuration
-const PROXY_URL = process.env.PROXY_URL || 'http://localhost:3006/v1';
+const PROXY_URL = process.env.PROXY_URL || 'http://localhost:3006';
 const NWC_STRING = process.env.NWC_STRING || '';
 
 if (!NWC_STRING) throw new Error("NWC_STRING required");
@@ -28,6 +31,15 @@ async function main() {
   console.log("argv", process.argv);
   const EXPERT_PUBKEY = process.argv?.[2];
   if (!EXPERT_PUBKEY) throw new Error("Pass expert pubkey as cli param");
+  
+  // Optional max amount in sats (from command line argument)
+  const MAX_AMOUNT_SATS = process.argv?.[3];
+  
+  // Construct model parameter (with optional max_amount_sats)
+  let modelParam = EXPERT_PUBKEY;
+  if (MAX_AMOUNT_SATS) {
+    modelParam = `${EXPERT_PUBKEY}?max_amount_sats=${MAX_AMOUNT_SATS}`;
+  }
 
   try {
     console.log('Sending request to OpenAI proxy...');
@@ -40,7 +52,7 @@ async function main() {
         'Authorization': `Bearer ${NWC_STRING}`
       },
       body: JSON.stringify({
-        model: EXPERT_PUBKEY, // The expert's pubkey goes in the model field
+        model: modelParam, // The expert's pubkey with optional max_amount_sats parameter
         messages: [
           {
             role: 'user',

@@ -25,7 +25,7 @@ A JavaScript/TypeScript SDK for the AskExperts protocol (NIP-174), enabling disc
 
 ## Overview
 
-AskExperts SDK implements the [NIP-174](https://github.com/nostr-protocol/nips/blob/master/174.md) protocol, which allows:
+AskExperts SDK implements the [NIP-174](https://github.com/nostrband/askexperts/blob/main/NIP-174.md) protocol, which allows:
 
 - **Discovery**: Find experts by publishing anonymized question summaries with hashtags
 - **Prompting**: Send encrypted questions to experts and receive answers
@@ -276,6 +276,9 @@ The OpenAI API Proxy supports the following options:
 The proxy implements the OpenAI Chat Completions API, with a few key differences:
 
 1. The `model` parameter is used to specify the expert's pubkey
+   - You can optionally append query parameters using the format: `expert_pubkey?max_amount_sats=N`
+   - `max_amount_sats` limits the maximum amount in satoshis that will be accepted in the `onQuote` handler
+   - If the invoice amount exceeds this limit, the request will be rejected
 2. The `Authorization: Bearer <nwcString>` header should contain your NWC connection string for payments
 3. The proxy handles all the NIP-174 protocol details, including payments
 
@@ -293,7 +296,7 @@ const response = await fetch('http://localhost:3002/v1/chat/completions', {
     'Authorization': `Bearer ${NWC_STRING}`
   },
   body: JSON.stringify({
-    model: 'expert_pubkey_here', // The expert's pubkey
+    model: 'expert_pubkey_here', // The expert's pubkey, can also use 'expert_pubkey_here?max_amount_sats=1000'
     messages: [
       {
         role: 'user',
@@ -318,7 +321,31 @@ const openai = new OpenAI({
 });
 
 const response = await openai.chat.completions.create({
-  model: 'expert_pubkey_here', // The expert's pubkey
+  model: 'expert_pubkey_here', // The expert's pubkey, can also use 'expert_pubkey_here?max_amount_sats=1000'
+  messages: [
+    {
+      role: 'user',
+      content: 'Hello! Can you tell me about Bitcoin?'
+    }
+  ]
+});
+
+console.log(response.choices[0].message.content);
+```
+
+Example with payment limit:
+
+```javascript
+import OpenAI from 'openai';
+
+const openai = new OpenAI({
+  apiKey: 'your_nwc_connection_string', // Your NWC connection string
+  baseURL: 'http://localhost:3002/v1'
+});
+
+// Using the model parameter with max_amount_sats query parameter
+const response = await openai.chat.completions.create({
+  model: 'expert_pubkey_here?max_amount_sats=1000', // Limit payment to 1000 sats
   messages: [
     {
       role: 'user',

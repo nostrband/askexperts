@@ -5,7 +5,8 @@
 
 import { Event, SimplePool } from "nostr-tools";
 import { z } from "zod";
-import { debugClient, debugError } from "../common/debug.js";
+import { debugError } from "../common/debug.js";
+import { parseBolt11 } from "../common/bolt11.js";
 
 import {
   AskExpertsError,
@@ -887,6 +888,9 @@ export class AskExpertsClient {
     let proof: Proof;
 
     try {
+      // Validate the quote before calling onQuote
+      this.validateQuote(quote);
+      
       // onQuote returns a boolean indicating whether to proceed with payment
       const shouldPay = await onQuote(quote, prompt);
 
@@ -929,5 +933,39 @@ export class AskExpertsClient {
       expertRelays,
       compressionInstance
     );
+  }
+
+  /**
+   * Validates a quote by checking that all lightning invoices have matching amounts
+   *
+   * @param quote - The quote to validate
+   * @throws PaymentRejectedError if any invoice amount doesn't match the expected amount
+   */
+  validateQuote(quote: Quote): void {
+    // Find all lightning invoices in the quote
+    for (const invoice of quote.invoices) {
+      // Check if this is a lightning invoice with an invoice field
+      if (invoice.method === METHOD_LIGHTNING && invoice.invoice) {
+        try {
+          // Parse the invoice using parseBolt11
+          const parsedInvoice = parseBolt11(invoice.invoice);
+          
+          // Check if the parsed amount matches the expected amount
+          if (parsedInvoice.amount_sats !== invoice.amount) {
+            throw new PaymentRejectedError(
+              `Invoice amount mismatch: expected ${invoice.amount} sats, but invoice contains ${parsedInvoice.amount_sats} sats`
+            );
+          }
+        } catch (error) {
+          // If parsing fails, throw a PaymentRejectedError
+          if (error instanceof PaymentRejectedError) {
+            throw error;
+          }
+          throw new PaymentRejectedError(
+            `Failed to validate invoice: ${error instanceof Error ? error.message : String(error)}`
+          );
+        }
+      }
+    }
   }
 }
