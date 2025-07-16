@@ -7,6 +7,7 @@ import { startMcpServer } from "./commands/mcp.js";
 import { startSmartMcpServer } from "./commands/smart-mcp.js";
 import { startProxyServer } from "./commands/proxy.js";
 import { startHttpServer } from "./commands/http.js";
+import { displayEnvironment } from "./commands/env.js";
 import {
   debugError,
   enableAllDebug,
@@ -168,6 +169,22 @@ export function runCli(): void {
         await startHttpServer(options);
       } catch (error) {
         debugError("Error starting HTTP server:", error);
+        process.exit(1);
+      }
+    });
+
+  // Environment command
+  program
+    .command("env")
+    .description("Display all environment variables from process.env")
+    .option("-d, --debug", "Enable debug logging")
+    .action(async (options) => {
+      if (options.debug) enableAllDebug();
+      else enableErrorDebug();
+      try {
+        await displayEnvironment();
+      } catch (error) {
+        debugError("Error displaying environment variables:", error);
         process.exit(1);
       }
     });
