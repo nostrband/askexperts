@@ -11,7 +11,7 @@
     "build": "tsc",
     "build:client": "npm run build:client:node && npm run build:client:browser",
     "build:client:node": "esbuild src/client/index.ts --bundle --platform=node --target=node18 --format=esm --outfile=dist/client/index.node.js",
-    "build:client:browser": "esbuild src/client/index.ts --bundle --platform=browser --target=es2020 --format=esm --outfile=dist/client/index.browser.js",
+    "build:client:browser": "esbuild src/client/index.ts --bundle --platform=browser --target=es2020 --format=esm --outfile=dist/client/index.browser.js --external:stream --external:events --external:zlib --external:util --external:crypto --external:fs --external:path --external:os --external:http --external:https --external:net --external:tls --external:child_process --external:worker_threads --external:readline --external:assert --external:buffer --external:../proxy/* --external:../mcp/AskExpertsHttp* --external:../bin/* --external:../expert/*",
     "start": "tsx src/index.ts",
     "dev": "tsx --watch src/index.ts",
     "expert": "tsx examples/expert-example.ts",
