@@ -25,7 +25,7 @@ export {
 export { LightningPaymentManager } from "./lightning/LightningPaymentManager.js";
 
 // Export the Expert class
-export { AskExpertsServer } from "./expert/index.js";
+export { AskExpertsServer } from "./server/index.js";
 
 // Export common types for convenience
 export type {

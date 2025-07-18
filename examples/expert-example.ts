@@ -3,7 +3,7 @@
  */
 
 import { generateSecretKey, getPublicKey } from "nostr-tools";
-import { AskExpertsServer } from "../src/expert/index.js";
+import { AskExpertsServer } from "../src/server/index.js";
 import {
   Ask,
   Prompt,
@@ -84,10 +84,6 @@ async function runExampleExpert() {
       return {
         offer:
           "I can help you with your question! I specialize in AI and programming topics.",
-        relays: DEFAULT_PROPMT_RELAYS,
-        // formats: [FORMAT_TEXT, FORMAT_OPENAI],
-        // compressions: [COMPRESSION_PLAIN],
-        // methods: [METHOD_LIGHTNING]
       };
     },
 

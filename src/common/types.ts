@@ -338,9 +338,6 @@ export interface ExpertBid {
   /** Expert's offer text */
   offer: string;
   
-  /** Relays for prompting */
-  relays: string[];
-  
   /** Supported formats (optional) */
   formats?: PromptFormat[];
   

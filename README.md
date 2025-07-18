@@ -134,8 +134,7 @@ const expert = new AskExpertsServer({
     
     // Return a bid if you want to answer this question
     return {
-      offer: "I can help with your JavaScript question!",
-      relays: ['wss://relay1.askexperts.io'],
+      offer: "I can help with your JavaScript question!"
     };
   },
   
@@ -244,7 +243,7 @@ The `Authorization: Bearer <nwcString>` header should contain your NWC connectio
 
 ### OpenAI API Proxy
 
-The OpenAI API Proxy provides an OpenAI-compatible interface to the AskExperts protocol, allowing you to use any OpenAI client library to interact with NIP-174 experts.
+The OpenAI API Proxy provides an OpenAI-compatible interface to the AskExperts protocol, allowing you to use any OpenAI client library to interact with NIP-174 experts. To try with our hosted version, use `https://openai.askexperts.io/`.
 
 #### Running the OpenAI API Proxy
 
@@ -276,7 +275,7 @@ The proxy exposes the following endpoints:
 Example using fetch:
 
 ```javascript
-const response = await fetch('http://localhost:3002/v1/chat/completions', {
+const response = await fetch('http://localhost:3002/chat/completions', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
@@ -304,35 +303,11 @@ import OpenAI from 'openai';
 
 const openai = new OpenAI({
   apiKey: 'your_nwc_connection_string', // Your NWC connection string
-  baseURL: 'http://localhost:3002/v1'
+  baseURL: 'http://localhost:3002/'
 });
 
 const response = await openai.chat.completions.create({
   model: 'expert_pubkey_here', // The expert's pubkey, can also use 'expert_pubkey_here?max_amount_sats=1000'
-  messages: [
-    {
-      role: 'user',
-      content: 'Hello! Can you tell me about Bitcoin?'
-    }
-  ]
-});
-
-console.log(response.choices[0].message.content);
-```
-
-Example with payment limit:
-
-```javascript
-import OpenAI from 'openai';
-
-const openai = new OpenAI({
-  apiKey: 'your_nwc_connection_string', // Your NWC connection string
-  baseURL: 'http://localhost:3002/v1'
-});
-
-// Using the model parameter with max_amount_sats query parameter
-const response = await openai.chat.completions.create({
-  model: 'expert_pubkey_here?max_amount_sats=1000', // Limit payment to 1000 sats
   messages: [
     {
       role: 'user',

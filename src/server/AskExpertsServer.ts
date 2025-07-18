@@ -389,7 +389,7 @@ export class AskExpertsServer {
 
       // Create tags for the bid payload
       const tags: string[][] = [
-        ...expertBid.relays.map((relay) => ['relay', relay]),
+        ...this.promptRelays.map((relay) => ['relay', relay]),
         ...validFormats.map((format) => ['f', format]),
         ...validCompressions.map((compr) => ['c', compr]),
         ...validMethods.map((method) => ['m', method]),

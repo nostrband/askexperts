@@ -255,7 +255,7 @@ export class AskExpertsSmartMCP extends McpServer {
         model: "openai/gpt-4o-mini",
         messages: [
           {
-            role: "developer",
+            role: "system",
             content: `Your job is to look at the user's detailed question or prompt that might include sensitive or private information, 
 and come up with a short anonymized summarized version that can be shared publicly to find experts on the subject, without revealing
 any private data. You must also determine 1 to 10 hashtags that this summarized question/prompt might have to simplify discovery for experts - hashtags
