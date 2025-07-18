@@ -3,3 +3,4 @@ dist
 .env.local
 node_modules
 data
+*.json

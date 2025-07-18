@@ -36,6 +36,20 @@ export class OpenRouter implements ModelPricing {
   private cacheExpiryTime: number = 60 * 60 * 1000;
 
   /**
+   * Gets all available models
+   * Updates the cache if it's older than the expiry time
+   *
+   * @returns Array of models
+   */
+  async list(): Promise<OpenRouterModel[]> {
+    // Update cache if needed
+    await this.updateCacheIfNeeded();
+    
+    // Return all models
+    return [...this.models];
+  }
+
+  /**
    * BTC/USD exchange rate
    */
   private btcUsd?: number;
@@ -122,6 +136,13 @@ export class OpenRouter implements ModelPricing {
       debugError("Error calculating pricing:", error);
       throw error;
     }
+  }
+
+  /**
+   * Force a model cache update
+   */
+  async update() {
+    await this.fetchModels();
   }
 
   /**

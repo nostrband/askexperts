@@ -1,5 +1,6 @@
 import { OpenAIProxy } from "../../proxy/index.js";
-import { debugClient, debugError } from "../../common/debug.js";
+import { debugClient, debugError, enableAllDebug, enableErrorDebug } from "../../common/debug.js";
+import { Command } from "commander";
 
 /**
  * Options for the proxy command
@@ -57,4 +58,42 @@ export async function startProxyServer(
     debugError("Failed to start OpenAI Proxy server:", error);
     throw error;
   }
+}
+
+/**
+ * Helper function to parse comma-separated lists
+ * @param value The comma-separated string
+ * @returns Array of trimmed strings
+ */
+function commaSeparatedList(value: string): string[] {
+  return value.split(",").map((item) => item.trim());
+}
+
+/**
+ * Register the proxy command with the CLI
+ *
+ * @param program The commander program
+ */
+export function registerProxyCommand(program: Command): void {
+  program
+    .command("proxy")
+    .description("Launch an OpenAI-compatible proxy server for NIP-174")
+    .requiredOption("-p, --port <number>", "Port to listen on", parseInt)
+    .option("-b, --base-path <string>", "Base path for the API", "/")
+    .option(
+      "-r, --relays <items>",
+      "Comma-separated list of discovery relays",
+      commaSeparatedList
+    )
+    .option("-d, --debug", "Enable debug logging")
+    .action(async (options) => {
+      if (options.debug) enableAllDebug();
+      else enableErrorDebug();
+      try {
+        await startProxyServer(options);
+      } catch (error) {
+        debugError("Error starting OpenAI Proxy server:", error);
+        process.exit(1);
+      }
+    });
 }

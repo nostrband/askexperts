@@ -1,6 +1,7 @@
 import { AskExpertsSmartMCP } from '../../mcp/index.js';
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { debugMCP, debugError } from '../../common/debug.js';
+import { debugMCP, debugError, enableAllDebug, enableErrorDebug } from '../../common/debug.js';
+import { Command } from "commander";
 
 /**
  * Options for the Smart MCP server command
@@ -80,4 +81,49 @@ export async function startSmartMcpServer(options: SmartMcpCommandOptions): Prom
     debugError('Failed to start Smart MCP server:', error);
     throw error;
   }
+}
+
+/**
+ * Helper function to parse comma-separated lists
+ * @param value The comma-separated string
+ * @returns Array of trimmed strings
+ */
+function commaSeparatedList(value: string): string[] {
+  return value.split(",").map((item) => item.trim());
+}
+
+/**
+ * Register the Smart MCP command with the CLI
+ *
+ * @param program The commander program
+ */
+export function registerSmartMcpCommand(program: Command): void {
+  program
+    .command("smart")
+    .description("Launch the stdio Smart MCP server with LLM capabilities")
+    .option("-n, --nwc <string>", "NWC connection string for payments")
+    .option(
+      "-r, --relays <items>",
+      "Comma-separated list of discovery relays",
+      commaSeparatedList
+    )
+    .option(
+      "-k, --openai-api-key <string>",
+      "OpenAI API key"
+    )
+    .option(
+      "-u, --openai-base-url <string>",
+      "OpenAI base URL"
+    )
+    .option("-d, --debug", "Enable debug logging")
+    .action(async (options) => {
+      if (options.debug) enableAllDebug();
+      else enableErrorDebug();
+      try {
+        await startSmartMcpServer(options);
+      } catch (error) {
+        debugError("Error starting Smart MCP server:", error);
+        process.exit(1);
+      }
+    });
 }

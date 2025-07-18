@@ -1,6 +1,7 @@
 import { AskExpertsMCP } from '../../mcp/index.js';
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { enableAllDebug, debugMCP, debugError } from '../../common/debug.js';
+import { enableAllDebug, enableErrorDebug, debugMCP, debugError } from '../../common/debug.js';
+import { Command } from "commander";
 
 /**
  * Options for the MCP server command
@@ -68,4 +69,41 @@ export async function startMcpServer(options: McpCommandOptions): Promise<void> 
     debugError('Failed to start MCP server:', error);
     throw error;
   }
+}
+
+/**
+ * Helper function to parse comma-separated lists
+ * @param value The comma-separated string
+ * @returns Array of trimmed strings
+ */
+function commaSeparatedList(value: string): string[] {
+  return value.split(",").map((item) => item.trim());
+}
+
+/**
+ * Register the MCP command with the CLI
+ *
+ * @param program The commander program
+ */
+export function registerMcpCommand(program: Command): void {
+  program
+    .command("mcp")
+    .description("Launch the stdio MCP server")
+    .option("-n, --nwc <string>", "NWC connection string for payments")
+    .option(
+      "-r, --relays <items>",
+      "Comma-separated list of discovery relays",
+      commaSeparatedList
+    )
+    .option("-d, --debug", "Enable debug logging")
+    .action(async (options) => {
+      if (options.debug) enableAllDebug();
+      else enableErrorDebug();
+      try {
+        await startMcpServer(options);
+      } catch (error) {
+        debugError("Error starting MCP server:", error);
+        process.exit(1);
+      }
+    });
 }

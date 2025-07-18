@@ -3,16 +3,12 @@ import { fileURLToPath } from "url";
 import { dirname, resolve } from "path";
 import fs from "fs";
 import dotenv from "dotenv";
-import { startMcpServer } from "./commands/mcp.js";
-import { startSmartMcpServer } from "./commands/smart-mcp.js";
-import { startProxyServer } from "./commands/proxy.js";
-import { startHttpServer } from "./commands/http.js";
-import { displayEnvironment } from "./commands/env.js";
-import {
-  debugError,
-  enableAllDebug,
-  enableErrorDebug,
-} from "../common/debug.js";
+import { registerMcpCommand } from "./commands/mcp.js";
+import { registerSmartMcpCommand } from "./commands/smart-mcp.js";
+import { registerProxyCommand } from "./commands/proxy.js";
+import { registerHttpCommand } from "./commands/http.js";
+import { registerEnvCommand } from "./commands/env.js";
+import { registerExpertCommand } from "./commands/expert/index.js";
 
 // Load environment variables from .env file without debug logs
 dotenv.config({ debug: false });
@@ -37,14 +33,6 @@ function getPackageVersion(): string {
   return packageJson.version;
 }
 
-/**
- * Helper function to parse comma-separated lists
- * @param value The comma-separated string
- * @returns Array of trimmed strings
- */
-function commaSeparatedList(value: string): string[] {
-  return value.split(",").map((item) => item.trim());
-}
 
 /**
  * Main CLI function that sets up the commander program and parses arguments
@@ -57,137 +45,13 @@ export function runCli(): void {
     .description("CLI utility for AskExperts")
     .version(getPackageVersion());
 
-  // MCP command
-  program
-    .command("mcp")
-    .description("Launch the stdio MCP server")
-    .option("-n, --nwc <string>", "NWC connection string for payments")
-    .option(
-      "-r, --relays <items>",
-      "Comma-separated list of discovery relays",
-      commaSeparatedList
-    )
-    .option("-d, --debug", "Enable debug logging")
-    .action(async (options) => {
-      if (options.debug) enableAllDebug();
-      else enableErrorDebug();
-      try {
-        await startMcpServer(options);
-      } catch (error) {
-        debugError("Error starting MCP server:", error);
-        process.exit(1);
-      }
-    });
-
-  // Smart MCP command
-  program
-    .command("smart")
-    .description("Launch the stdio Smart MCP server with LLM capabilities")
-    .option("-n, --nwc <string>", "NWC connection string for payments")
-    .option(
-      "-r, --relays <items>",
-      "Comma-separated list of discovery relays",
-      commaSeparatedList
-    )
-    .option(
-      "-k, --openai-api-key <string>",
-      "OpenAI API key"
-    )
-    .option(
-      "-u, --openai-base-url <string>",
-      "OpenAI base URL"
-    )
-    .option("-d, --debug", "Enable debug logging")
-    .action(async (options) => {
-      if (options.debug) enableAllDebug();
-      else enableErrorDebug();
-      try {
-        await startSmartMcpServer(options);
-      } catch (error) {
-        debugError("Error starting Smart MCP server:", error);
-        process.exit(1);
-      }
-    });
-
-  // Proxy command
-  program
-    .command("proxy")
-    .description("Launch an OpenAI-compatible proxy server for NIP-174")
-    .requiredOption("-p, --port <number>", "Port to listen on")
-    .option("-b, --base-path <string>", "Base path for the API", "/")
-    .option(
-      "-r, --relays <items>",
-      "Comma-separated list of discovery relays",
-      commaSeparatedList
-    )
-    .option("-d, --debug", "Enable debug logging")
-    .action(async (options) => {
-      if (options.debug) enableAllDebug();
-      else enableErrorDebug();
-      try {
-        await startProxyServer(options);
-      } catch (error) {
-        debugError("Error starting OpenAI Proxy server:", error);
-        process.exit(1);
-      }
-    });
-
-  // HTTP command
-  program
-    .command("http")
-    .description("Launch an HTTP MCP server")
-    .requiredOption("-p, --port <number>", "Port to listen on (default: 3000)")
-    .option(
-      "-r, --relays <items>",
-      "Comma-separated list of discovery relays",
-      commaSeparatedList
-    )
-    .option("-b, --base-path <string>", "Base path for the server")
-    .option(
-      "-t, --type <string>",
-      "Server type: 'mcp' or 'smart' (default: 'mcp')",
-      (value) => {
-        if (value !== "mcp" && value !== "smart") {
-          throw new Error("Type must be either 'mcp' or 'smart'");
-        }
-        return value;
-      }
-    )
-    .option(
-      "-k, --openai-api-key <string>",
-      "OpenAI API key (required for 'smart' type)"
-    )
-    .option(
-      "-u, --openai-base-url <string>",
-      "OpenAI base URL (required for 'smart' type)"
-    )
-    .option("-d, --debug", "Enable debug logging")
-    .action(async (options) => {
-      if (options.debug) enableAllDebug();
-      else enableErrorDebug();
-      try {
-        await startHttpServer(options);
-      } catch (error) {
-        debugError("Error starting HTTP server:", error);
-        process.exit(1);
-      }
-    });
-
-  // Environment command
-  program
-    .command("env")
-    .description("Display all environment variables from process.env")
-    .option("-d, --debug", "Enable debug logging")
-    .action(async (options) => {
-      if (options.debug) enableAllDebug();
-      else enableErrorDebug();
-      try {
-        await displayEnvironment();
-      } catch (error) {
-        debugError("Error displaying environment variables:", error);
-        process.exit(1);
-      }
-    });
+  // Register all commands
+  registerMcpCommand(program);
+  registerSmartMcpCommand(program);
+  registerProxyCommand(program);
+  registerHttpCommand(program);
+  registerEnvCommand(program);
+  registerExpertCommand(program);
 
   // Parse command line arguments
   program.parse();

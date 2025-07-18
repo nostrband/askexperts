@@ -1,6 +1,8 @@
 /**
  * Implementation of the 'env' command that prints environment variables
  */
+import { Command } from "commander";
+import { debugError, enableAllDebug, enableErrorDebug } from "../../common/debug.js";
 
 /**
  * Start the environment variables display
@@ -20,4 +22,26 @@ export async function displayEnvironment(): Promise<void> {
   }
   
   console.log("======================");
+}
+
+/**
+ * Register the environment command with the CLI
+ *
+ * @param program The commander program
+ */
+export function registerEnvCommand(program: Command): void {
+  program
+    .command("env")
+    .description("Display all environment variables from process.env")
+    .option("-d, --debug", "Enable debug logging")
+    .action(async (options) => {
+      if (options.debug) enableAllDebug();
+      else enableErrorDebug();
+      try {
+        await displayEnvironment();
+      } catch (error) {
+        debugError("Error displaying environment variables:", error);
+        process.exit(1);
+      }
+    });
 }

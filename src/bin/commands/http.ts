@@ -1,5 +1,6 @@
 import { AskExpertsHttp } from "../../mcp/index.js";
-import { debugMCP, debugError } from "../../common/debug.js";
+import { debugMCP, debugError, enableAllDebug, enableErrorDebug } from "../../common/debug.js";
+import { Command } from "commander";
 
 /**
  * Options for the HTTP server command
@@ -92,4 +93,60 @@ export async function startHttpServer(
     debugError("Failed to start HTTP server:", error);
     throw error;
   }
+}
+
+/**
+ * Helper function to parse comma-separated lists
+ * @param value The comma-separated string
+ * @returns Array of trimmed strings
+ */
+function commaSeparatedList(value: string): string[] {
+  return value.split(",").map((item) => item.trim());
+}
+
+/**
+ * Register the HTTP command with the CLI
+ *
+ * @param program The commander program
+ */
+export function registerHttpCommand(program: Command): void {
+  program
+    .command("http")
+    .description("Launch an HTTP MCP server")
+    .requiredOption("-p, --port <number>", "Port to listen on (default: 3000)", parseInt)
+    .option(
+      "-r, --relays <items>",
+      "Comma-separated list of discovery relays",
+      commaSeparatedList
+    )
+    .option("-b, --base-path <string>", "Base path for the server")
+    .option(
+      "-t, --type <string>",
+      "Server type: 'mcp' or 'smart' (default: 'mcp')",
+      (value) => {
+        if (value !== "mcp" && value !== "smart") {
+          throw new Error("Type must be either 'mcp' or 'smart'");
+        }
+        return value;
+      }
+    )
+    .option(
+      "-k, --openai-api-key <string>",
+      "OpenAI API key (required for 'smart' type)"
+    )
+    .option(
+      "-u, --openai-base-url <string>",
+      "OpenAI base URL (required for 'smart' type)"
+    )
+    .option("-d, --debug", "Enable debug logging")
+    .action(async (options) => {
+      if (options.debug) enableAllDebug();
+      else enableErrorDebug();
+      try {
+        await startHttpServer(options);
+      } catch (error) {
+        debugError("Error starting HTTP server:", error);
+        process.exit(1);
+      }
+    });
 }

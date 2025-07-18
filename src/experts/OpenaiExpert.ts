@@ -113,7 +113,7 @@ export class OpenaiExpert {
       privkey: options.privkey,
       discoveryRelays: options.discoveryRelays || DEFAULT_DISCOVERY_RELAYS,
       promptRelays: options.promptRelays || DEFAULT_DISCOVERY_RELAYS,
-      hashtags: ["llm", this.model],
+      hashtags: ["llm", "model", this.model],
       formats: [FORMAT_TEXT, FORMAT_OPENAI],
       onAsk: this.onAsk.bind(this),
       onPrompt: this.onPrompt.bind(this),
@@ -128,6 +128,15 @@ export class OpenaiExpert {
   async start(): Promise<void> {
     // Start the server
     await this.server.start();
+  }
+
+  /**
+   * Gets the model ID used by this expert
+   *
+   * @returns The model ID
+   */
+  getModel(): string {
+    return this.model;
   }
 
   /**
