@@ -45,9 +45,19 @@ export class OpenaiExpert {
   private openai: OpenAI;
 
   /**
-   * OpenAI model to use
+   * Model id to use
    */
   private model: string;
+
+  /**
+   * Model vendor
+   */
+  private modelVendor: string;
+
+  /**
+   * Model name
+   */
+  private modelName: string;
 
   /**
    * Profit margin (e.g., 0.1 for 10%)
@@ -94,6 +104,8 @@ export class OpenaiExpert {
     avgOutputTokens?: number;
   }) {
     this.model = options.model;
+    this.modelVendor = this.model.split("/")[0];
+    this.modelName = (this.model.split("/")?.[1] || this.model).split(/[\s\p{P}]+/u)[0];
     this.margin = options.margin;
     this.systemPrompt = options.systemPrompt;
     this.pricingProvider = options.pricingProvider;
@@ -113,7 +125,7 @@ export class OpenaiExpert {
       privkey: options.privkey,
       discoveryRelays: options.discoveryRelays || DEFAULT_DISCOVERY_RELAYS,
       promptRelays: options.promptRelays || DEFAULT_DISCOVERY_RELAYS,
-      hashtags: ["llm", "model", this.model],
+      hashtags: [this.model, this.modelVendor, this.modelName], // "llm", "model", 
       formats: [FORMAT_TEXT, FORMAT_OPENAI],
       onAsk: this.onAsk.bind(this),
       onPrompt: this.onPrompt.bind(this),
@@ -147,6 +159,15 @@ export class OpenaiExpert {
    */
   private async onAsk(ask: Ask): Promise<ExpertBid | undefined> {
     try {
+      const tags = ask.hashtags;
+      // if (!tags.includes("llm") && !tags.includes("model")) return;
+      if (
+        !tags.includes(this.model) &&
+        !tags.includes(this.modelVendor) &&
+        !tags.includes(this.modelName)
+      )
+        return;
+
       debugExpert(`Received ask: ${ask.id}`);
 
       // Get current pricing

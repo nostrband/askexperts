@@ -15,6 +15,8 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { makeTool } from "./utils.js";
 
+const BID_TTL = 3600;
+
 /**
  * Interface for BidMCP objects returned by findExperts
  */
@@ -92,7 +94,7 @@ export class AskExpertsMCP extends McpServer {
         summary: z.string().describe("A summary of the question"),
         hashtags: z
           .array(z.string())
-          .describe("List of hashtags for discovery"),
+          .describe("List of hashtags for discovery, lowercase, English, one word per hashtag"),
       },
       outputSchema: {
         bids: z
@@ -308,6 +310,13 @@ export class AskExpertsMCP extends McpServer {
     }
   }
 
+  private gc() {
+    const now = Math.floor(Date.now() / 1000);
+    for (const [id, bid] of this.bidMap.entries()) {
+      if (now - bid.event.created_at > BID_TTL) this.bidMap.delete(id);
+    }
+  }
+
   /**
    * Finds experts based on a summary and hashtags
    *
@@ -324,6 +333,8 @@ export class AskExpertsMCP extends McpServer {
       throw new Error("At least one hashtag is required");
     }
 
+    this.gc();
+
     try {
       // Find experts using the client
       const bids = await this.client.findExperts({
@@ -332,9 +343,6 @@ export class AskExpertsMCP extends McpServer {
         formats: [FORMAT_TEXT],
         methods: [METHOD_LIGHTNING],
       });
-
-      // Clear the bid map before adding new bids
-      this.bidMap.clear();
 
       // Convert bids to BidMCP objects and store in the map
       return bids.map((bid) => {

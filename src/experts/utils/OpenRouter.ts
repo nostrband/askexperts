@@ -116,12 +116,13 @@ export class OpenRouter implements ModelPricing {
       }
 
       // Convert USD prices per token to sats per million tokens
-      // 1 BTC = 100,000,000 sats, so sats = usd * 100,000,000 / btcUsd * 1,000,000
+      // 1 BTC = 100,000,000 sats, so sats = usd * 100,000,000 / btcUsd * 1,000,000,
+      // add base price of 1 sat.
       const inputTokenPPM = Math.ceil(
-        (inputPriceUsd * 100000000) / this.btcUsd * 1000000
+        1 + (inputPriceUsd * 100000000) / this.btcUsd * 1000000
       );
       const outputTokenPPM = Math.ceil(
-        (outputPriceUsd * 100000000) / this.btcUsd * 1000000
+        1 + (outputPriceUsd * 100000000) / this.btcUsd * 1000000
       );
 
       debugExpert(
@@ -167,7 +168,8 @@ export class OpenRouter implements ModelPricing {
       }
 
       const data = await response.json();
-      this.models = data.data;
+      // ignore BYOK models
+      this.models = data.data.filter((m: OpenRouterModel) => !m.description.includes("BYOK"));
       this.lastFetchTime = Date.now();
       debugExpert(`Fetched ${this.models.length} models from OpenRouter API`);
     } catch (error) {

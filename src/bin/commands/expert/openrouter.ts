@@ -1,4 +1,4 @@
-import { SimplePool } from "nostr-tools";
+import { getPublicKey, SimplePool } from "nostr-tools";
 import { OpenaiExpert } from "../../../experts/OpenaiExpert.js";
 import { OpenRouter } from "../../../experts/utils/OpenRouter.js";
 import { debugError, debugExpert, enableAllDebug, enableErrorDebug } from "../../../common/debug.js";
@@ -141,7 +141,7 @@ export async function startOpenRouterExperts(
           nwcString
         });
         
-        debugExpert(`Started expert for model ${modelId}`);
+        debugExpert(`Started expert for model ${modelId} pubkey ${getPublicKey(privkey)}`);
       } catch (error) {
         debugError(`Error creating expert for model ${modelId}: ${error}`);
       }

@@ -299,7 +299,6 @@ export class AskExpertsServer {
       '#p': [this.pubkey],
       since: Math.floor(Date.now() / 1000) - 60, // Get events from the last minute
     };
-    debugExpert("prompt filter", filter);
 
     // Subscribe to prompt events
     const sub = subscribeToRelays([filter], this.promptRelays, this.pool, {
