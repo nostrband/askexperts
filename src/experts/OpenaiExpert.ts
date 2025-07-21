@@ -102,6 +102,8 @@ export class OpenaiExpert {
     promptRelays?: string[];
     pool?: SimplePool;
     avgOutputTokens?: number;
+    hashtags?: string[];
+    onAsk?: (ask: Ask) => Promise<ExpertBid | undefined>;
   }) {
     this.model = options.model;
     this.modelVendor = this.model.split("/")[0];
@@ -125,9 +127,9 @@ export class OpenaiExpert {
       privkey: options.privkey,
       discoveryRelays: options.discoveryRelays || DEFAULT_DISCOVERY_RELAYS,
       promptRelays: options.promptRelays || DEFAULT_DISCOVERY_RELAYS,
-      hashtags: [this.model, this.modelVendor, this.modelName], // "llm", "model", 
+      hashtags: options.hashtags || [this.model, this.modelVendor, this.modelName], // "llm", "model",
       formats: [FORMAT_TEXT, FORMAT_OPENAI],
-      onAsk: this.onAsk.bind(this),
+      onAsk: options.onAsk || this.onAsk.bind(this),
       onPrompt: this.onPrompt.bind(this),
       onProof: this.onProof.bind(this),
       pool: options.pool,
@@ -223,7 +225,7 @@ export class OpenaiExpert {
         );
       } else if (prompt.format === FORMAT_TEXT) {
         // For text format, count tokens in the content
-        inputTokenCount = this.countTokens(prompt.content);
+        inputTokenCount += this.countTokens(prompt.content);
       } else {
         throw new Error(`Unsupported format: ${prompt.format}`);
       }

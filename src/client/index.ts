@@ -3,8 +3,10 @@
  * Works in both browser and Node.js environments
  */
 
-// Export the main client class
+// Export the main client classes
 export { AskExpertsClient } from './AskExpertsClient.js';
+export { AskExpertsSmartClient } from './AskExpertsSmartClient.js';
+export type { ReplyMCP } from './AskExpertsSmartClient.js';
 
 // Export types
 export type {

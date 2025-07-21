@@ -9,6 +9,8 @@ import { registerProxyCommand } from "./commands/proxy.js";
 import { registerHttpCommand } from "./commands/http.js";
 import { registerEnvCommand } from "./commands/env.js";
 import { registerExpertCommand } from "./commands/expert/index.js";
+import { registerClientCommand } from "./commands/client.js";
+import { registerChatCommand } from "./commands/chat.js";
 
 // Load environment variables from .env file without debug logs
 dotenv.config({ debug: false });
@@ -52,6 +54,8 @@ export function runCli(): void {
   registerHttpCommand(program);
   registerEnvCommand(program);
   registerExpertCommand(program);
+  registerClientCommand(program);
+  registerChatCommand(program);
 
   // Parse command line arguments
   program.parse();

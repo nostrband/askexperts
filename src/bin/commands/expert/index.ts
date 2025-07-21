@@ -1,9 +1,10 @@
 import { Command } from "commander";
 import { registerOpenRouterCommand } from "./openrouter.js";
+import { registerNostrCommand } from "./nostr.js";
 
 /**
  * Register the expert command group with the CLI
- * 
+ *
  * @param program The commander program
  */
 export function registerExpertCommand(program: Command): void {
@@ -14,4 +15,5 @@ export function registerExpertCommand(program: Command): void {
 
   // Register subcommands
   registerOpenRouterCommand(expertCommand);
+  registerNostrCommand(expertCommand);
 }

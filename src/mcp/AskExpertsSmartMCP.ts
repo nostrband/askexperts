@@ -1,40 +1,17 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { AskExpertsClient } from "../client/AskExpertsClient.js";
-import { LightningPaymentManager } from "../lightning/LightningPaymentManager.js";
-import { parseBolt11 } from "../common/bolt11.js";
-import { debugMCP, debugError } from "../common/debug.js";
-import {
-  DEFAULT_DISCOVERY_RELAYS,
-  FORMAT_TEXT,
-  METHOD_LIGHTNING,
-} from "../common/constants.js";
-import { Bid, Proof, Quote, Prompt, Replies } from "../client/types.js";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { makeTool } from "./utils.js";
-import OpenAI from "openai";
-
-/**
- * Interface for ReplyMCP objects returned by askExperts
- */
-export interface ReplyMCP {
-  expert_pubkey: string;
-  expert_offer: string;
-  content?: string;
-  amount_sats?: number;
-  error?: string;
-}
+import { AskExpertsSmartClient, ReplyMCP } from "../client/AskExpertsSmartClient.js";
 
 /**
  * AskExpertsSmartMCP class that extends McpServer and provides a simplified interface
  * for clients to interact with the AskExpertsClient with LLM capabilities
  */
 export class AskExpertsSmartMCP extends McpServer {
-  private client: AskExpertsClient;
-  private paymentManager: LightningPaymentManager;
-  private openai: OpenAI;
+  private client: AskExpertsSmartClient;
 
   /**
    * Creates a new AskExpertsSmartMCP instance
@@ -50,18 +27,6 @@ export class AskExpertsSmartMCP extends McpServer {
     openaiBaseUrl: string,
     discoveryRelays?: string[]
   ) {
-    if (!nwcString) {
-      throw new Error("NWC connection string is required");
-    }
-
-    if (!openaiApiKey) {
-      throw new Error("OpenAI API key is required");
-    }
-
-    if (!openaiBaseUrl) {
-      throw new Error("OpenAI base URL is required");
-    }
-
     // Read version from package.json
     const __filename = fileURLToPath(import.meta.url);
     const __dirname = path.dirname(__filename);
@@ -75,23 +40,13 @@ export class AskExpertsSmartMCP extends McpServer {
         "An MCP server that allows asking questions to experts with LLM-powered summarization and expert selection.",
     });
 
-    // Create the payment manager
-    this.paymentManager = new LightningPaymentManager(nwcString);
-
-    // Create the client with callbacks for quotes and payments
-    this.client = new AskExpertsClient({
-      discoveryRelays: discoveryRelays || DEFAULT_DISCOVERY_RELAYS,
-    });
-
-    // Initialize OpenAI
-    this.openai = new OpenAI({
-      apiKey: openaiApiKey,
-      baseURL: openaiBaseUrl,
-      defaultHeaders: {
-        "HTTP-Referer": "https://askexperts.io", // Site URL for rankings on openrouter.ai
-        "X-Title": "AskExperts", // Site title for rankings on openrouter.ai
-      },
-    });
+    // Create the client
+    this.client = new AskExpertsSmartClient(
+      nwcString,
+      openaiApiKey,
+      openaiBaseUrl,
+      discoveryRelays
+    );
 
     // Register tools
     this.registerTools();
@@ -110,12 +65,12 @@ export class AskExpertsSmartMCP extends McpServer {
         question: z.string().describe("The question to ask the experts"),
         max_amount_sats: z
           .number()
-          .describe("Maximum amount to pay in satoshis"),
+          .describe("Maximum amount user is ready to pay to each expert in satoshis"),
         requirements: z
           .string()
           .optional()
           .describe(
-            "Additional requirements for the experts that should be selected"
+            "Additional requirements for the experts that should be selected, can include sensitive data as it's not published or sent to the experts"
           ),
       },
       outputSchema: {
@@ -124,11 +79,11 @@ export class AskExpertsSmartMCP extends McpServer {
             z.object({
               expert_pubkey: z.string().describe("Expert's public key"),
               expert_offer: z.string().describe("Expert's offer from the bid"),
-              content: z.string().optional().describe("Content of the answer"),
+              content: z.string().optional().describe("Content of the expert's answer"),
               amount_sats: z
                 .number()
                 .optional()
-                .describe("Amount paid in satoshis"),
+                .describe("Amount user paid to the expert in satoshis"),
               error: z
                 .string()
                 .optional()
@@ -162,239 +117,9 @@ export class AskExpertsSmartMCP extends McpServer {
     );
   }
 
-  /**
-   * Handles quote events from experts
-   *
-   * @param quote - Quote from expert
-   * @param prompt - Prompt sent to expert
-   * @param max_amount_sats - Maximum amount to pay in satoshis
-   * @returns Promise resolving to the invoice amount if it's within max_amount_sats, otherwise 0
-   * @private
-   */
-  private async handleQuote(
-    quote: Quote,
-    prompt: Prompt,
-    max_amount_sats: number
-  ): Promise<number> {
-    // Check if there's a lightning invoice
-    const lightningInvoice = quote.invoices.find(
-      (inv) => inv.method === "lightning"
-    );
-
-    if (!lightningInvoice || !lightningInvoice.invoice) {
-      debugError("No lightning invoice found in quote");
-      return 0;
-    }
-
-    // Parse the invoice to get the amount
-    try {
-      const { amount_sats } = parseBolt11(lightningInvoice.invoice);
-
-      // Check if the amount is within the max amount
-      if (amount_sats <= max_amount_sats) {
-        return amount_sats;
-      } else {
-        debugMCP(
-          `Invoice amount (${amount_sats}) exceeds max amount (${max_amount_sats})`
-        );
-        return 0;
-      }
-    } catch (error) {
-      debugError("Failed to parse invoice:", error);
-      return 0;
-    }
-  }
 
   /**
-   * Handles payment for quotes
-   *
-   * @param quote - Quote from expert
-   * @param prompt - Prompt sent to expert
-   * @returns Promise resolving to Proof object
-   * @private
-   */
-  private async handlePayment(quote: Quote, prompt: Prompt): Promise<Proof> {
-    // Find the lightning invoice
-    const lightningInvoice = quote.invoices.find(
-      (inv) => inv.method === "lightning"
-    );
-
-    if (!lightningInvoice || !lightningInvoice.invoice) {
-      throw new Error("No lightning invoice found in quote");
-    }
-
-    try {
-      // Pay the invoice using the payment manager
-      const preimage = await this.paymentManager.payInvoice(
-        lightningInvoice.invoice
-      );
-
-      // Return the proof
-      return {
-        method: "lightning",
-        preimage,
-      };
-    } catch (error) {
-      throw new Error(
-        `Payment failed: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
-    }
-  }
-
-  private async parseQuestion(question: string, requirements?: string) {
-    try {
-      let content = `Question: ${question}\n`;
-      if (requirements) {
-        content += `\nExpert requirements: ${requirements}`;
-      }
-      // console.error("question parsing content", content);
-
-      // Use OpenAI to generate an answer
-      const completion = await this.openai.chat.completions.create({
-        model: "openai/gpt-4o-mini",
-        messages: [
-          {
-            role: "system",
-            content: `Your job is to look at the user's detailed question or prompt that might include sensitive or private information, 
-and come up with a short anonymized summarized version that can be shared publicly to find experts on the subject, without revealing
-any private data. 
-
-You must also determine 1 to 10 hashtags that this summarized question/prompt might have to simplify discovery for experts - hashtags must be one word each, english, lowercase, and be as specific as possible. 
-
-If the question is super simple and looks like a test, come up with appropriate hashtags but don't summarize the question - just return the input question as summarized one, don't invent your own question/summary. 
-
-If additional "expert requirements" are provided by the user, use them to figure out which hashtags the required experts might be monitoring and print those as the last line in your output.
-
-Reply in a structured way in three lines:
-
-hashtags: hashtag1, hashtag2, etc
-question: <summarized question>
-expert_hashtags: expert_hashtag1, expert_hashtag2, etc
-`,
-          },
-          {
-            role: "user",
-            content,
-          },
-        ],
-      });
-
-      // Extract the response content
-      const responseContent = completion.choices[0]?.message?.content;
-      debugMCP("prepare ask", { responseContent, question, requirements });
-      if (!responseContent || responseContent === "error")
-        throw new Error("Failed to parse the question");
-      const lines = responseContent
-        .split("\n")
-        .map((s) => s.trim())
-        .filter((s) => !!s);
-      if (
-        lines.length !== 3 ||
-        !lines[0].startsWith("hashtags: ") ||
-        !lines[1].startsWith("question: ") ||
-        !lines[2].startsWith("expert_hashtags: ")
-      )
-        throw new Error("Bad question parsing reply");
-
-      const hashtags = lines[0]
-        .substring("hashtags: ".length)
-        .split(",")
-        .map((t) => t.trim())
-        .filter((t) => !!t);
-
-      hashtags.push(
-        ...lines[2]
-          .substring("expert_hashtags: ".length)
-          .split(",")
-          .map((t) => t.trim())
-          .filter((t) => !!t)
-      );
-
-      const publicQuestionSummary = lines[1]
-        .substring("question: ".length)
-        .trim();
-      if (!hashtags.length || !publicQuestionSummary)
-        throw new Error("Parsed question or hashtags empty");
-
-      return { hashtags, publicQuestionSummary };
-    } catch (error) {
-      debugError("Error processing ask with OpenAI:", error);
-      throw error;
-    }
-  }
-
-  private async selectBids(
-    bids: Bid[],
-    question: string,
-    requirements?: string
-  ) {
-    if (!bids.length) return bids;
-
-    try {
-      let content = `Question: ${question}\n\nExpert requirements: ${
-        requirements || "<no additional requirements>"
-      }\n\nBids:`;
-      for (const bid of bids) {
-        content += `\nid: ${bid.id} offer: ${bid.offer.replace(/\s+/g, " ")}`;
-      }
-      // console.error("select bids content", content);
-
-      // Use OpenAI to generate an answer
-      const completion = await this.openai.chat.completions.create({
-        model: "openai/gpt-4o-mini",
-        messages: [
-          {
-            role: "system",
-            content: `Your job is to look at the question of the user, at the requirements to experts that user provided, and then at the list of 
-"bids" that were received from experts (one per line). 
-
-Choose bids that are more likely to answer the question.
-
-If pricing is indicated in the offer, take it into account in your evaluation.  
-
-If expert requirements are provided - skip bids that don't match. 
-
-Then print up to 5 top bid ids, one per line. 
-
-If expert requirements are asking to use several kinds of experts - make sure to include at least 1 bid of each kind in the printed list. 
-
-Return nothing else, only bid ids.
-`,
-          },
-          {
-            role: "user",
-            content,
-          },
-        ],
-      });
-
-      // Extract the response content
-      const responseContent = completion.choices[0]?.message?.content;
-      // debugMCP("select bids ", { responseContent, question, requirements, bids });
-      if (responseContent === null) throw new Error("Failed to parse the bids");
-      const lines = responseContent
-        .split("\n")
-        .map((s) => s.trim())
-        .filter((s) => !!s);
-
-      const results: Bid[] = [];
-      for (const line of lines) {
-        const bid = bids.find((b) => b.id === line.trim());
-        if (bid) results.push(bid);
-      }
-      if (!results.length) results.push(bids[0]);
-
-      return results;
-    } catch (error) {
-      debugError("Error processing bids with OpenAI:", error);
-      throw error;
-    }
-  }
-
-  /**
-   * Asks experts a question with LLM-powered summarization and expert selection
+   * Delegates to the client to ask experts a question
    *
    * @param question - Question to ask
    * @param max_amount_sats - Maximum amount to pay in satoshis
@@ -406,136 +131,7 @@ Return nothing else, only bid ids.
     max_amount_sats: number,
     requirements?: string
   ): Promise<ReplyMCP[]> {
-    if (!question || question.trim() === "") {
-      throw new Error("Question is required");
-    }
-
-    if (max_amount_sats <= 0) {
-      throw new Error("Maximum amount must be greater than zero");
-    }
-
-    // Prepare to find experts
-    const { hashtags, publicQuestionSummary } = await this.parseQuestion(
-      question,
-      requirements
-    );
-
-    // Find experts using the client
-    const bids = await this.client.findExperts({
-      summary: publicQuestionSummary,
-      hashtags,
-      formats: [FORMAT_TEXT],
-      methods: [METHOD_LIGHTNING],
-    });
-
-    if (!bids || bids.length === 0) {
-      throw new Error("No experts found for the question");
-    }
-
-    // Evaluate bids and select good ones
-    const selectedBids = await this.selectBids(bids, question, requirements);
-
-    const results: ReplyMCP[] = [];
-
-    // Process each bid in parallel
-    const promiseResults = await Promise.allSettled(
-      selectedBids.map(async (bid) => {
-        // Ask the expert
-        return this.askExpertInternal(question, bid, max_amount_sats);
-      })
-    );
-
-    // Process the results, including errors
-    promiseResults.forEach((result, index) => {
-      if (result.status === "fulfilled") {
-        // Add successful result to the array
-        results.push(result.value);
-      } else {
-        // Create an error reply
-        const errorMessage =
-          result.reason instanceof Error
-            ? result.reason.message
-            : String(result.reason);
-
-        const bid = selectedBids[index];
-        debugError(`Failed to ask expert ${bid.pubkey}:`, result.reason);
-
-        // Add error reply to results
-        results.push({
-          expert_pubkey: bid.pubkey,
-          expert_offer: bid.offer,
-          error: `Failed to ask expert: ${errorMessage}`,
-        });
-      }
-    });
-
-    return results;
-  }
-
-  /**
-   * Internal method to ask an expert a question
-   *
-   * @param question - Question to ask
-   * @param bid - Bid object
-   * @param max_amount_sats - Maximum amount to pay in satoshis
-   * @returns Promise resolving to ReplyMCP object
-   * @private
-   */
-  private async askExpertInternal(
-    question: string,
-    bid: Bid,
-    max_amount_sats: number
-  ): Promise<ReplyMCP> {
-    try {
-      // Track the invoice amount
-      let invoice_amount = 0;
-
-      // Ask the expert using the client
-      const replies: Replies = await this.client.askExpert({
-        bid,
-        content: question,
-        format: FORMAT_TEXT,
-        compr: bid.compressions[0],
-        onQuote: async (quote, prompt) => {
-          // Call our handleQuote method with the max amount
-          const amount = await this.handleQuote(quote, prompt, max_amount_sats);
-
-          // Store the amount for later use
-          invoice_amount = amount;
-
-          // Return true if the amount is greater than 0
-          return amount > 0;
-        },
-        onPay: (quote, prompt) => this.handlePayment(quote, prompt),
-      });
-
-      // Process the replies
-      let content = "";
-
-      // Iterate through the replies
-      for await (const reply of replies) {
-        // Append the content
-        if (typeof reply.content === "string") {
-          content += reply.content;
-        } else {
-          content += JSON.stringify(reply.content);
-        }
-      }
-
-      // Return the ReplyMCP object
-      return {
-        expert_pubkey: bid.pubkey,
-        expert_offer: bid.offer,
-        content,
-        amount_sats: invoice_amount,
-      };
-    } catch (error) {
-      throw new Error(
-        `Failed to ask expert: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
-    }
+    return this.client.askExperts(question, max_amount_sats, requirements);
   }
 
   /**
@@ -545,10 +141,7 @@ Return nothing else, only bid ids.
     // Dispose of the client
     this.client[Symbol.dispose]();
 
-    // Dispose of the payment manager
-    this.paymentManager[Symbol.dispose]();
-
     // Stop itself
-    this.close().catch(() => debugError("Failed to close the MCP server"));
+    this.close().catch(() => console.error("Failed to close the MCP server"));
   }
 }
