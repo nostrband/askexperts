@@ -2,8 +2,14 @@ import { Command } from "commander";
 import { AskExpertsClient } from "../../client/AskExpertsClient.js";
 import { FORMAT_OPENAI, COMPRESSION_GZIP } from "../../common/constants.js";
 import { LightningPaymentManager } from "../../lightning/LightningPaymentManager.js";
-import { debugMCP, debugError, debugClient, enableAllDebug, enableErrorDebug } from '../../common/debug.js';
-import * as readline from 'readline';
+import {
+  debugMCP,
+  debugError,
+  debugClient,
+  enableAllDebug,
+  enableErrorDebug,
+} from "../../common/debug.js";
+import * as readline from "readline";
 
 /**
  * Options for the chat command
@@ -29,202 +35,239 @@ interface ChatMessage {
  * @param expertPubkey The pubkey of the expert to chat with
  * @param options Command line options
  */
-export async function executeChatCommand(expertPubkey: string, options: ChatCommandOptions): Promise<void> {
+export async function executeChatCommand(
+  expertPubkey: string,
+  options: ChatCommandOptions
+): Promise<void> {
   // Initialize message history for the conversation
   const messageHistory: ChatMessage[] = [];
   // Try to get NWC connection string from options or environment variables
   const nwcString = options.nwc || process.env.NWC_STRING;
-  
+
   // Validate NWC connection string
   if (!nwcString) {
-    throw new Error('NWC connection string is required. Use --nwc option or set NWC_STRING environment variable.');
+    throw new Error(
+      "NWC connection string is required. Use --nwc option or set NWC_STRING environment variable."
+    );
   }
-  
+
   // Try to get discovery relays from options or environment variables
   let discoveryRelays: string[] | undefined = options.relays;
   if (!discoveryRelays && process.env.DISCOVERY_RELAYS) {
-    discoveryRelays = process.env.DISCOVERY_RELAYS.split(',').map(relay => relay.trim());
+    discoveryRelays = process.env.DISCOVERY_RELAYS.split(",").map((relay) =>
+      relay.trim()
+    );
   }
 
   // Parse max amount
-  const maxAmountSats = options.maxAmount ? parseInt(options.maxAmount, 10) : 100;
+  const maxAmountSats = options.maxAmount
+    ? parseInt(options.maxAmount, 10)
+    : 100;
   if (isNaN(maxAmountSats) || maxAmountSats <= 0) {
-    throw new Error('Maximum amount must be a positive number.');
+    throw new Error("Maximum amount must be a positive number.");
   }
 
   try {
     // Create the payment manager
     const paymentManager = new LightningPaymentManager(nwcString);
-    
+
     // Create the client
     const client = new AskExpertsClient({
       discoveryRelays,
       onQuote: async (quote, prompt) => {
         // Find the lightning invoice
-        const lightningInvoice = quote.invoices.find(inv => inv.method === 'lightning');
+        const lightningInvoice = quote.invoices.find(
+          (inv) => inv.method === "lightning"
+        );
         if (!lightningInvoice || !lightningInvoice.invoice) {
-          debugClient('No lightning invoice found in quote');
+          debugClient("No lightning invoice found in quote");
           return false;
         }
-        
+
         // Check if the amount is within the max amount
         if (lightningInvoice.amount <= maxAmountSats) {
           debugClient(`Accepting payment of ${lightningInvoice.amount} sats`);
           return true;
         } else {
-          debugClient(`Rejecting payment: amount ${lightningInvoice.amount} exceeds max ${maxAmountSats}`);
+          debugClient(
+            `Rejecting payment: amount ${lightningInvoice.amount} exceeds max ${maxAmountSats}`
+          );
           return false;
         }
       },
       onPay: async (quote, prompt) => {
         // Find the lightning invoice
-        const lightningInvoice = quote.invoices.find(inv => inv.method === 'lightning');
+        const lightningInvoice = quote.invoices.find(
+          (inv) => inv.method === "lightning"
+        );
         if (!lightningInvoice || !lightningInvoice.invoice) {
-          throw new Error('No lightning invoice found in quote');
+          throw new Error("No lightning invoice found in quote");
         }
-        
+
         debugClient(`Paying ${lightningInvoice.amount} sats...`);
-        
+
         // Pay the invoice
-        const preimage = await paymentManager.payInvoice(lightningInvoice.invoice);
-        
+        const preimage = await paymentManager.payInvoice(
+          lightningInvoice.invoice
+        );
+
         // Return the proof
         return {
-          method: 'lightning',
+          method: "lightning",
           preimage,
         };
-      }
+      },
     });
-    
+
     debugClient(`Starting chat with expert ${expertPubkey}`);
     debugClient(`Maximum payment per message: ${maxAmountSats} sats`);
-    console.log('Type your messages and press Enter to send. Type "exit" to quit.');
-    console.log('-----------------------------------------------------------');
     
+    // Fetch the expert's profile once at the beginning
+    debugClient(`Fetching expert profile for ${expertPubkey}...`);
+    const experts = await client.fetchExperts({
+      pubkeys: [expertPubkey],
+    });
+
+    if (experts.length === 0) {
+      throw new Error(`Expert ${expertPubkey} not found. Make sure they have published an expert profile.`);
+    }
+
+    const expert = experts[0];
+    debugClient(`Found expert: ${expert.description}`);
+    
+    // Verify that the expert supports FORMAT_OPENAI
+    if (!expert.formats.includes(FORMAT_OPENAI)) {
+      throw new Error(`Expert ${expertPubkey} doesn't support OpenAI format. Supported formats: ${expert.formats.join(', ')}`);
+    }
+
+    console.log(
+      'Type your messages and press Enter to send. Type "exit" to quit.'
+    );
+    console.log("-----------------------------------------------------------");
+
     // Create readline interface for reading user input
     const rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout,
-      prompt: '> '
+      prompt: "> ",
     });
-    
+
     // Start the prompt
     rl.prompt();
-    
+
     // Handle user input
-    rl.on('line', async (line) => {
+    rl.on("line", async (line) => {
       // Check if user wants to exit
-      if (line.trim().toLowerCase() === 'exit') {
+      if (line.trim().toLowerCase() === "exit") {
         rl.close();
         return;
       }
-      
+
       // Get the user's message
       const message = line.trim();
       if (!message) {
         rl.prompt();
         return;
       }
-      
+
       try {
         console.log(`Sending message to expert...`);
-        
         debugClient(`Sending message to expert ${expertPubkey}...`);
-        
-        // First fetch the expert's profile to get their relays
-        const experts = await client.fetchExperts({
-          pubkeys: [expertPubkey]
-        });
-        
-        if (experts.length === 0) {
-          console.log(`Expert ${expertPubkey} not found. Make sure they have published an expert profile.`);
-          rl.prompt();
-          return;
-        }
-        
-        const expert = experts[0];
-        debugClient(`Found expert: ${expert.description}`);
-        
+
         // Add user message to history
         messageHistory.push({
           role: "user",
-          content: message
+          content: message,
         });
-        
+
         // Create OpenAI format request with message history
         const openaiRequest = {
           model: expertPubkey,
-          messages: messageHistory
+          messages: messageHistory,
         };
-        console.log("openaiRequest", JSON.stringify(openaiRequest));
-        
-        debugClient(`Sending message with history (${messageHistory.length} messages) to expert ${expertPubkey}`);
-        
+
+        debugClient(
+          `Sending message with history (${messageHistory.length} messages) to expert ${expertPubkey}`
+        );
+
         // Ask the expert using OpenAI format
         const replies = await client.askExpert({
           expert,
           content: openaiRequest,
           format: FORMAT_OPENAI,
-          compr: COMPRESSION_GZIP
+          compr: COMPRESSION_GZIP,
         });
-        
+
         // Process the replies
         let responseContent = null;
-        
+
         // Iterate through the replies
         for await (const reply of replies) {
           if (reply.done) {
             debugClient(`Received final reply from expert ${expertPubkey}`);
-            
+
             // OpenAI format response
             responseContent = reply.content;
-            
+
             // Extract the assistant's message from the response
-            if (responseContent &&
-                responseContent.choices &&
-                responseContent.choices.length > 0 &&
-                responseContent.choices[0].message) {
-              
+            if (
+              responseContent &&
+              responseContent.choices &&
+              responseContent.choices.length > 0 &&
+              responseContent.choices[0].message
+            ) {
               const assistantMessage = responseContent.choices[0].message;
-              
+
               // Add the assistant's response to the message history
               messageHistory.push({
                 role: "assistant",
-                content: assistantMessage.content
+                content: assistantMessage.content,
               });
-              
+
               // Display the response to the user
               console.log(`Expert reply:`);
               console.log(assistantMessage.content);
             } else {
-              debugError("Received invalid response format from expert:", JSON.stringify(responseContent, null, 2));
-              console.error("Received invalid response format from expert: ", JSON.stringify(responseContent, null, 2));
+              debugError(
+                "Received invalid response format from expert:",
+                JSON.stringify(responseContent, null, 2)
+              );
+              console.error(
+                "Received invalid response format from expert: ",
+                JSON.stringify(responseContent, null, 2)
+              );
             }
           }
         }
       } catch (error) {
-        debugError('Error sending message:', error instanceof Error ? error.message : String(error));
-        console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+        debugError(
+          "Error sending message:",
+          error instanceof Error ? error.message : String(error)
+        );
+        console.error(
+          `Error: ${error instanceof Error ? error.message : String(error)}`
+        );
       }
-      
-      console.log('-----------------------------------------------------------');
+
+      console.log(
+        "-----------------------------------------------------------"
+      );
       rl.prompt();
     });
-    
+
     // Handle readline close
-    rl.on('close', () => {
-      debugClient('Chat session ended');
-      console.log('Chat ended.');
-      
+    rl.on("close", () => {
+      debugClient("Chat session ended");
+      console.log("Chat ended.");
+
       // Dispose of the client and payment manager resources
       client[Symbol.dispose]();
       paymentManager[Symbol.dispose]();
-      
+
       process.exit(0);
     });
-    
   } catch (error) {
-    debugError('Failed to execute chat command:', error);
+    debugError("Failed to execute chat command:", error);
     throw error;
   }
 }
