@@ -1,5 +1,6 @@
 import { debugExpert, debugError } from "../../common/debug.js";
 import { ModelPricing, PricingResult } from "./ModelPricing.js";
+import OpenAI from "openai";
 
 /**
  * Model information from OpenRouter API
@@ -196,6 +197,42 @@ export class OpenRouter implements ModelPricing {
     } catch (error) {
       debugError("Error fetching BTC/USD rate:", error);
       throw error;
+    }
+  }
+
+  /**
+   * Checks if a model is accessible with the given API key
+   * Sends a simple test prompt and verifies the response
+   *
+   * @param model - Model ID to check
+   * @param apiKey - OpenRouter API key
+   * @returns Promise resolving to true if model is accessible, false otherwise
+   */
+  async checkModel(model: string, apiKey: string): Promise<boolean> {
+    try {
+      debugExpert(`Testing model accessibility: ${model}`);
+      
+      // Create an OpenAI client with the provided API key
+      const openai = new OpenAI({
+        apiKey: apiKey,
+        baseURL: "https://openrouter.ai/api/v1",
+      });
+
+      // Send a simple test prompt
+      await openai.chat.completions.create({
+        model: model,
+        messages: [
+          { role: "user", content: "hello" }
+        ],
+        max_tokens: 10
+      });
+
+      // If we get 200 return code we assume the model is working
+      debugExpert(`Model ${model} is accessible`);
+      return true;
+    } catch (error) {
+      debugError(`Error testing model ${model}: ${error}`);
+      return false;
     }
   }
 }

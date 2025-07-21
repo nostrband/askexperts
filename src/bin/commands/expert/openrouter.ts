@@ -94,6 +94,15 @@ export async function startOpenRouterExperts(
 
     const launch = async (modelId: string) => {
       try {
+        // Check if the model is accessible with the provided API key
+        const apiKey = options.apiKey || process.env.OPENROUTER_API_KEY || "";
+        const isModelAccessible = await openRouter.checkModel(modelId, apiKey);
+        
+        if (!isModelAccessible) {
+          debugExpert(`Skipping model ${modelId} as it requires a provider API key or is not accessible`);
+          return;
+        }
+        
         let privkey: Uint8Array;
         let nwcString: string;
         
@@ -122,7 +131,7 @@ export async function startOpenRouterExperts(
         const expert = new OpenaiExpert({
           privkey,
           openaiBaseUrl: "https://openrouter.ai/api/v1",
-          openaiApiKey: options.apiKey || process.env.OPENROUTER_API_KEY || "",
+          openaiApiKey: apiKey,
           model: modelId,
           nwcString,
           margin: options.margin,
@@ -180,7 +189,6 @@ export async function startOpenRouterExperts(
         // Find new models to add
         for (const model of latestFilteredModels) {
           if (!currentModelIds.has(model.id)) {
-            debugExpert(`Added model ${model.id}`);
             await launch(model.id);
           }
         }
