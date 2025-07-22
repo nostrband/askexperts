@@ -6,6 +6,9 @@ import { debugError, debugExpert } from "../../common/debug.js";
  * Interface for a post with optional reply context
  */
 export interface PostWithContext {
+  /** Post ID (event.id) */
+  id: string;
+  
   /** Post creation timestamp */
   created_at: number;
 
@@ -307,6 +310,7 @@ export class Nostr {
           }
 
           return {
+            id: event.id,
             created_at: event.created_at,
             content: event.content,
             pubkey: event.pubkey,

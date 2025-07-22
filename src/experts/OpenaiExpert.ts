@@ -32,7 +32,18 @@ export class OpenaiExpert {
   /**
    * AskExpertsServer instance
    */
-  private server: AskExpertsServer;
+  private server!: AskExpertsServer;
+
+  /**
+   * Server options stored for initialization in start()
+   */
+  private serverOptions: {
+    privkey: Uint8Array;
+    discoveryRelays: string[];
+    promptRelays: string[];
+    hashtags: string[];
+    pool?: SimplePool;
+  };
 
   /**
    * LightningPaymentManager instance
@@ -43,6 +54,11 @@ export class OpenaiExpert {
    * OpenAI client
    */
   private openai: OpenAI;
+
+  /**
+   * Optional callback to get context for prompts
+   */
+  private onPromptContext?: (prompt: Prompt) => Promise<string>;
 
   /**
    * Model id to use
@@ -85,6 +101,21 @@ export class OpenaiExpert {
   private outputCount: number = 1;
 
   /**
+   * Expert nickname
+   */
+  private nickname: string;
+
+  /**
+   * Expert description
+   */
+  private description: string;
+
+  /**
+   * Custom onAsk callback if provided
+   */
+  private onAskCallback?: (ask: Ask) => Promise<ExpertBid | undefined>;
+
+  /**
    * Creates a new OpenaiExpert instance
    *
    * @param options - Configuration options
@@ -104,14 +135,20 @@ export class OpenaiExpert {
     avgOutputTokens?: number;
     hashtags?: string[];
     onAsk?: (ask: Ask) => Promise<ExpertBid | undefined>;
+    onPromptContext?: (prompt: Prompt) => Promise<string>;
+    nickname?: string;
+    description?: string;
   }) {
     this.model = options.model;
     this.modelVendor = this.model.split("/")[0];
-    this.modelName = (this.model.split("/")?.[1] || this.model).split(/[\s\p{P}]+/u)[0];
+    this.modelName = (this.model.split("/")?.[1] || this.model).split(
+      /[\s\p{P}]+/u
+    )[0];
     this.margin = options.margin;
     this.systemPrompt = options.systemPrompt;
     this.pricingProvider = options.pricingProvider;
     this.avgOutputCount = options.avgOutputTokens || 300;
+    this.nickname = options.nickname || this.model;
 
     // Create the OpenAI client
     this.openai = new OpenAI({
@@ -122,26 +159,61 @@ export class OpenaiExpert {
     // Create the payment manager
     this.paymentManager = new LightningPaymentManager(options.nwcString);
 
-    // Create the server
-    this.server = new AskExpertsServer({
+    // Store server options for later initialization
+    this.serverOptions = {
       privkey: options.privkey,
       discoveryRelays: options.discoveryRelays || DEFAULT_DISCOVERY_RELAYS,
       promptRelays: options.promptRelays || DEFAULT_DISCOVERY_RELAYS,
-      hashtags: options.hashtags || [this.model, this.modelVendor, this.modelName], // "llm", "model",
-      formats: [FORMAT_TEXT, FORMAT_OPENAI],
-      onAsk: options.onAsk || this.onAsk.bind(this),
-      onPrompt: this.onPrompt.bind(this),
-      onProof: this.onProof.bind(this),
+      hashtags: options.hashtags || [
+        this.model,
+        this.modelVendor,
+        this.modelName,
+      ],
       pool: options.pool,
-    });
+    };
+
+    // Store the onPromptContext callback if provided
+    if (options.onPromptContext) {
+      this.onPromptContext = options.onPromptContext;
+    }
+
+    // Set nickname and description
+    this.nickname = options.nickname || this.model;
+    this.description = options.description || "";  // Will be generated in start()
+    
+    // Store onAsk callback if provided
+    this.onAskCallback = options.onAsk;
   }
 
   /**
    * Starts the expert
    */
   async start(): Promise<void> {
+    // Create the server
+    this.server = new AskExpertsServer({
+      privkey: this.serverOptions.privkey,
+      discoveryRelays: this.serverOptions.discoveryRelays,
+      promptRelays: this.serverOptions.promptRelays,
+      hashtags: this.serverOptions.hashtags,
+      formats: [FORMAT_TEXT, FORMAT_OPENAI],
+      onAsk: this.onAskCallback || this.onAsk.bind(this),
+      onPrompt: this.onPrompt.bind(this),
+      onProof: this.onProof.bind(this),
+      pool: this.serverOptions.pool,
+      nickname: this.nickname,
+      description: await this.getDescription(),
+    });
+
     // Start the server
     await this.server.start();
+  }
+
+  private async getDescription() {
+    if (this.description) return this.description;
+
+    // Get current pricing, it might change over time
+    const pricing = await this.pricingProvider.pricing(this.model);
+    return `I'm an expert providing direct access to LLM model ${this.model}. Input token price per million: ${pricing.inputPricePPM} sats, output token price per million ${pricing.outputPricePPM} sats. System prompt: ${this.systemPrompt ? "disallowed" : "allowed"}`;
   }
 
   /**
@@ -172,20 +244,9 @@ export class OpenaiExpert {
 
       debugExpert(`Received ask: ${ask.id}`);
 
-      // Get current pricing
-      const pricing = await this.pricingProvider.pricing(this.model);
-
-      // Create a bid with our offer
-      const offer = `I provide direct access to '${
-        this.model
-      }' LLM. Input token price per million: ${
-        pricing.inputPricePPM
-      } sats, output token price per million ${
-        pricing.outputPricePPM
-      } sats. System prompt: ${this.systemPrompt ? "disallowed" : "allowed"}`;
-
+      // Return the bid with our description as the offer
       return {
-        offer,
+        offer: await this.getDescription(),
       };
     } catch (error) {
       debugError("Error handling ask:", error);
@@ -213,10 +274,21 @@ export class OpenaiExpert {
     try {
       debugExpert(`Received prompt: ${prompt.id}`);
 
+      // If onPromptContext is provided, call it and set the result to prompt.context
+      if (this.onPromptContext) {
+        prompt.context = await this.onPromptContext(prompt);
+        debugExpert(`Got prompt context of ${prompt.context.length} chars`);
+      }
+
       // Calculate the number of tokens in the prompt
       let inputTokenCount = 0;
       if (this.systemPrompt)
         inputTokenCount += this.countTokens(this.systemPrompt);
+
+      // Count tokens in the context if available
+      if (prompt.context) {
+        inputTokenCount += this.countTokens(prompt.context);
+      }
 
       if (prompt.format === FORMAT_OPENAI) {
         // For OpenAI format, count tokens in each message
@@ -244,7 +316,9 @@ export class OpenaiExpert {
       );
 
       debugExpert(
-        `Calculated price: ${totalPrice} sats (input: ${inputTokenCount} tokens, output: ${outputTokenCount} tokens)`
+        `Calculated price: ${totalPrice} sats (input: ${inputTokenCount} tokens, output: ${outputTokenCount} tokens, context: ${
+          prompt.context?.length || 0
+        })`
       );
 
       // Create an invoice
@@ -302,87 +376,99 @@ export class OpenaiExpert {
           preimage: proof.preimage,
         });
 
+        let content: ChatCompletionCreateParams | undefined;
+
         // Process the prompt based on its format
-        if (prompt.format === FORMAT_OPENAI) {
-          // For OpenAI format, we will pass the content directly to the OpenAI API
+        switch (prompt.format) {
+          case FORMAT_OPENAI: {
+            // For OpenAI format, we will pass the content directly to the OpenAI API
 
-          // Ensure model
-          const content = prompt.content as ChatCompletionCreateParams;
-          content.model = this.model;
+            // We'll pass the content verbatim
+            content = prompt.content as ChatCompletionCreateParams;
 
-          // Check if streaming is requested
-          if (content.stream) {
-            throw new Error("Streaming is not supported yet");
+            // Ensure proper model
+            content.model = this.model;
+
+            // Check if streaming is requested
+            if (content.stream) {
+              throw new Error("Streaming is not supported yet");
+            }
+            break;
           }
-
-          // If system prompt is set, replace all system/developer roles with user
-          // and prepend our system prompt
-          if (this.systemPrompt) {
-            const messages = content.messages.map((msg) => {
-              if (msg.role === "system") {
-                return { ...msg, role: "user" as const };
-              }
-              return msg;
-            }) as ChatCompletionMessageParam[];
-
-            // Prepend system prompt
-            messages.unshift({
-              role: "system" as const,
-              content: this.systemPrompt,
-            });
-
-            content.messages = messages;
+          case FORMAT_TEXT: {
+            // For text format, convert to a single user message
+            content = {
+              model: this.model,
+              messages: [
+                {
+                  role: "user" as const,
+                  content: prompt.content,
+                },
+              ],
+            };
+            break;
           }
+          default:
+            throw new Error(`Unsupported format: ${prompt.format}`);
+        }
 
-          // Call the OpenAI API
-          const completion = await this.openai.chat.completions.create(content);
+        // If system prompt is set, replace all system/developer roles with user
+        // and prepend our system prompt
+        if (this.systemPrompt) {
+          const messages = content.messages.map((msg) => {
+            if (msg.role === "system") {
+              return { ...msg, role: "user" as const };
+            }
+            return msg;
+          }) as ChatCompletionMessageParam[];
 
-          // Update average output token count
-          this.updateAverageOutputCount(
-            completion.choices[0]?.message?.content || ""
-          );
-
-          // Return the response
-          return {
-            content: completion,
-            done: true,
-          };
-        } else if (prompt.format === FORMAT_TEXT) {
-          // For text format, convert to a single user message
-          const messages: ChatCompletionMessageParam[] = [
-            {
-              role: "user" as const,
-              content: prompt.content,
-            },
-          ];
-
-          // If system prompt is set, prepend it
-          if (this.systemPrompt) {
-            messages.unshift({
-              role: "system" as const,
-              content: this.systemPrompt,
-            });
-          }
-
-          // Call the OpenAI API
-          const completion = await this.openai.chat.completions.create({
-            model: this.model,
-            messages,
+          // Prepend system prompt
+          messages.unshift({
+            role: "system" as const,
+            content: this.systemPrompt,
           });
 
-          // Extract content in text format
-          const content = completion.choices[0]?.message?.content || "";
+          content.messages = messages;
+        }
 
-          // Update average output token count
-          this.updateAverageOutputCount(content);
+        // If context is provided, prepend it to the last message
+        if (prompt.context && content.messages.length > 0) {
+          const lastMessage = content.messages[content.messages.length - 1];
+          if (typeof lastMessage.content === "string") {
+            lastMessage.content = `
+### Context
+${prompt.context}
 
-          // Return the response
-          return {
-            content,
-            done: true,
-          };
-        } else {
-          throw new Error(`Unsupported format: ${prompt.format}`);
+### Message
+${lastMessage.content}
+`;
+          }
+        }
+
+        // Call the OpenAI API
+        const completion = await this.openai.chat.completions.create(content);
+
+        // Extract content in text format
+        const output = completion.choices[0]?.message?.content || "";
+
+        // Update average output token count
+        this.updateAverageOutputCount(output);
+
+        switch (prompt.format) {
+          case FORMAT_OPENAI:
+            // Return the full API response
+            return {
+              content: completion,
+              done: true,
+            };
+          case FORMAT_TEXT:
+            // Return the output only
+            return {
+              content: output,
+              done: true,
+            };
+          default:
+            throw new Error("Unsupported format");
         }
       } catch (error) {
         debugError("Error processing prompt:", error);

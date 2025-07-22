@@ -171,7 +171,6 @@ export async function executeChatCommand(
       }
 
       try {
-        console.log(`Sending message to expert...`);
         debugClient(`Sending message to expert ${expertPubkey}...`);
 
         // Add user message to history

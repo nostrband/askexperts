@@ -220,6 +220,9 @@ export interface Prompt {
   
   /** Original prompt event */
   event: Event;
+
+  /** Arbitrary context that implementations may use to pass data between callbacks */
+  context: any;
 }
 
 /**

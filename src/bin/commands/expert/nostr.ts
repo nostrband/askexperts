@@ -1,9 +1,15 @@
 import { getPublicKey, nip19, SimplePool } from "nostr-tools";
 import { NostrExpert } from "../../../experts/NostrExpert.js";
 import { OpenRouter } from "../../../experts/utils/OpenRouter.js";
-import { debugError, debugExpert, enableAllDebug, enableErrorDebug } from "../../../common/debug.js";
+import {
+  debugError,
+  debugExpert,
+  enableAllDebug,
+  enableErrorDebug,
+} from "../../../common/debug.js";
 import { generateRandomKeyPair } from "../../../common/crypto.js";
 import { createWallet } from "nwc-enclaved-utils";
+import { XenovaEmbeddings, ChromaRagDB } from "../../../rag/index.js";
 import fs from "fs";
 import path from "path";
 import { Command } from "commander";
@@ -18,6 +24,12 @@ export interface NostrExpertCommandOptions {
   nwc?: string;
   debug?: boolean;
   apiKey?: string;
+  useRag?: boolean;
+  ragChunkSize?: number;
+  ragChunkOverlap?: number;
+  ragModel?: string;
+  ragHost?: string;
+  ragPort?: number;
 }
 
 /**
@@ -53,19 +65,23 @@ export async function startNostrExpert(
     // Get API key
     const apiKey = options.apiKey || process.env.OPENROUTER_API_KEY || "";
     if (!apiKey) {
-      throw new Error("OpenRouter API key is required. Set OPENROUTER_API_KEY environment variable or use --api-key option.");
+      throw new Error(
+        "OpenRouter API key is required. Set OPENROUTER_API_KEY environment variable or use --api-key option."
+      );
     }
 
     // Configuration file path
     const configPath = path.resolve(`nostr_${pubkey}.json`);
     let config: NostrExpertConfig | null = null;
-    
+
     // Check if configuration file exists
     if (fs.existsSync(configPath)) {
       try {
         const configData = fs.readFileSync(configPath, "utf8");
         config = JSON.parse(configData);
-        debugExpert(`Loaded configuration for Nostr expert imitating ${pubkey}`);
+        debugExpert(
+          `Loaded configuration for Nostr expert imitating ${pubkey}`
+        );
       } catch (error) {
         debugError(`Error loading configuration: ${error}`);
         config = null;
@@ -75,27 +91,27 @@ export async function startNostrExpert(
     // Generate or use existing private key
     let privkey: Uint8Array;
     let nwcString: string | undefined;
-    
+
     if (config && config.privkeyHex) {
       // Use existing configuration
       privkey = new Uint8Array(Buffer.from(config.privkeyHex, "hex"));
-      
+
       // Use provided NWC string or existing one
       nwcString = options.nwc || config.nwc || "";
-      
+
       // If no NWC string is available, create a new wallet
       if (!nwcString) {
         debugExpert(`No NWC string found, creating new wallet`);
         const wallet = await createWallet();
         nwcString = wallet.nwcString;
       }
-      
+
       debugExpert(`Using existing configuration for Nostr expert`);
     } else {
       // Generate new keypair
       const { privateKey } = generateRandomKeyPair();
       privkey = privateKey;
-      
+
       debugExpert(`Created new configuration for Nostr expert`);
     }
 
@@ -104,6 +120,27 @@ export async function startNostrExpert(
       debugExpert(`Creating new wallet for Nostr expert`);
       const wallet = await createWallet();
       nwcString = wallet.nwcString;
+    }
+
+    // Initialize RAG components if enabled
+    let ragEmbeddings;
+    let ragDB;
+
+    if (options.useRag) {
+      debugExpert("Initializing RAG components...");
+
+      // Create and initialize embeddings
+      ragEmbeddings = new XenovaEmbeddings(
+        options.ragModel || "nomic-ai/nomic-embed-text-v1",
+        options.ragChunkSize || 400,
+        options.ragChunkOverlap || 50
+      );
+      await ragEmbeddings.start();
+      debugExpert("RAG embeddings initialized");
+
+      // Create RAG database
+      ragDB = new ChromaRagDB(options.ragHost, options.ragPort);
+      debugExpert("RAG database initialized");
     }
 
     // Create the expert
@@ -116,36 +153,40 @@ export async function startNostrExpert(
       margin: options.margin,
       pricingProvider: openRouter,
       pubkey: pubkey,
-      pool
+      pool,
+      ragEmbeddings,
+      ragDB,
     });
-    
+
     // Start the expert
     await expert.start();
-    
+
     // Save the configuration
     const updatedConfig: NostrExpertConfig = {
       privkeyHex: Buffer.from(privkey).toString("hex"),
-      nwc: nwcString
+      nwc: nwcString,
     };
-    
+
     fs.writeFileSync(configPath, JSON.stringify(updatedConfig, null, 2));
     debugExpert(`Saved configuration to ${configPath}`);
-    
+
     // Handle SIGINT/SIGTERM (Ctrl+C)
     const sigHandler = async () => {
       debugExpert("\nReceived SIGINT. Shutting down Nostr expert...");
-      
+
       // Dispose of the expert
       expert[Symbol.dispose]();
-      
+
       debugExpert("Nostr expert shut down.");
       process.exit(0);
     };
-    
+
     process.on("SIGINT", sigHandler);
     process.on("SIGTERM", sigHandler);
-    
-    debugExpert(`Started Nostr expert imitating ${pubkey} with model ${options.model} and margin ${options.margin}`);
+
+    debugExpert(
+      `Started Nostr expert imitating ${pubkey} with model ${options.model} and margin ${options.margin}`
+    );
     debugExpert(`Expert pubkey: ${getPublicKey(privkey)}`);
     debugExpert("Press Ctrl+C to exit.");
   } catch (error) {
@@ -162,18 +203,55 @@ export async function startNostrExpert(
 export function registerNostrCommand(program: Command): void {
   program
     .command("nostr")
-    .description("Launch an expert that imitates a Nostr user. Expert settings are saved to nostr_<pubkey>.json file.")
-    .requiredOption("-p, --pubkey <pubkey>", "Nostr public key of the user to imitate")
+    .description(
+      "Launch an expert that imitates a Nostr user. Expert settings are saved to nostr_<pubkey>.json file."
+    )
+    .argument("<pubkey>", "Nostr public key of the user to imitate")
     .option("-m, --model <model>", "Model to use", "openai/gpt-4.1")
-    .option("--margin <number>", "Profit margin (e.g., 0.1 for 10%)", parseFloat, 0.1)
-    .option("--nwc <string>", "NWC string for lightning payments, auto-generated and saved to settings if not provided.")
-    .option("-k, --api-key <key>", "OpenRouter API key (defaults to OPENROUTER_API_KEY env var)")
+    .option(
+      "--margin <number>",
+      "Profit margin (e.g., 0.1 for 10%)",
+      parseFloat,
+      0.1
+    )
+    .option(
+      "--nwc <string>",
+      "NWC string for lightning payments, auto-generated and saved to settings if not provided."
+    )
+    .option(
+      "-k, --api-key <key>",
+      "OpenRouter API key (defaults to OPENROUTER_API_KEY env var)"
+    )
     .option("-d, --debug", "Enable debug logging")
-    .action(async (options) => {
+    .option(
+      "--use-rag",
+      "Enable RAG (Retrieval-Augmented Generation) for better context"
+    )
+    .option(
+      "--rag-model <model>",
+      "Embedding model for RAG",
+      "nomic-ai/nomic-embed-text-v1"
+    )
+    .option(
+      "--rag-chunk-size <size>",
+      "Size of text chunks for RAG",
+      parseInt,
+      400
+    )
+    .option(
+      "--rag-chunk-overlap <size>",
+      "Overlap between text chunks for RAG",
+      parseInt,
+      50
+    )
+    .option("--rag-host <host>", "ChromaDB host")
+    .option("--rag-port <port>", "ChromaDB port", parseInt)
+    .action(async (pubkey, options) => {
       if (options.debug) enableAllDebug();
       else enableErrorDebug();
       try {
-        await startNostrExpert(options);
+        // Add pubkey to options
+        await startNostrExpert({ ...options, pubkey });
       } catch (error) {
         debugError("Error starting Nostr expert:", error);
         process.exit(1);

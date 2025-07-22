@@ -3,9 +3,9 @@
  * Server-side component that handles asks and prompts
  */
 
-import { SimplePool, Event, Filter, getPublicKey } from 'nostr-tools';
-import { z } from 'zod';
-import { debugExpert, debugError } from '../common/debug.js';
+import { SimplePool, Event, Filter, getPublicKey } from "nostr-tools";
+import { z } from "zod";
+import { debugExpert, debugError } from "../common/debug.js";
 
 import {
   EVENT_KIND_ASK,
@@ -18,7 +18,7 @@ import {
   EVENT_KIND_REPLY,
   COMPRESSION_PLAIN,
   METHOD_LIGHTNING,
-} from '../common/constants.js';
+} from "../common/constants.js";
 
 import {
   Ask,
@@ -35,20 +35,20 @@ import {
   ExpertQuote,
   ExpertReplies,
   ExpertReply,
-} from '../common/types.js';
+} from "../common/types.js";
 
-import { Compression, DefaultCompression } from '../common/compression.js';
+import { Compression, DefaultCompression } from "../common/compression.js";
 import {
   encrypt,
   decrypt,
   createEvent,
   generateRandomKeyPair,
-} from '../common/crypto.js';
+} from "../common/crypto.js";
 import {
   publishToRelays,
   subscribeToRelays,
   waitForEvent,
-} from '../common/relay.js';
+} from "../common/relay.js";
 
 /**
  * Expert class for NIP-174 protocol
@@ -81,6 +81,16 @@ export class AskExpertsServer {
    * Expert's public key
    */
   private pubkey: string;
+
+  /**
+   * Expert's nickname (optional)
+   */
+  private nickname?: string;
+
+  /**
+   * Expert's profile description (optional)
+   */
+  private description?: string;
 
   /**
    * Relays for discovery phase
@@ -143,9 +153,14 @@ export class AskExpertsServer {
   private subscriptions: { close: () => void }[] = [];
 
   /**
-   * Map to store quotes by prompt ID
+   * Timer for periodic profile republishing
    */
-  private expertQuotesByPromptId: Map<string, ExpertQuote> = new Map();
+  private profileRepublishTimer: NodeJS.Timeout | null = null;
+
+  /**
+   * Interval for profile republishing (in milliseconds)
+   */
+  private readonly PROFILE_REPUBLISH_INTERVAL = 12 * 60 * 60 * 1000; // 12 hours
 
   /**
    * Creates a new Expert instance
@@ -176,10 +191,14 @@ export class AskExpertsServer {
     onProof: OnProofCallback;
     pool?: SimplePool;
     compression?: Compression;
+    nickname?: string;
+    description?: string;
   }) {
     // Required parameters
     this.privkey = options.privkey;
     this.pubkey = getPublicKey(options.privkey);
+    this.nickname = options.nickname;
+    this.description = options.description;
     this.discoveryRelays = options.discoveryRelays;
     this.promptRelays = options.promptRelays;
     this.hashtags = options.hashtags;
@@ -189,9 +208,11 @@ export class AskExpertsServer {
     this.onProofCallback = options.onProof;
 
     // Optional parameters with defaults
-    this.paymentMethods = (options.paymentMethods || [METHOD_LIGHTNING]) as PaymentMethod[];
+    this.paymentMethods = (options.paymentMethods || [
+      METHOD_LIGHTNING,
+    ]) as PaymentMethod[];
     this.compression = options.compression || new DefaultCompression();
-    
+
     // Check if pool is provided or needs to be created internally
     this.poolCreatedInternally = !options.pool;
     this.pool = options.pool || new SimplePool();
@@ -204,6 +225,9 @@ export class AskExpertsServer {
     // Publish expert profile
     await this.publishExpertProfile();
 
+    // Set up periodic republishing of expert profile
+    this.setupProfileRepublishing();
+
     // Subscribe to asks
     this.subscribeToAsks();
 
@@ -212,22 +236,47 @@ export class AskExpertsServer {
   }
 
   /**
+   * Sets up periodic republishing of expert profile
+   */
+  private setupProfileRepublishing(): void {
+    // Clear any existing timer
+    if (this.profileRepublishTimer) {
+      clearInterval(this.profileRepublishTimer);
+    }
+
+    // Set up a new timer to republish the profile every 12 hours
+    this.profileRepublishTimer = setInterval(async () => {
+      try {
+        debugExpert("Republishing expert profile (12-hour interval)");
+        await this.publishExpertProfile();
+      } catch (error) {
+        debugError("Error republishing expert profile:", error);
+      }
+    }, this.PROFILE_REPUBLISH_INTERVAL);
+  }
+
+  /**
    * Publishes the expert profile to discovery relays
    */
   private async publishExpertProfile(): Promise<void> {
     // Create tags for the expert profile
     const tags: string[][] = [
-      ...this.promptRelays.map((relay) => ['relay', relay]),
-      ...this.formats.map((format) => ['f', format]),
-      ...this.compression.list().map((compr) => ['c', compr]),
-      ...this.paymentMethods.map((method) => ['m', method]),
-      ...this.hashtags.map((tag) => ['t', tag]),
+      ...this.promptRelays.map((relay) => ["relay", relay]),
+      ...this.formats.map((format) => ["f", format]),
+      ...this.compression.list().map((compr) => ["c", compr]),
+      ...this.paymentMethods.map((method) => ["m", method]),
+      ...this.hashtags.map((tag) => ["t", tag]),
     ];
+
+    // Add name tag if nickname is provided
+    if (this.nickname) {
+      tags.push(["name", this.nickname]);
+    }
 
     // Create and sign the expert profile event
     const expertProfileEvent = createEvent(
       EVENT_KIND_EXPERT_PROFILE,
-      'Expert profile for NIP-174', // Content can be customized
+      this.description || "Expert profile for NIP-174", // Use description if provided
       tags,
       this.privkey
     );
@@ -255,23 +304,23 @@ export class AskExpertsServer {
 
     // Add hashtags to filter if specified
     if (this.hashtags.length > 0) {
-      filter['#t'] = this.hashtags;
+      filter["#t"] = this.hashtags;
     }
 
     // Add formats to filter if specified
     if (this.formats.length > 0) {
-      filter['#f'] = this.formats;
+      filter["#f"] = this.formats;
     }
 
     // Add compressions to filter if specified
     const compressionList = this.compression.list();
     if (compressionList.length > 0) {
-      filter['#c'] = compressionList;
+      filter["#c"] = compressionList;
     }
 
     // Add payment methods to filter if specified
     if (this.paymentMethods.length > 0) {
-      filter['#m'] = this.paymentMethods;
+      filter["#m"] = this.paymentMethods;
     }
 
     // Subscribe to ask events with the combined filter
@@ -280,7 +329,7 @@ export class AskExpertsServer {
         try {
           await this.handleAskEvent(event);
         } catch (error) {
-          debugError('Error handling ask event:', error);
+          debugError("Error handling ask event:", error);
         }
       },
     });
@@ -296,7 +345,7 @@ export class AskExpertsServer {
     // Create a filter for prompt events that tag the expert
     const filter: Filter = {
       kinds: [EVENT_KIND_PROMPT],
-      '#p': [this.pubkey],
+      "#p": [this.pubkey],
       since: Math.floor(Date.now() / 1000) - 60, // Get events from the last minute
     };
 
@@ -307,7 +356,7 @@ export class AskExpertsServer {
         try {
           await this.handlePromptEvent(event);
         } catch (error) {
-          debugError('Error handling prompt event:', error);
+          debugError("Error handling prompt event:", error);
         }
       },
     });
@@ -318,7 +367,7 @@ export class AskExpertsServer {
 
   /**
    * Handles an ask event
-   * 
+   *
    * @param askEvent - The ask event
    */
   private async handleAskEvent(askEvent: Event): Promise<void> {
@@ -326,19 +375,19 @@ export class AskExpertsServer {
       debugExpert(`Received ask event: ${askEvent.id}`);
 
       // Extract hashtags from the tags
-      const hashtagTags = askEvent.tags.filter((tag) => tag[0] === 't');
+      const hashtagTags = askEvent.tags.filter((tag) => tag[0] === "t");
       const askHashtags = hashtagTags.map((tag) => tag[1]);
 
       // Extract formats from the tags
-      const formatTags = askEvent.tags.filter((tag) => tag[0] === 'f');
+      const formatTags = askEvent.tags.filter((tag) => tag[0] === "f");
       const askFormats = formatTags.map((tag) => tag[1]) as PromptFormat[];
 
       // Extract compression methods from the tags
-      const comprTags = askEvent.tags.filter((tag) => tag[0] === 'c');
+      const comprTags = askEvent.tags.filter((tag) => tag[0] === "c");
       const askComprs = comprTags.map((tag) => tag[1]) as CompressionMethod[];
 
       // Extract payment methods from the tags
-      const methodTags = askEvent.tags.filter((tag) => tag[0] === 'm');
+      const methodTags = askEvent.tags.filter((tag) => tag[0] === "m");
       const askMethods = methodTags.map((tag) => tag[1]) as PaymentMethod[];
 
       // Create an Ask object
@@ -361,13 +410,13 @@ export class AskExpertsServer {
         await this.sendBid(ask, bid);
       }
     } catch (error) {
-      debugError('Error handling ask event:', error);
+      debugError("Error handling ask event:", error);
     }
   }
 
   /**
    * Sends a bid in response to an ask
-   * 
+   *
    * @param ask - The ask
    * @param bid - The bid
    */
@@ -382,16 +431,22 @@ export class AskExpertsServer {
       const methods = expertBid.methods || this.paymentMethods;
 
       // Validate that provided values are compatible with supported values
-      const validFormats = formats.filter(format => this.formats.includes(format));
-      const validCompressions = compressions.filter(compr => this.compression.list().includes(compr));
-      const validMethods = methods.filter(method => this.paymentMethods.includes(method));
+      const validFormats = formats.filter((format) =>
+        this.formats.includes(format)
+      );
+      const validCompressions = compressions.filter((compr) =>
+        this.compression.list().includes(compr)
+      );
+      const validMethods = methods.filter((method) =>
+        this.paymentMethods.includes(method)
+      );
 
       // Create tags for the bid payload
       const tags: string[][] = [
-        ...this.promptRelays.map((relay) => ['relay', relay]),
-        ...validFormats.map((format) => ['f', format]),
-        ...validCompressions.map((compr) => ['c', compr]),
-        ...validMethods.map((method) => ['m', method]),
+        ...this.promptRelays.map((relay) => ["relay", relay]),
+        ...validFormats.map((format) => ["f", format]),
+        ...validCompressions.map((compr) => ["c", compr]),
+        ...validMethods.map((method) => ["m", method]),
       ];
 
       // Create and sign the bid payload event
@@ -406,17 +461,13 @@ export class AskExpertsServer {
       const bidPayloadStr = JSON.stringify(bidPayloadEvent);
 
       // Encrypt the bid payload for the ask pubkey
-      const encryptedContent = encrypt(
-        bidPayloadStr,
-        ask.pubkey,
-        bidPrivkey
-      );
+      const encryptedContent = encrypt(bidPayloadStr, ask.pubkey, bidPrivkey);
 
       // Create and sign the bid event
       const bidEvent = createEvent(
         EVENT_KIND_BID,
         encryptedContent,
-        [['e', ask.id]],
+        [["e", ask.id]],
         bidPrivkey
       );
 
@@ -429,13 +480,13 @@ export class AskExpertsServer {
 
       debugExpert(`Published bid to ${publishedRelays.length} relays`);
     } catch (error) {
-      debugError('Error sending bid:', error);
+      debugError("Error sending bid:", error);
     }
   }
 
   /**
    * Handles a prompt event
-   * 
+   *
    * @param promptEvent - The prompt event
    */
   private async handlePromptEvent(promptEvent: Event): Promise<void> {
@@ -443,7 +494,7 @@ export class AskExpertsServer {
       debugExpert(`Received prompt event: ${promptEvent.id}`);
 
       // Get the compression method from the c tag
-      const cTag = promptEvent.tags.find((tag) => tag[0] === 'c');
+      const cTag = promptEvent.tags.find((tag) => tag[0] === "c");
       const promptCompr = (cTag?.[1] as CompressionMethod) || COMPRESSION_PLAIN;
 
       // Decrypt the prompt payload
@@ -458,7 +509,7 @@ export class AskExpertsServer {
         decryptedPrompt,
         promptCompr
       );
-      
+
       try {
         // Parse and validate the prompt payload using Zod
         const rawPayload = JSON.parse(promptPayloadStr);
@@ -471,6 +522,7 @@ export class AskExpertsServer {
           format: promptPayload.format as PromptFormat,
           content: promptPayload.content,
           event: promptEvent,
+          context: undefined,
         };
 
         try {
@@ -482,20 +534,17 @@ export class AskExpertsServer {
             pubkey: this.pubkey,
             promptId: prompt.id,
             invoices: expertQuote.invoices,
-            event: prompt.event // Temporary placeholder, will be set in sendQuote
+            event: prompt.event, // Temporary placeholder, will be set in sendQuote
           };
-          
-          // Store the expertQuote for later use in handleProofEvent
-          this.expertQuotesByPromptId.set(prompt.id, expertQuote);
-          
+
           await this.sendQuote(prompt, quote);
 
           // Wait for proof event with a timeout
           // Create a filter for proof events that tag the prompt
           const filter: Filter = {
             kinds: [EVENT_KIND_PROOF],
-            '#e': [prompt.id],
-            '#p': [this.pubkey],
+            "#e": [prompt.id],
+            "#p": [this.pubkey],
             since: Math.floor(Date.now() / 1000) - 60, // Get events from the last minute
           };
 
@@ -509,31 +558,35 @@ export class AskExpertsServer {
 
           // If we received a proof event, handle it
           if (proofEvent) {
-            await this.handleProofEvent(proofEvent, prompt);
+            await this.handleProofEvent(proofEvent, prompt, expertQuote);
           } else {
-            debugExpert(`No proof received for prompt ${prompt.id} after timeout`);
+            debugExpert(
+              `No proof received for prompt ${prompt.id} after timeout`
+            );
           }
         } catch (error) {
           // If the callback throws an error, send a quote with an error field
-          debugError('Error in onPrompt callback:', error);
+          debugError("Error in onPrompt callback:", error);
 
           // Send an error quote
           await this.sendErrorQuote(
             prompt,
-            error instanceof Error ? error.message : 'Unknown error in prompt processing'
+            error instanceof Error
+              ? error.message
+              : "Unknown error in prompt processing"
           );
         }
       } catch (error) {
-        debugError('Error processing prompt payload:', error);
+        debugError("Error processing prompt payload:", error);
       }
     } catch (error) {
-      debugError('Error handling prompt event:', error);
+      debugError("Error handling prompt event:", error);
     }
   }
 
   /**
    * Sends a quote in response to a prompt
-   * 
+   *
    * @param prompt - The prompt
    * @param quote - The quote
    */
@@ -559,8 +612,8 @@ export class AskExpertsServer {
         EVENT_KIND_QUOTE,
         encryptedContent,
         [
-          ['p', prompt.event.pubkey],
-          ['e', prompt.id],
+          ["p", prompt.event.pubkey],
+          ["e", prompt.id],
         ],
         this.privkey
       );
@@ -574,7 +627,7 @@ export class AskExpertsServer {
 
       debugExpert(`Published quote to ${publishedRelays.length} relays`);
     } catch (error) {
-      debugError('Error sending quote:', error);
+      debugError("Error sending quote:", error);
     }
   }
 
@@ -584,7 +637,10 @@ export class AskExpertsServer {
    * @param prompt - The prompt
    * @param errorMessage - The error message
    */
-  private async sendErrorQuote(prompt: Prompt, errorMessage: string): Promise<void> {
+  private async sendErrorQuote(
+    prompt: Prompt,
+    errorMessage: string
+  ): Promise<void> {
     try {
       // Create the error quote payload
       const errorQuotePayload = {
@@ -606,8 +662,8 @@ export class AskExpertsServer {
         EVENT_KIND_QUOTE,
         encryptedContent,
         [
-          ['p', prompt.event.pubkey],
-          ['e', prompt.id],
+          ["p", prompt.event.pubkey],
+          ["e", prompt.id],
         ],
         this.privkey
       );
@@ -621,18 +677,21 @@ export class AskExpertsServer {
 
       debugExpert(`Published error quote to ${publishedRelays.length} relays`);
     } catch (error) {
-      debugError('Error sending error quote:', error);
+      debugError("Error sending error quote:", error);
     }
   }
 
-
   /**
    * Handles a proof event
-   * 
+   *
    * @param proofEvent - The proof event
    * @param prompt - The prompt
    */
-  private async handleProofEvent(proofEvent: Event, prompt: Prompt): Promise<void> {
+  private async handleProofEvent(
+    proofEvent: Event,
+    prompt: Prompt,
+    expertQuote: ExpertQuote
+  ): Promise<void> {
     try {
       debugExpert(`Received proof event: ${proofEvent.id}`);
 
@@ -657,18 +716,10 @@ export class AskExpertsServer {
         // Create the Proof object
         const proof: Proof = {
           method: proofPayload.method as PaymentMethod,
-          preimage: proofPayload.preimage || '',
+          preimage: proofPayload.preimage || "",
         };
 
         try {
-          // Retrieve the stored expertQuote for this prompt
-          const expertQuote = this.expertQuotesByPromptId.get(prompt.id);
-          
-          if (!expertQuote) {
-            debugError(`No expert quote found for prompt ${prompt.id}`);
-            throw new Error(`No expert quote found for prompt ${prompt.id}`);
-          }
-          
           // Call the onProof callback with prompt, expertQuote, and proof
           const result = await this.onProofCallback(prompt, expertQuote, proof);
 
@@ -683,22 +734,25 @@ export class AskExpertsServer {
           }
         } catch (error) {
           // If the callback throws an error, send a single error reply with done=true
-          debugError('Error in onProof callback:', error);
+          debugError("Error in onProof callback:", error);
 
           // Create a simple error reply
           const errorReply: ExpertReply = {
             done: true,
-            content: error instanceof Error ? error.message : 'Unknown error in proof processing'
+            content:
+              error instanceof Error
+                ? error.message
+                : "Unknown error in proof processing",
           };
-          
+
           // Send the error reply
           await this.sendExpertReply(prompt, errorReply);
         }
       } catch (error) {
-        debugError('Error processing proof payload:', error);
+        debugError("Error processing proof payload:", error);
       }
     } catch (error) {
-      debugError('Error handling proof event:', error);
+      debugError("Error handling proof event:", error);
     }
   }
 
@@ -708,7 +762,10 @@ export class AskExpertsServer {
    * @param prompt - The prompt
    * @param expertReply - The expert reply
    */
-  private async sendExpertReply(prompt: Prompt, expertReply: ExpertReply): Promise<void> {
+  private async sendExpertReply(
+    prompt: Prompt,
+    expertReply: ExpertReply
+  ): Promise<void> {
     try {
       // Create the reply payload
       const replyPayload = {
@@ -737,9 +794,9 @@ export class AskExpertsServer {
         EVENT_KIND_REPLY,
         encryptedContent,
         [
-          ['p', prompt.event.pubkey],
-          ['e', prompt.id],
-          ['c', COMPRESSION_PLAIN],
+          ["p", prompt.event.pubkey],
+          ["e", prompt.id],
+          ["c", COMPRESSION_PLAIN],
         ],
         this.privkey
       );
@@ -753,7 +810,7 @@ export class AskExpertsServer {
 
       debugExpert(`Published reply to ${publishedRelays.length} relays`);
     } catch (error) {
-      debugError('Error sending expert reply:', error);
+      debugError("Error sending expert reply:", error);
     }
   }
 
@@ -763,7 +820,10 @@ export class AskExpertsServer {
    * @param prompt - The prompt
    * @param expertReplies - The expert replies
    */
-  private async sendExpertReplies(prompt: Prompt, expertReplies: ExpertReplies): Promise<void> {
+  private async sendExpertReplies(
+    prompt: Prompt,
+    expertReplies: ExpertReplies
+  ): Promise<void> {
     try {
       // Iterate through the expert replies
       for await (const expertReply of expertReplies) {
@@ -771,7 +831,7 @@ export class AskExpertsServer {
         await this.sendExpertReply(prompt, expertReply);
       }
     } catch (error) {
-      debugError('Error sending expert replies:', error);
+      debugError("Error sending expert replies:", error);
     }
   }
 
@@ -782,6 +842,12 @@ export class AskExpertsServer {
     // Close all subscriptions
     for (const sub of this.subscriptions) {
       sub.close();
+    }
+
+    // Clear the profile republish timer
+    if (this.profileRepublishTimer) {
+      clearInterval(this.profileRepublishTimer);
+      this.profileRepublishTimer = null;
     }
 
     // Only destroy the pool if it was created internally
