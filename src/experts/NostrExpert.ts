@@ -102,6 +102,10 @@ export class NostrExpert {
     this.nostr = new Nostr(pool);
   }
 
+  private pubkeyNickname() {
+    return this.profileInfo?.profile?.name || this.pubkey.substring(0, 6);
+  }
+
   /**
    * Starts the expert and crawls the Nostr profile
    */
@@ -165,6 +169,8 @@ ${profileData}
         ],
         onAsk: this.onAsk.bind(this),
         onPromptContext: this.onPromptContext.bind(this),
+        nickname: this.pubkeyNickname() + "_clone",
+        onGetDescription: this.getDescription.bind(this),
       });
 
       // Start the OpenAI expert
@@ -199,15 +205,21 @@ ${profileData}
 
       // Return a bid with our offer
       return {
-        offer: `I am imitating ${this.pubkey} (${nip19.npubEncode(
-          this.pubkey
-        )}), ask me questions and I can answer like them.
-The profile info: ${JSON.stringify(this.profileInfo?.profile, null, 2)}`,
+        offer: await this.getDescription(),
       };
     } catch (error) {
       debugError("Error handling ask in NostrExpert:", error);
       return undefined;
     }
+  }
+
+  private async getDescription(): Promise<string> {
+    return `I am imitating ${this.pubkeyNickname()} pubkey ${
+      this.pubkey
+    } (${nip19.npubEncode(
+      this.pubkey
+    )}), ask me questions and I can answer like them. Profile description of ${this.pubkeyNickname()}: 
+${this.profileInfo?.profile.about || "-"}`;
   }
 
   /**
@@ -454,9 +466,9 @@ Example response: ["bitcoin", "programming", "javascript", "webapps", "openproto
       }
 
       // Find matching posts in profileInfo
-      const matchingPosts = this.profileInfo.posts.filter((post) =>
-        postIds.has(post.id)
-      ).sort((a, b) => postIds.get(b.id)! - postIds.get(a.id)!);
+      const matchingPosts = this.profileInfo.posts
+        .filter((post) => postIds.has(post.id))
+        .sort((a, b) => postIds.get(b.id)! - postIds.get(a.id)!);
 
       // Nothing?
       if (!matchingPosts.length) {

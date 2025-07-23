@@ -140,6 +140,9 @@ export interface Expert {
   /** Expert's public key */
   pubkey: string;
   
+  /** Expert's name */
+  name?: string;
+  
   /** Expert's description */
   description: string;
   

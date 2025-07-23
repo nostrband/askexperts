@@ -88,9 +88,9 @@ export class AskExpertsServer {
   private nickname?: string;
 
   /**
-   * Expert's profile description (optional)
+   * Callback for getting dynamic description
    */
-  private description?: string;
+  private onGetDescription?: () => Promise<string>;
 
   /**
    * Relays for discovery phase
@@ -192,13 +192,13 @@ export class AskExpertsServer {
     pool?: SimplePool;
     compression?: Compression;
     nickname?: string;
-    description?: string;
+    onGetDescription?: () => Promise<string>;
   }) {
     // Required parameters
     this.privkey = options.privkey;
     this.pubkey = getPublicKey(options.privkey);
     this.nickname = options.nickname;
-    this.description = options.description;
+    this.onGetDescription = options.onGetDescription;
     this.discoveryRelays = options.discoveryRelays;
     this.promptRelays = options.promptRelays;
     this.hashtags = options.hashtags;
@@ -216,6 +216,10 @@ export class AskExpertsServer {
     // Check if pool is provided or needs to be created internally
     this.poolCreatedInternally = !options.pool;
     this.pool = options.pool || new SimplePool();
+  }
+
+  getNickname() {
+    return this.nickname || "";
   }
 
   /**
@@ -273,10 +277,21 @@ export class AskExpertsServer {
       tags.push(["name", this.nickname]);
     }
 
+    // Get description from callback or use default
+    let profileDescription = "Expert profile for NIP-174";
+    
+    if (this.onGetDescription) {
+      try {
+        profileDescription = await this.onGetDescription();
+      } catch (error) {
+        debugError("Error getting description from callback:", error);
+      }
+    }
+
     // Create and sign the expert profile event
     const expertProfileEvent = createEvent(
       EVENT_KIND_EXPERT_PROFILE,
-      this.description || "Expert profile for NIP-174", // Use description if provided
+      profileDescription,
       tags,
       this.privkey
     );

@@ -106,9 +106,9 @@ export class OpenaiExpert {
   private nickname: string;
 
   /**
-   * Expert description
+   * Callback for getting dynamic description
    */
-  private description: string;
+  private onGetDescription?: () => Promise<string>;
 
   /**
    * Custom onAsk callback if provided
@@ -137,7 +137,7 @@ export class OpenaiExpert {
     onAsk?: (ask: Ask) => Promise<ExpertBid | undefined>;
     onPromptContext?: (prompt: Prompt) => Promise<string>;
     nickname?: string;
-    description?: string;
+    onGetDescription?: () => Promise<string>;
   }) {
     this.model = options.model;
     this.modelVendor = this.model.split("/")[0];
@@ -177,12 +177,12 @@ export class OpenaiExpert {
       this.onPromptContext = options.onPromptContext;
     }
 
-    // Set nickname and description
+    // Set nickname
     this.nickname = options.nickname || this.model;
-    this.description = options.description || "";  // Will be generated in start()
     
-    // Store onAsk callback if provided
+    // Store callbacks if provided
     this.onAskCallback = options.onAsk;
+    this.onGetDescription = options.onGetDescription;
   }
 
   /**
@@ -191,26 +191,20 @@ export class OpenaiExpert {
   async start(): Promise<void> {
     // Create the server
     this.server = new AskExpertsServer({
-      privkey: this.serverOptions.privkey,
-      discoveryRelays: this.serverOptions.discoveryRelays,
-      promptRelays: this.serverOptions.promptRelays,
-      hashtags: this.serverOptions.hashtags,
+      ...this.serverOptions,
       formats: [FORMAT_TEXT, FORMAT_OPENAI],
       onAsk: this.onAskCallback || this.onAsk.bind(this),
       onPrompt: this.onPrompt.bind(this),
       onProof: this.onProof.bind(this),
-      pool: this.serverOptions.pool,
       nickname: this.nickname,
-      description: await this.getDescription(),
+      onGetDescription: this.onGetDescription || this.getDescription.bind(this),
     });
 
     // Start the server
     await this.server.start();
   }
 
-  private async getDescription() {
-    if (this.description) return this.description;
-
+  private async getDescription(): Promise<string> {
     // Get current pricing, it might change over time
     const pricing = await this.pricingProvider.pricing(this.model);
     return `I'm an expert providing direct access to LLM model ${this.model}. Input token price per million: ${pricing.inputPricePPM} sats, output token price per million ${pricing.outputPricePPM} sats. System prompt: ${this.systemPrompt ? "disallowed" : "allowed"}`;
@@ -245,8 +239,10 @@ export class OpenaiExpert {
       debugExpert(`Received ask: ${ask.id}`);
 
       // Return the bid with our description as the offer
+      const description = await (this.onGetDescription || this.getDescription.bind(this))();
+      
       return {
-        offer: await this.getDescription(),
+        offer: description,
       };
     } catch (error) {
       debugError("Error handling ask:", error);

@@ -10,6 +10,7 @@ import {
   enableErrorDebug,
 } from "../../common/debug.js";
 import * as readline from "readline";
+import { Expert } from "../../common/types.js";
 
 /**
  * Options for the chat command
@@ -70,6 +71,7 @@ export async function executeChatCommand(
   try {
     // Create the payment manager
     const paymentManager = new LightningPaymentManager(nwcString);
+    let expert: Expert;
 
     // Create the client
     const client = new AskExpertsClient({
@@ -110,6 +112,7 @@ export async function executeChatCommand(
         const preimage = await paymentManager.payInvoice(
           lightningInvoice.invoice
         );
+        console.log(`Paid ${lightningInvoice.amount} sats to ${expert?.name || "expert"}.`);
 
         // Return the proof
         return {
@@ -132,7 +135,7 @@ export async function executeChatCommand(
       throw new Error(`Expert ${expertPubkey} not found. Make sure they have published an expert profile.`);
     }
 
-    const expert = experts[0];
+    expert = experts[0];
     debugClient(`Found expert: ${expert.description}`);
     
     // Verify that the expert supports FORMAT_OPENAI
@@ -149,7 +152,7 @@ export async function executeChatCommand(
     const rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout,
-      prompt: "> ",
+      prompt: "You > ",
     });
 
     // Start the prompt
@@ -224,8 +227,7 @@ export async function executeChatCommand(
               });
 
               // Display the response to the user
-              console.log(`Expert reply:`);
-              console.log(assistantMessage.content);
+              console.log(`${expert.name || 'Expert'} > ${assistantMessage.content}`);
             } else {
               debugError(
                 "Received invalid response format from expert:",

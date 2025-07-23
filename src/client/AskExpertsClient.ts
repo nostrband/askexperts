@@ -411,9 +411,14 @@ export class AskExpertsClient {
         const hashtagTags = event.tags.filter((tag) => tag[0] === "t");
         const expertHashtags = hashtagTags.map((tag) => tag[1]);
 
+        // Extract name from the tags
+        const nameTag = event.tags.find((tag) => tag[0] === "name");
+        const name = nameTag ? nameTag[1] : undefined;
+
         // Create an Expert object
         const expert: Expert = {
           pubkey: event.pubkey,
+          name,
           description: event.content,
           relays: expertRelays,
           formats: expertFormats,
