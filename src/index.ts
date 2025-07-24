@@ -22,7 +22,7 @@ export {
 } from "./common/debug.js";
 
 // Export the LightningPaymentManager
-export { LightningPaymentManager } from "./lightning/LightningPaymentManager.js";
+export { LightningPaymentManager } from "./payments/LightningPaymentManager.js";
 
 // Export the Expert class
 export { AskExpertsServer } from "./server/index.js";

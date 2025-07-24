@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { AskExpertsClient } from "../client/AskExpertsClient.js";
-import { LightningPaymentManager } from "../lightning/LightningPaymentManager.js";
+import { LightningPaymentManager } from "../payments/LightningPaymentManager.js";
 import { parseBolt11 } from "../common/bolt11.js";
 import { debugMCP, debugError } from "../common/debug.js";
 import {

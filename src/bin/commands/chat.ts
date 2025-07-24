@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import { AskExpertsClient } from "../../client/AskExpertsClient.js";
 import { FORMAT_OPENAI, COMPRESSION_GZIP } from "../../common/constants.js";
-import { LightningPaymentManager } from "../../lightning/LightningPaymentManager.js";
+import { LightningPaymentManager } from "../../payments/LightningPaymentManager.js";
 import {
   debugMCP,
   debugError,

@@ -1,5 +1,5 @@
 import { AskExpertsClient } from "./AskExpertsClient.js";
-import { LightningPaymentManager } from "../lightning/LightningPaymentManager.js";
+import { LightningPaymentManager } from "../payments/LightningPaymentManager.js";
 import { parseBolt11 } from "../common/bolt11.js";
 import { debugMCP, debugError } from "../common/debug.js";
 import {
@@ -8,7 +8,7 @@ import {
   METHOD_LIGHTNING,
 } from "../common/constants.js";
 import { Bid, Proof, Quote, Prompt, Replies } from "../common/types.js";
-import OpenAI from "openai";
+import { OpenaiInterface, createOpenAI } from "../openai/index.js";
 
 /**
  * Interface for ReplyMCP objects returned by askExperts
@@ -28,7 +28,7 @@ export interface ReplyMCP {
 export class AskExpertsSmartClient {
   private client: AskExpertsClient;
   private paymentManager: LightningPaymentManager;
-  private openai: OpenAI;
+  private openai: OpenaiInterface;
 
   /**
    * Creates a new AskExpertsSmartClient instance
@@ -65,14 +65,14 @@ export class AskExpertsSmartClient {
     });
 
     // Initialize OpenAI
-    this.openai = new OpenAI({
-      apiKey: openaiApiKey,
-      baseURL: openaiBaseUrl,
-      defaultHeaders: {
+    this.openai = createOpenAI(
+      openaiApiKey,
+      openaiBaseUrl,
+      {
         "HTTP-Referer": "https://askexperts.io", // Site URL for rankings on openrouter.ai
         "X-Title": "AskExperts", // Site title for rankings on openrouter.ai
-      },
-    });
+      }
+    );
   }
 
   /**

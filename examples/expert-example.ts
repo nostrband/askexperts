@@ -2,8 +2,8 @@
  * Example of using the Expert class for NIP-174
  */
 
-import { generateSecretKey, getPublicKey } from "nostr-tools";
-import { AskExpertsServer } from "../src/server/index.js";
+import { generateSecretKey, getPublicKey, SimplePool } from "nostr-tools";
+import { AskExpertsServer, AskExpertsServerBase } from "../src/server/index.js";
 import {
   Ask,
   Prompt,
@@ -53,14 +53,18 @@ async function runExampleExpert() {
   });
   console.log("NWC client initialized");
 
+  // Create a SimplePool instance for relay operations
+  const pool = new SimplePool();
+
   // Create an expert instance
-  const expert = new AskExpertsServer({
+  const expert = new AskExpertsServerBase({
     privkey: privateKey,
     discoveryRelays: DEFAULT_DISCOVERY_RELAYS,
     promptRelays: DEFAULT_PROPMT_RELAYS,
     hashtags: ["ai", "help", "question", "test"],
     formats: [FORMAT_TEXT, FORMAT_OPENAI],
     paymentMethods: [METHOD_LIGHTNING],
+    pool, // Pass the SimplePool instance
 
     // Handle asks
     onAsk: async (ask: Ask): Promise<ExpertBid | undefined> => {

@@ -1,94 +1,70 @@
-import { SimplePool } from "nostr-tools";
 import { AskExpertsServer } from "../server/AskExpertsServer.js";
-import { LightningPaymentManager } from "../lightning/LightningPaymentManager.js";
 import {
-  DEFAULT_DISCOVERY_RELAYS,
   FORMAT_OPENAI,
   FORMAT_TEXT,
 } from "../common/constants.js";
 import {
-  Ask,
-  ExpertBid,
   ExpertQuote,
   ExpertReply,
   ExpertReplies,
   Prompt,
-  Proof,
+  ExpertPrice,
 } from "../common/types.js";
 import { debugExpert, debugError } from "../common/debug.js";
-import OpenAI from "openai";
 import { encode } from "gpt-tokenizer";
 import {
   ChatCompletionCreateParams,
   ChatCompletionMessageParam,
 } from "openai/resources";
 import { ModelPricing } from "./utils/ModelPricing.js";
+import { OpenaiInterface } from "../openai/index.js";
+
+interface PromptContext {
+  context?: string;
+  systemPrompt?: string;
+}
 
 /**
  * OpenAI Expert implementation for NIP-174
  * Provides direct access to OpenAI models with pricing based on token usage
  */
-export class OpenaiExpert {
+export class OpenaiProxyExpertBase {
   /**
    * AskExpertsServer instance
    */
-  private server!: AskExpertsServer;
-
-  /**
-   * Server options stored for initialization in start()
-   */
-  private serverOptions: {
-    privkey: Uint8Array;
-    discoveryRelays: string[];
-    promptRelays: string[];
-    hashtags: string[];
-    pool?: SimplePool;
-  };
-
-  /**
-   * LightningPaymentManager instance
-   */
-  private paymentManager: LightningPaymentManager;
+  public readonly server: AskExpertsServer;
 
   /**
    * OpenAI client
    */
-  private openai: OpenAI;
+  public readonly openai: OpenaiInterface;
+
+  // FIXME make these two private and add accessors
 
   /**
    * Optional callback to get context for prompts
    */
-  private onPromptContext?: (prompt: Prompt) => Promise<string>;
+  onGetContext?: (prompt: Prompt) => Promise<string>;
+
+    /**
+   * Optional callback to get system prompt for prompts
+   */
+  onGetSystemPrompt?: (prompt: Prompt) => Promise<string>;
 
   /**
    * Model id to use
    */
-  private model: string;
-
-  /**
-   * Model vendor
-   */
-  private modelVendor: string;
-
-  /**
-   * Model name
-   */
-  private modelName: string;
+  #model: string;
 
   /**
    * Profit margin (e.g., 0.1 for 10%)
    */
-  private margin: number;
-
-  /**
-   * System prompt to prepend to all conversations
-   */
-  private systemPrompt?: string;
+  #margin: number;
 
   /**
    * Model pricing provider
    */
-  private pricingProvider: ModelPricing;
+  public readonly pricingProvider: ModelPricing;
 
   /**
    * Average output token count for pricing estimates
@@ -101,113 +77,48 @@ export class OpenaiExpert {
   private outputCount: number = 1;
 
   /**
-   * Expert nickname
-   */
-  private nickname: string;
-
-  /**
-   * Callback for getting dynamic description
-   */
-  private onGetDescription?: () => Promise<string>;
-
-  /**
-   * Custom onAsk callback if provided
-   */
-  private onAskCallback?: (ask: Ask) => Promise<ExpertBid | undefined>;
-
-  /**
    * Creates a new OpenaiExpert instance
    *
    * @param options - Configuration options
    */
   constructor(options: {
-    privkey: Uint8Array;
-    openaiBaseUrl: string;
-    openaiApiKey: string;
+    server: AskExpertsServer;
+    openai: OpenaiInterface;
     model: string;
-    nwcString: string;
     margin: number;
-    systemPrompt?: string;
     pricingProvider: ModelPricing;
-    discoveryRelays?: string[];
-    promptRelays?: string[];
-    pool?: SimplePool;
     avgOutputTokens?: number;
-    hashtags?: string[];
-    onAsk?: (ask: Ask) => Promise<ExpertBid | undefined>;
-    onPromptContext?: (prompt: Prompt) => Promise<string>;
-    nickname?: string;
-    onGetDescription?: () => Promise<string>;
+    onGetContext?: (prompt: Prompt) => Promise<string>;
+    onGetSystemPrompt?: (prompt: Prompt) => Promise<string>;
   }) {
-    this.model = options.model;
-    this.modelVendor = this.model.split("/")[0];
-    this.modelName = (this.model.split("/")?.[1] || this.model).split(
-      /[\s\p{P}]+/u
-    )[0];
-    this.margin = options.margin;
-    this.systemPrompt = options.systemPrompt;
+    this.#model = options.model;
+    this.#margin = options.margin;
     this.pricingProvider = options.pricingProvider;
     this.avgOutputCount = options.avgOutputTokens || 300;
-    this.nickname = options.nickname || this.model;
+    this.onGetContext = options.onGetContext;
+    this.onGetSystemPrompt = options.onGetSystemPrompt;
 
-    // Create the OpenAI client
-    this.openai = new OpenAI({
-      apiKey: options.openaiApiKey,
-      baseURL: options.openaiBaseUrl,
-    });
+    // Use the provided OpenAI client
+    this.openai = options.openai;
 
-    // Create the payment manager
-    this.paymentManager = new LightningPaymentManager(options.nwcString);
-
-    // Store server options for later initialization
-    this.serverOptions = {
-      privkey: options.privkey,
-      discoveryRelays: options.discoveryRelays || DEFAULT_DISCOVERY_RELAYS,
-      promptRelays: options.promptRelays || DEFAULT_DISCOVERY_RELAYS,
-      hashtags: options.hashtags || [
-        this.model,
-        this.modelVendor,
-        this.modelName,
-      ],
-      pool: options.pool,
-    };
-
-    // Store the onPromptContext callback if provided
-    if (options.onPromptContext) {
-      this.onPromptContext = options.onPromptContext;
-    }
-
-    // Set nickname
-    this.nickname = options.nickname || this.model;
-    
-    // Store callbacks if provided
-    this.onAskCallback = options.onAsk;
-    this.onGetDescription = options.onGetDescription;
+    // Use provided server
+    this.server = options.server;
   }
 
   /**
    * Starts the expert
    */
   async start(): Promise<void> {
-    // Create the server
-    this.server = new AskExpertsServer({
-      ...this.serverOptions,
-      formats: [FORMAT_TEXT, FORMAT_OPENAI],
-      onAsk: this.onAskCallback || this.onAsk.bind(this),
-      onPrompt: this.onPrompt.bind(this),
-      onProof: this.onProof.bind(this),
-      nickname: this.nickname,
-      onGetDescription: this.onGetDescription || this.getDescription.bind(this),
-    });
+    // Ensure our callbacks, unless overridden by the client
+    if (!this.server.onPromptPrice)
+      this.server.onPromptPrice = this.onPromptPrice.bind(this);
+    if (!this.server.onPromptPaid)
+      this.server.onPromptPaid = this.onPromptPaid.bind(this);
+    if (!this.server.formats.includes(FORMAT_OPENAI))
+      this.server.formats.push(FORMAT_OPENAI);
 
     // Start the server
     await this.server.start();
-  }
-
-  private async getDescription(): Promise<string> {
-    // Get current pricing, it might change over time
-    const pricing = await this.pricingProvider.pricing(this.model);
-    return `I'm an expert providing direct access to LLM model ${this.model}. Input token price per million: ${pricing.inputPricePPM} sats, output token price per million ${pricing.outputPricePPM} sats. System prompt: ${this.systemPrompt ? "disallowed" : "allowed"}`;
   }
 
   /**
@@ -215,39 +126,21 @@ export class OpenaiExpert {
    *
    * @returns The model ID
    */
-  getModel(): string {
-    return this.model;
+  get model(): string {
+    return this.#model;
   }
 
   /**
-   * Handles ask events
+   * Gets the margin
    *
-   * @param ask - The ask event
-   * @returns Promise resolving to a bid if interested, or undefined to ignore
+   * @returns Margin
    */
-  private async onAsk(ask: Ask): Promise<ExpertBid | undefined> {
-    try {
-      const tags = ask.hashtags;
-      // if (!tags.includes("llm") && !tags.includes("model")) return;
-      if (
-        !tags.includes(this.model) &&
-        !tags.includes(this.modelVendor) &&
-        !tags.includes(this.modelName)
-      )
-        return;
+  get margin(): number {
+    return this.#margin;
+  }
 
-      debugExpert(`Received ask: ${ask.id}`);
-
-      // Return the bid with our description as the offer
-      const description = await (this.onGetDescription || this.getDescription.bind(this))();
-      
-      return {
-        offer: description,
-      };
-    } catch (error) {
-      debugError("Error handling ask:", error);
-      return undefined;
-    }
+  set margin(value: number) {
+    this.#margin = value;
   }
 
   /**
@@ -266,24 +159,40 @@ export class OpenaiExpert {
     return encode(text).length;
   }
 
-  private async onPrompt(prompt: Prompt): Promise<ExpertQuote> {
+  /**
+   * Callback that fetches the system prompt and context for
+   * this prompt and estimates it's price. Made public to be 
+   * reusable.
+   * @param prompt - prompt
+   * @returns - expert price
+   */
+  public async onPromptPrice(prompt: Prompt): Promise<ExpertPrice> {
     try {
       debugExpert(`Received prompt: ${prompt.id}`);
 
-      // If onPromptContext is provided, call it and set the result to prompt.context
-      if (this.onPromptContext) {
-        prompt.context = await this.onPromptContext(prompt);
-        debugExpert(`Got prompt context of ${prompt.context.length} chars`);
+      const context: PromptContext = {};
+      prompt.context = context;
+
+      // If onGetContext is provided, call it and set the result to prompt.context
+      if (this.onGetSystemPrompt) {
+        context.systemPrompt = await this.onGetSystemPrompt(prompt);
+        debugExpert(`Got system prompt of ${context.systemPrompt.length} chars`);
+      }
+
+      // If onGetContext is provided, call it and set the result to prompt.context
+      if (this.onGetContext) {
+        context.context = await this.onGetContext(prompt);
+        debugExpert(`Got prompt context of ${context.context.length} chars`);
       }
 
       // Calculate the number of tokens in the prompt
       let inputTokenCount = 0;
-      if (this.systemPrompt)
-        inputTokenCount += this.countTokens(this.systemPrompt);
+      if (context.systemPrompt)
+        inputTokenCount += this.countTokens(context.systemPrompt);
 
       // Count tokens in the context if available
-      if (prompt.context) {
-        inputTokenCount += this.countTokens(prompt.context);
+      if (context.context) {
+        inputTokenCount += this.countTokens(context.context);
       }
 
       if (prompt.format === FORMAT_OPENAI) {
@@ -313,27 +222,14 @@ export class OpenaiExpert {
 
       debugExpert(
         `Calculated price: ${totalPrice} sats (input: ${inputTokenCount} tokens, output: ${outputTokenCount} tokens, context: ${
-          prompt.context?.length || 0
+          context.context?.length || 0
         })`
       );
 
-      // Create an invoice
-      const { invoice } = await this.paymentManager.makeInvoice(
-        totalPrice,
-        `Payment for ${this.model} completion`,
-        60 // 1 minute expiry
-      );
-
-      // Return the quote
+      // Return the price information
       return {
-        invoices: [
-          {
-            method: "lightning",
-            unit: "sat",
-            amount: totalPrice,
-            invoice,
-          },
-        ],
+        amountSats: totalPrice,
+        description: `Payment for ${this.model} completion`
       };
     } catch (error) {
       debugError("Error handling prompt:", error);
@@ -342,44 +238,28 @@ export class OpenaiExpert {
   }
 
   /**
-   * Handles proof events and executes prompts
+   * Executes prompts after the quote was paid
    *
    * @param prompt - The prompt event
    * @param quote - The quote
-   * @param proof - The payment proof
    * @returns Promise resolving to the expert's reply
    */
-  private async onProof(
+  public async onPromptPaid(
     prompt: Prompt,
-    quote: ExpertQuote,
-    proof: Proof
+    quote: ExpertQuote
   ): Promise<ExpertReply | ExpertReplies> {
     try {
-      debugExpert(`Received proof for prompt: ${prompt.id}`);
-
-      // Find the lightning invoice
-      const lightningInvoice = quote.invoices.find(
-        (inv) => inv.method === "lightning"
-      );
-      if (!lightningInvoice || !lightningInvoice.invoice) {
-        throw new Error("No lightning invoice found in quote");
-      }
+      debugExpert(`Processing paid prompt: ${prompt.id}`);
 
       try {
-        // Verify the payment
-        this.paymentManager.verifyPayment({
-          invoice: lightningInvoice.invoice,
-          preimage: proof.preimage,
-        });
+        let content: ChatCompletionCreateParams;
 
-        let content: ChatCompletionCreateParams | undefined;
+        const context = prompt.context as PromptContext | undefined;
 
         // Process the prompt based on its format
         switch (prompt.format) {
           case FORMAT_OPENAI: {
             // For OpenAI format, we will pass the content directly to the OpenAI API
-
-            // We'll pass the content verbatim
             content = prompt.content as ChatCompletionCreateParams;
 
             // Ensure proper model
@@ -410,7 +290,7 @@ export class OpenaiExpert {
 
         // If system prompt is set, replace all system/developer roles with user
         // and prepend our system prompt
-        if (this.systemPrompt) {
+        if (context?.systemPrompt) {
           const messages = content.messages.map((msg) => {
             if (msg.role === "system") {
               return { ...msg, role: "user" as const };
@@ -421,19 +301,19 @@ export class OpenaiExpert {
           // Prepend system prompt
           messages.unshift({
             role: "system" as const,
-            content: this.systemPrompt,
+            content: context.systemPrompt,
           });
 
           content.messages = messages;
         }
 
         // If context is provided, prepend it to the last message
-        if (prompt.context && content.messages.length > 0) {
+        if (context?.context && content.messages.length > 0) {
           const lastMessage = content.messages[content.messages.length - 1];
           if (typeof lastMessage.content === "string") {
             lastMessage.content = `
 ### Context
-${prompt.context}
+${context.context}
 
 ### Message
 ${lastMessage.content}
@@ -471,7 +351,7 @@ ${lastMessage.content}
         throw error;
       }
     } catch (error) {
-      debugError("Error handling proof:", error);
+      debugError("Error handling paid prompt:", error);
       throw error;
     }
   }
@@ -480,11 +360,7 @@ ${lastMessage.content}
    * Disposes of resources when the expert is no longer needed
    */
   [Symbol.dispose](): void {
-    // Dispose of the server
-    this.server[Symbol.dispose]();
-
-    // Dispose of the payment manager
-    this.paymentManager[Symbol.dispose]();
+    // Nothing to dispose here really
   }
 
   /**

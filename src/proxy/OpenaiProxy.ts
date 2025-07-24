@@ -3,7 +3,7 @@ import cors from "cors";
 import * as http from "http";
 import { z } from "zod";
 import { AskExpertsClient } from "../client/AskExpertsClient.js";
-import { LightningPaymentManager } from "../lightning/LightningPaymentManager.js";
+import { LightningPaymentManager } from "../payments/LightningPaymentManager.js";
 import { FORMAT_OPENAI } from "../common/constants.js";
 import { Proof, Quote, Prompt } from "../common/types.js";
 import { debugClient, debugError } from "../common/debug.js";
@@ -73,9 +73,9 @@ type OpenAIChatCompletionsResponse = z.infer<
 >;
 
 /**
- * OpenAIProxy class that provides an OpenAI-compatible API for NIP-174
+ * OpenaiProxy class that provides an OpenAI-compatible API for NIP-174
  */
-export class OpenAIProxy {
+export class OpenaiProxy {
   private app: express.Application;
   private client: AskExpertsClient;
   private port: number;

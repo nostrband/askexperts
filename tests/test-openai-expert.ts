@@ -2,12 +2,13 @@
  * Test for OpenaiExpert class
  */
 
-import { generateSecretKey, getPublicKey } from 'nostr-tools';
-import { OpenaiExpert } from '../src/experts/OpenaiExpert.js';
-import { SimplePool } from 'nostr-tools';
+import { generateSecretKey, getPublicKey, SimplePool } from 'nostr-tools';
+import { OpenaiProxyExpert } from '../src/experts/OpenaiProxyExpert.js';
 import { createWallet } from 'nwc-enclaved-utils';
 import dotenv from 'dotenv';
 import { OpenRouter } from '../src/experts/utils/OpenRouter.js';
+import { createOpenAI } from '../src/openai/index.js';
+import { AskExpertsServer, enableAllDebug, LightningPaymentManager } from '../src/index.js';
 
 // Load environment variables from .env file
 dotenv.config();
@@ -17,6 +18,8 @@ dotenv.config();
  */
 async function testOpenaiExpert() {
   console.log('Starting OpenaiExpert test...');
+
+  enableAllDebug();
 
   // Generate a keypair for the expert
   const privateKey = generateSecretKey();
@@ -32,15 +35,26 @@ async function testOpenaiExpert() {
   // Create a pricing provider
   const pricingProvider = new OpenRouter();
 
-  // Create an OpenaiExpert instance
-  const expert = new OpenaiExpert({
+  const openai = createOpenAI(process.env.OPENAI_BASE_URL || '', process.env.OPENAI_API_KEY || '');
+
+  // Create a SimplePool instance for relay operations
+  const pool = new SimplePool();
+
+  const paymentManager = new LightningPaymentManager(nwcString);
+
+  const server = new AskExpertsServer({
     privkey: privateKey,
-    openaiBaseUrl: process.env.OPENAI_BASE_URL || '',
-    openaiApiKey: process.env.OPENAI_API_KEY || '',
+    pool,
+    paymentManager,
+  })
+
+  // Create an OpenaiExpert instance
+  const expert = new OpenaiProxyExpert({
+    server,
+    openai,
     model: 'openai/gpt-4.1',
-    nwcString,
     margin: 0.1, // 10% margin
-    systemPrompt: 'You are a helpful assistant.',
+//    systemPrompt: 'You are a helpful assistant.',
     pricingProvider,
   });
 

@@ -1,1 +1,1 @@
-export { OpenAIProxy } from './OpenAIProxy.js';
+export { OpenaiProxy as OpenAIProxy } from './OpenaiProxy.js';

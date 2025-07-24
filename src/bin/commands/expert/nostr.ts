@@ -1,5 +1,6 @@
 import { getPublicKey, nip19, SimplePool } from "nostr-tools";
 import { NostrExpert } from "../../../experts/NostrExpert.js";
+import { OpenaiProxyExpertBase } from "../../../experts/OpenaiProxyExpertBase.js";
 import { OpenRouter } from "../../../experts/utils/OpenRouter.js";
 import {
   debugError,
@@ -10,9 +11,12 @@ import {
 import { generateRandomKeyPair } from "../../../common/crypto.js";
 import { createWallet } from "nwc-enclaved-utils";
 import { XenovaEmbeddings, ChromaRagDB } from "../../../rag/index.js";
+import { createOpenAI } from "../../../openai/index.js";
+import { AskExpertsServer } from "../../../server/AskExpertsServer.js";
 import fs from "fs";
 import path from "path";
 import { Command } from "commander";
+import { LightningPaymentManager } from "../../../payments/LightningPaymentManager.js";
 
 /**
  * Options for the Nostr expert command
@@ -139,17 +143,32 @@ export async function startNostrExpert(
       debugExpert("RAG database initialized");
     }
 
-    // Create the expert
-    const expert = new NostrExpert({
+    // Create OpenAI interface instance
+    const openai = createOpenAI(apiKey, "https://openrouter.ai/api/v1");
+
+    // Create payment manager
+    const paymentManager = new LightningPaymentManager(nwcString);
+
+    // Create server
+    const server = new AskExpertsServer({
       privkey,
-      openaiBaseUrl: "https://openrouter.ai/api/v1",
-      openaiApiKey: apiKey,
+      pool,
+      paymentManager,
+    });
+
+    // Create OpenaiProxyExpertBase instance
+    const openaiExpert = new OpenaiProxyExpertBase({
+      server,
+      openai,
       model: options.model,
-      nwcString,
       margin: options.margin,
       pricingProvider: openRouter,
-      pubkey: pubkey,
-      pool,
+    });
+
+    // Create the expert
+    const expert = new NostrExpert({
+      openaiExpert,
+      pubkey,
       ragEmbeddings,
       ragDB,
     });

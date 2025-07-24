@@ -1,12 +1,12 @@
 import { nip19, SimplePool } from "nostr-tools";
-import { OpenaiExpert } from "./OpenaiExpert.js";
 import { Nostr, ProfileInfo, PostWithContext } from "./utils/Nostr.js";
 import { ModelPricing } from "./utils/ModelPricing.js";
 import { Ask, ExpertBid, Prompt } from "../common/types.js";
 import { debugExpert, debugError } from "../common/debug.js";
 import { FORMAT_OPENAI, FORMAT_TEXT } from "../common/constants.js";
-import OpenAI from "openai";
+import { createOpenAI } from "../openai/index.js";
 import { RagDB, RagDocument, RagEmbeddings } from "../rag/interfaces.js";
+import { OpenaiProxyExpertBase } from "./OpenaiProxyExpertBase.js";
 
 /**
  * NostrExpert implementation for NIP-174
@@ -14,9 +14,9 @@ import { RagDB, RagDocument, RagEmbeddings } from "../rag/interfaces.js";
  */
 export class NostrExpert {
   /**
-   * OpenaiExpert instance
+   * OpenaiExpertBase instance
    */
-  private openaiExpert?: OpenaiExpert;
+  private openaiExpert: OpenaiProxyExpertBase;
 
   /**
    * Nostr utility instance
@@ -47,18 +47,7 @@ export class NostrExpert {
    * Configuration options
    */
   private options: {
-    privkey: Uint8Array;
-    openaiBaseUrl: string;
-    openaiApiKey: string;
-    model: string;
-    nwcString: string;
-    margin: number;
-    pricingProvider: ModelPricing;
     pubkey: string;
-    discoveryRelays?: string[];
-    promptRelays?: string[];
-    pool?: SimplePool;
-    avgOutputTokens?: number;
     ragEmbeddings?: RagEmbeddings;
     ragDB?: RagDB;
   };
@@ -69,25 +58,20 @@ export class NostrExpert {
    * @param options - Configuration options
    */
   constructor(options: {
-    privkey: Uint8Array;
-    openaiBaseUrl: string;
-    openaiApiKey: string;
-    model: string;
-    nwcString: string;
-    margin: number;
-    pricingProvider: ModelPricing;
+    openaiExpert: OpenaiProxyExpertBase;
     pubkey: string;
-    discoveryRelays?: string[];
-    promptRelays?: string[];
-    pool?: SimplePool;
-    avgOutputTokens?: number;
     ragEmbeddings?: RagEmbeddings;
     ragDB?: RagDB;
   }) {
     // Store options for later use
-    this.options = { ...options };
+    this.options = {
+      pubkey: options.pubkey,
+      ragEmbeddings: options.ragEmbeddings,
+      ragDB: options.ragDB
+    };
 
     this.pubkey = options.pubkey;
+    this.openaiExpert = options.openaiExpert;
 
     // Store RAG components if provided
     this.ragEmbeddings = options.ragEmbeddings;
@@ -95,11 +79,14 @@ export class NostrExpert {
     if (!!this.ragDB !== !!this.ragEmbeddings)
       throw new Error("Both RAG DB and embeddings should be provided");
 
-    // Create SimplePool if not provided
-    const pool = options.pool || new SimplePool();
-
     // Create Nostr utility
-    this.nostr = new Nostr(pool);
+    this.nostr = new Nostr(this.openaiExpert.server.pool);
+    
+    // Set our onAsk to the openaiExpert.server
+    this.openaiExpert.server.onAsk = this.onAsk.bind(this);
+    
+    // Set onGetContext (renamed from onPromptContext)
+    this.openaiExpert.onGetContext = this.onGetContext.bind(this);
   }
 
   private pubkeyNickname() {
@@ -110,8 +97,6 @@ export class NostrExpert {
    * Starts the expert and crawls the Nostr profile
    */
   async start(): Promise<void> {
-    if (this.openaiExpert) throw new Error("Already started");
-
     try {
       debugExpert(`Starting NostrExpert for pubkey: ${this.pubkey}`);
 
@@ -145,7 +130,7 @@ selection of person's posts will be prepended to user message in this format:
 '
 Act like you are that person - when users talk to you, look through the person's profile
 and posts and reply as if you were that person, preserve their unique style, their opinions and their preferences.
-Posts in the provided json context may contain in_reply_to object with the message that the person was replying 
+Posts in the provided json context may contain in_reply_to object with the message that the person was replying
 to - this should add more context to help you imitate the person better.
 
 ${JSON.stringify(this.profileInfo.profile)}`
@@ -157,21 +142,19 @@ with the message that the person was replying to - this should add more context 
 ${profileData}
 `;
 
-      // Create a new OpenAI expert with the system prompt
-      // We need to recreate it with all the original parameters plus our new system prompt
-      this.openaiExpert = new OpenaiExpert({
-        ...this.options,
-        systemPrompt: systemPrompt,
-        hashtags: [
-          this.pubkey,
-          nip19.npubEncode(this.pubkey),
-          ...extractedHashtags,
-        ],
-        onAsk: this.onAsk.bind(this),
-        onPromptContext: this.onPromptContext.bind(this),
-        nickname: this.pubkeyNickname() + "_clone",
-        onGetDescription: this.getDescription.bind(this),
-      });
+      // Set hashtags to openaiExpert.server.hashtags
+      this.openaiExpert.server.hashtags = [
+        this.pubkey,
+        nip19.npubEncode(this.pubkey),
+        ...extractedHashtags,
+      ];
+      
+      // Set onGetSystemPrompt to return the static systemPrompt
+      this.openaiExpert.onGetSystemPrompt = (_: Prompt) => Promise.resolve(systemPrompt);
+      
+      // Set nickname and description to openaiExpert.server
+      this.openaiExpert.server.nickname = this.pubkeyNickname() + "_clone";
+      this.openaiExpert.server.description = await this.getDescription();
 
       // Start the OpenAI expert
       await this.openaiExpert.start();
@@ -226,9 +209,7 @@ ${this.profileInfo?.profile.about || "-"}`;
    * Disposes of resources when the expert is no longer needed
    */
   [Symbol.dispose](): void {
-    // Dispose of the OpenAI expert
-    this.openaiExpert?.[Symbol.dispose]();
-    this.openaiExpert = undefined;
+    // We don't dispose openaiExpert as it's provided externally
   }
 
   /**
@@ -239,11 +220,8 @@ ${this.profileInfo?.profile.about || "-"}`;
    */
   private async extractHashtags(profileInfo: any): Promise<string[]> {
     try {
-      // Create OpenAI instance
-      const openai = new OpenAI({
-        apiKey: this.options.openaiApiKey,
-        baseURL: this.options.openaiBaseUrl,
-      });
+      // Use the OpenAI instance from the provided OpenaiProxyExpertBase
+      const openai = this.openaiExpert.openai;
 
       // Create system prompt for hashtag extraction
       const systemPrompt = `You are an expert at analyzing user profiles and determining what topics they are knowledgeable about.
@@ -255,7 +233,7 @@ Example response: ["bitcoin", "programming", "javascript", "webapps", "openproto
 
       // Make completion request
       const completion = await openai.chat.completions.create({
-        model: this.options.model,
+        model: this.openaiExpert.model,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: JSON.stringify(profileInfo, null, 2) },
@@ -369,7 +347,7 @@ Example response: ["bitcoin", "programming", "javascript", "webapps", "openproto
    * @param prompt - The prompt to get context for
    * @returns Promise resolving to context string
    */
-  private async onPromptContext(prompt: Prompt): Promise<string> {
+  private async onGetContext(prompt: Prompt): Promise<string> {
     if (!this.ragEmbeddings || !this.ragDB || !this.profileInfo) {
       return "";
     }

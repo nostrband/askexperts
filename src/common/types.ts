@@ -359,3 +359,25 @@ export interface ExpertQuote {
   /** Payment invoices */
   invoices: Invoice[];
 }
+
+/**
+ * Expert price structure
+ */
+export interface ExpertPrice {
+  /** Amount in satoshis */
+  amountSats: number;
+  /** Description for the invoice */
+  description: string;
+}
+
+/**
+ * Callback function type for pricing prompts
+ * Called when an expert receives a prompt to determine the price
+ */
+export type OnPromptPriceCallback = (prompt: Prompt) => Promise<ExpertPrice>;
+
+/**
+ * Callback function type for handling paid prompts
+ * Called after payment verification to process the prompt
+ */
+export type OnPromptPaidCallback = (prompt: Prompt, quote: ExpertQuote) => Promise<ExpertReplies | ExpertReply>;

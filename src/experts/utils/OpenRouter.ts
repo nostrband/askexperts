@@ -1,6 +1,6 @@
 import { debugExpert, debugError } from "../../common/debug.js";
 import { ModelPricing, PricingResult } from "./ModelPricing.js";
-import OpenAI from "openai";
+import { OpenaiInterface, createOpenAI } from "../../openai/index.js";
 
 /**
  * Model information from OpenRouter API
@@ -213,10 +213,10 @@ export class OpenRouter implements ModelPricing {
       debugExpert(`Testing model accessibility: ${model}`);
       
       // Create an OpenAI client with the provided API key
-      const openai = new OpenAI({
-        apiKey: apiKey,
-        baseURL: "https://openrouter.ai/api/v1",
-      });
+      const openai = createOpenAI(
+        apiKey,
+        "https://openrouter.ai/api/v1"
+      );
 
       // Send a simple test prompt
       await openai.chat.completions.create({

@@ -3,12 +3,14 @@ import { DEFAULT_MAX_PARALLEL_PAYMENTS } from "../common/constants.js";
 import { sha256 } from "@noble/hashes/sha2";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 import { parseBolt11 } from "../common/bolt11.js";
+import { ExpertPaymentManager } from "./ExpertPaymentManager.js";
+import { ExpertQuote, Invoice, Proof } from "../common/types.js";
 
 /**
  * LightningPaymentManager handles lightning payments using NWC
  * with a limit on parallel payment operations
  */
-export class LightningPaymentManager {
+export class LightningPaymentManager implements ExpertPaymentManager {
   private nwcClient: nwc.NWCClient;
   private maxParallelPayments: number;
   private activePayments: number = 0;
@@ -139,13 +141,42 @@ export class LightningPaymentManager {
   }
 
   /**
+   * Creates invoices for expert payment
+   *
+   * @param amountSats - Amount in satoshis
+   * @param description - Invoice description
+   * @param expirySec - Expiry time in seconds
+   * @returns Promise resolving to an array of invoices
+   */
+  async makeInvoices(
+    amountSats: number,
+    description: string,
+    expirySec: number
+  ): Promise<Invoice[]> {
+    const { invoice } = await this.makeInvoice(
+      amountSats,
+      description,
+      expirySec
+    );
+    
+    return [
+      {
+        method: "lightning",
+        unit: "sat",
+        amount: amountSats,
+        invoice,
+      },
+    ];
+  }
+
+  /**
    * Verifies a payment using the preimage
    *
    * @param paymentHash - Payment hash to verify
    * @param preimage - Payment preimage
    * @throws Error if verification fails
    */
-  async verifyPayment({
+  async verifyLightningPayment({
     invoice,
     payment_hash,
     preimage,
@@ -180,5 +211,28 @@ export class LightningPaymentManager {
     if (!tx.settled_at || tx.settled_at === 0) {
       throw new Error("Invoice not settled");
     }
+  }
+
+  /**
+   * Verifies a payment
+   *
+   * @param quote - The expert quote containing invoices
+   * @param proof - The payment proof
+   * @throws Error if verification fails
+   */
+  async verifyPayment(quote: ExpertQuote, proof: Proof): Promise<void> {
+    // Find the lightning invoice
+    const lightningInvoice = quote.invoices.find(
+      (inv) => inv.method === "lightning"
+    );
+    if (!lightningInvoice || !lightningInvoice.invoice) {
+      throw new Error("No lightning invoice found in quote");
+    }
+
+    // Verify the payment
+    this.verifyLightningPayment({
+      invoice: lightningInvoice.invoice,
+      preimage: proof.preimage,
+    });
   }
 }
