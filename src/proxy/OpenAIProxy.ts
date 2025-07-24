@@ -5,7 +5,7 @@ import { z } from "zod";
 import { AskExpertsClient } from "../client/AskExpertsClient.js";
 import { LightningPaymentManager } from "../lightning/LightningPaymentManager.js";
 import { FORMAT_OPENAI } from "../common/constants.js";
-import { Proof, Quote, Prompt } from "../client/types.js";
+import { Proof, Quote, Prompt } from "../common/types.js";
 import { debugClient, debugError } from "../common/debug.js";
 
 /**

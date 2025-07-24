@@ -9,7 +9,7 @@ import {
   FORMAT_TEXT,
   METHOD_LIGHTNING,
 } from "../common/constants.js";
-import { Bid, Proof, Quote, Prompt, Replies } from "../client/types.js";
+import { Bid, Proof, Quote, Prompt, Replies } from "../common/types.js";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";

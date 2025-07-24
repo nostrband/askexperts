@@ -59,7 +59,7 @@ export class Nostr {
   private pool: SimplePool;
 
   /** Default outbox relays to check for user data */
-  private static readonly OUTBOX_RELAYS = [
+  public static readonly OUTBOX_RELAYS = [
     "wss://purplepag.es",
     "wss://relay.nostr.band",
     "wss://relay.primal.net",
@@ -391,5 +391,110 @@ export class Nostr {
       readRelays: Array.from(readRelaysSet),
       writeRelays: Array.from(writeRelaysSet),
     };
+  }
+
+  /**
+   * Crawls Nostr events for a specific pubkey and kinds
+   *
+   * @param pubkey - Public key of the user
+   * @param kinds - Array of event kinds to fetch (default: [1] for notes)
+   * @param relays - Array of relay URLs to fetch from (default: auto-detect from user's kind:10002)
+   * @param limit - Maximum number of events to fetch (default: 1000)
+   * @returns Promise resolving to an array of events
+   */
+  async crawl({
+    pubkey,
+    kinds = [],
+    relays = [],
+    limit = 1000
+  }: {
+    pubkey: string;
+    kinds?: number[];
+    relays?: string[];
+    limit?: number;
+  }): Promise<Event[]> {
+    let writeRelays: string[] = [...relays];
+
+    // If no relays provided, load pubkey's 10002 event to get their relays
+    if (relays.length === 0) {
+      try {
+        // Fetch relay list event (kind 10002)
+        const relayListFilter: Filter = {
+          kinds: [10002],
+          authors: [pubkey],
+          limit: 1,
+        };
+
+        const relayListEvents = await fetchFromRelays(
+          relayListFilter,
+          Nostr.OUTBOX_RELAYS,
+          this.pool,
+          10000 // 10 second timeout
+        );
+
+        if (relayListEvents.length > 0) {
+          // Parse relay list
+          const { writeRelays: parsedWriteRelays } = this.parseRelayList(relayListEvents[0]);
+          if (parsedWriteRelays.length > 0) {
+            writeRelays = parsedWriteRelays;
+          }
+        }
+      } catch (error) {
+        debugError("Error fetching relay list:", error);
+      }
+
+      // If still no relays, use default outbox relays
+      if (writeRelays.length === 0) {
+        writeRelays = Nostr.OUTBOX_RELAYS;
+      }
+    }
+
+    debugExpert(`Using relays: ${writeRelays.join(', ')}`);
+
+    // Fetch events of specified kinds
+    const events: Event[] = [];
+    let oldestTimestamp: number | undefined;
+
+    // Continue fetching until we reach the limit or no more events are available
+    while (events.length < limit) {
+      // Create filter for the current batch
+      const filter: Filter = {
+        authors: [pubkey],
+        limit: Math.min(500, limit - events.length),
+      };
+      if (kinds && kinds.length > 0)
+        filter.kinds = kinds;
+
+      // Add until parameter for pagination if we have an oldest timestamp
+      if (oldestTimestamp) {
+        filter.until = oldestTimestamp - 1; // Subtract 1 to avoid duplicates
+      }
+
+      // Fetch the current batch
+      const batchEvents = await fetchFromRelays(
+        filter,
+        writeRelays,
+        this.pool,
+        10000 // 10 second timeout
+      );
+      debugExpert(`Fetched ${batchEvents.length} events`);
+
+      // If no more events were found, break the loop
+      if (batchEvents.length === 0) {
+        break;
+      }
+
+      // Add the new events to our collection
+      events.push(...batchEvents);
+
+      // Find the oldest timestamp for the next iteration
+      oldestTimestamp = Math.min(...batchEvents.map((event: Event) => event.created_at));
+    }
+
+    // Trim to the requested limit and sort by created_at in descending order
+    const finalEvents = events.slice(0, limit);
+    finalEvents.sort((a, b) => b.created_at - a.created_at);
+    
+    return finalEvents;
   }
 }

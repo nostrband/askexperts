@@ -52,7 +52,7 @@ import {
   PaymentMethod,
   OnQuoteCallback,
   OnPayCallback,
-} from "./types.js";
+} from "../common/types.js";
 
 import { Compression, DefaultCompression } from "../common/compression.js";
 import {
@@ -507,6 +507,7 @@ export class AskExpertsClient {
       format,
       content,
       event: promptEvent,
+      context: {}, // Add empty context object to satisfy the type
     };
 
     return prompt;

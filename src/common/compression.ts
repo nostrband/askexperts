@@ -3,7 +3,7 @@
  * Supports both browser (using Compression Streams API) and Node.js (using zlib)
  */
 
-import { CompressionMethod } from '../client/types.js';
+import { CompressionMethod } from './types.js';
 import { debugError } from './debug.js';
 
 // Check if we're in a browser environment with Compression Streams API

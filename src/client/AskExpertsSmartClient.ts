@@ -7,7 +7,7 @@ import {
   FORMAT_TEXT,
   METHOD_LIGHTNING,
 } from "../common/constants.js";
-import { Bid, Proof, Quote, Prompt, Replies } from "./types.js";
+import { Bid, Proof, Quote, Prompt, Replies } from "../common/types.js";
 import OpenAI from "openai";
 
 /**
@@ -424,8 +424,11 @@ Return nothing else, only bid ids.
         format: FORMAT_TEXT,
         compr: bid.compressions[0],
         onQuote: async (quote, prompt) => {
+          // Add context property to prompt if it doesn't exist
+          const promptWithContext = prompt.context ? prompt : { ...prompt, context: {} };
+          
           // Call our handleQuote method with the max amount
-          const amount = await this.handleQuote(quote, prompt, max_amount_sats);
+          const amount = await this.handleQuote(quote, promptWithContext, max_amount_sats);
 
           // Store the amount for later use
           invoice_amount = amount;
@@ -433,7 +436,11 @@ Return nothing else, only bid ids.
           // Return true if the amount is greater than 0
           return amount > 0;
         },
-        onPay: (quote, prompt) => this.handlePayment(quote, prompt),
+        onPay: (quote, prompt) => {
+          // Add context property to prompt if it doesn't exist
+          const promptWithContext = prompt.context ? prompt : { ...prompt, context: {} };
+          return this.handlePayment(quote, promptWithContext);
+        },
       });
 
       // Process the replies

@@ -26,7 +26,7 @@ export type {
   Invoice,
   OnQuoteCallback,
   OnPayCallback,
-} from './types.js';
+} from '../common/types.js';
 
 // Export constants
 export {

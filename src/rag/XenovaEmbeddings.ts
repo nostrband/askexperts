@@ -13,12 +13,14 @@ export class XenovaEmbeddings implements RagEmbeddings {
 
   /**
    * Creates a new instance of XenovaEmbeddings.
-   * @param model The model name to use for embeddings, defaults to 'nomic-ai/nomic-embed-text-v1'
+   * @param model The model name to use for embeddings
    * @param chunkSize The size of text chunks to create
    * @param chunkOverlap The amount of overlap between chunks
    */
   constructor(
-    model: string = 'nomic-ai/nomic-embed-text-v1', // 'Xenova/all-MiniLM-L6-v2'
+    // Good multi-lingual model w/ 256-token context size
+    model: string = 'Xenova/all-MiniLM-L6-v2', // 'nomic-ai/nomic-embed-text-v1'
+    // I guess we should split by sentence?
     chunkSize: number = 400,
     chunkOverlap: number = 50
   ) {

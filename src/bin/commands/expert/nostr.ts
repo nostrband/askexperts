@@ -130,11 +130,7 @@ export async function startNostrExpert(
       debugExpert("Initializing RAG components...");
 
       // Create and initialize embeddings
-      ragEmbeddings = new XenovaEmbeddings(
-        options.ragModel || "nomic-ai/nomic-embed-text-v1",
-        options.ragChunkSize || 400,
-        options.ragChunkOverlap || 50
-      );
+      ragEmbeddings = new XenovaEmbeddings();
       await ragEmbeddings.start();
       debugExpert("RAG embeddings initialized");
 
@@ -230,7 +226,7 @@ export function registerNostrCommand(program: Command): void {
     .option(
       "--rag-model <model>",
       "Embedding model for RAG",
-      "nomic-ai/nomic-embed-text-v1"
+      "Xenova/all-MiniLM-L6-v2"
     )
     .option(
       "--rag-chunk-size <size>",

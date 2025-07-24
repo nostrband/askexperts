@@ -11,6 +11,7 @@ import { registerEnvCommand } from "./commands/env.js";
 import { registerExpertCommand } from "./commands/expert/index.js";
 import { registerClientCommand } from "./commands/client.js";
 import { registerChatCommand } from "./commands/chat.js";
+import { registerDocstoreCommand } from "./commands/docstore/index.js";
 
 // Load environment variables from .env file without debug logs
 dotenv.config({ debug: false });
@@ -56,6 +57,7 @@ export function runCli(): void {
   registerExpertCommand(program);
   registerClientCommand(program);
   registerChatCommand(program);
+  registerDocstoreCommand(program);
 
   // Parse command line arguments
   program.parse();
