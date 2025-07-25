@@ -78,12 +78,16 @@ export class AskExpertsClient {
    * Zod schema for quote payload
    */
   private quotePayloadSchema = z.object({
-    invoices: z.array(z.object({
-      method: z.string(),
-      unit: z.string(),
-      amount: z.number(),
-      invoice: z.string().optional(),
-    })),
+    invoices: z
+      .array(
+        z.object({
+          method: z.string(),
+          unit: z.string(),
+          amount: z.number(),
+          invoice: z.string().optional(),
+        })
+      )
+      .optional(),
     error: z.string().optional(),
   });
 
@@ -146,7 +150,7 @@ export class AskExpertsClient {
     this.defaultOnPay = options?.onPay;
     this.compression = options?.compression || new DefaultCompression();
     this.discoveryRelays = options?.discoveryRelays;
-    
+
     // Check if pool is provided or needs to be created internally
     this.poolCreatedInternally = !options?.pool;
     this.pool = options?.pool || new SimplePool();
@@ -180,19 +184,24 @@ export class AskExpertsClient {
 
     // Set default values
     const formats = params.formats || [FORMAT_TEXT];
-    
+
     // Validate compression methods if provided
     const supportedComprs = this.compression.list();
     if (params.comprs) {
-      const unsupportedComprs = params.comprs.filter(compr => !supportedComprs.includes(compr));
+      const unsupportedComprs = params.comprs.filter(
+        (compr) => !supportedComprs.includes(compr)
+      );
       if (unsupportedComprs.length > 0) {
-        throw new AskExpertsError(`Unsupported compression method(s): ${unsupportedComprs.join(', ')}`);
+        throw new AskExpertsError(
+          `Unsupported compression method(s): ${unsupportedComprs.join(", ")}`
+        );
       }
     }
-    
+
     const comprs = params.comprs || supportedComprs;
     const methods = params.methods || [METHOD_LIGHTNING];
-    const relays = params.relays || this.discoveryRelays || DEFAULT_DISCOVERY_RELAYS;
+    const relays =
+      params.relays || this.discoveryRelays || DEFAULT_DISCOVERY_RELAYS;
 
     // Generate a random key pair for the ask
     const { privateKey: askPrivkey, publicKey: askPubkey } =
@@ -215,7 +224,12 @@ export class AskExpertsClient {
     );
 
     // Publish the ask event to relays
-    const publishedRelays = await publishToRelays(askEvent, relays, this.pool, 5000);
+    const publishedRelays = await publishToRelays(
+      askEvent,
+      relays,
+      this.pool,
+      5000
+    );
 
     if (publishedRelays.length === 0) {
       throw new RelayError("Failed to publish ask event to any relay");
@@ -259,10 +273,7 @@ export class AskExpertsClient {
 
           // Check the kind
           if (bidPayloadEvent.kind !== EVENT_KIND_BID_PAYLOAD) {
-            debugError(
-              "Invalid bid payload event kind:",
-              bidPayloadEvent.kind
-            );
+            debugError("Invalid bid payload event kind:", bidPayloadEvent.kind);
             return;
           }
 
@@ -325,7 +336,7 @@ export class AskExpertsClient {
         } catch (error) {
           debugError("Error processing bid event:", error);
         }
-      }
+      },
     });
 
     // Wait for the specified timeout
@@ -352,7 +363,8 @@ export class AskExpertsClient {
     }
 
     // Set default values
-    const relays = params.relays || this.discoveryRelays || DEFAULT_DISCOVERY_RELAYS;
+    const relays =
+      params.relays || this.discoveryRelays || DEFAULT_DISCOVERY_RELAYS;
 
     // Create a filter for expert profile events
     const filter = {
@@ -494,7 +506,12 @@ export class AskExpertsClient {
     );
 
     // Publish the prompt event to the expert's relays
-    const publishedRelays = await publishToRelays(promptEvent, expertRelays, this.pool, 5000);
+    const publishedRelays = await publishToRelays(
+      promptEvent,
+      expertRelays,
+      this.pool,
+      5000
+    );
 
     if (publishedRelays.length === 0) {
       throw new RelayError("Failed to publish prompt event to any relay");
@@ -567,6 +584,10 @@ export class AskExpertsClient {
         throw new ExpertError(`Expert error: ${quotePayload.error}`);
       }
 
+      if (!quotePayload.invoices) {
+        throw new ExpertError(`Expert error: no invoices`);
+      }
+
       // Create the Quote object
       const quote: Quote = {
         pubkey: expertPubkey,
@@ -574,7 +595,7 @@ export class AskExpertsClient {
         invoices: quotePayload.invoices,
         event: quoteEvent,
       };
-      
+
       return quote;
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -721,9 +742,14 @@ export class AskExpertsClient {
     };
 
     // Create an event stream for replies
-    const replyStream = createEventStream(replyFilter, publishedRelays, this.pool, {
-      timeout: DEFAULT_REPLY_TIMEOUT,
-    });
+    const replyStream = createEventStream(
+      replyFilter,
+      publishedRelays,
+      this.pool,
+      {
+        timeout: DEFAULT_REPLY_TIMEOUT * 2,
+      }
+    );
 
     // Create the Replies object
     const replies: Replies = {
@@ -753,7 +779,7 @@ export class AskExpertsClient {
               decryptedReply,
               replyCompr
             );
-            
+
             try {
               // Parse and validate the reply payload using Zod
               const rawPayload = JSON.parse(replyPayloadStr);
@@ -774,7 +800,7 @@ export class AskExpertsClient {
                 content: replyPayload.content,
                 event,
               };
-              
+
               // Yield the reply
               yield reply;
 
@@ -784,7 +810,9 @@ export class AskExpertsClient {
               }
             } catch (error) {
               if (error instanceof z.ZodError) {
-                throw new ExpertError(`Invalid reply payload: ${error.message}`);
+                throw new ExpertError(
+                  `Invalid reply payload: ${error.message}`
+                );
               }
               throw error;
             }
@@ -868,8 +896,7 @@ export class AskExpertsClient {
     const compressionInstance = params.compression || this.compression;
 
     // Generate a random key pair for the prompt
-    const { privateKey: promptPrivkey } =
-      generateRandomKeyPair();
+    const { privateKey: promptPrivkey } = generateRandomKeyPair();
 
     // Send the prompt to the expert
     const prompt = await this.sendPrompt(
@@ -896,7 +923,7 @@ export class AskExpertsClient {
     try {
       // Validate the quote before calling onQuote
       this.validateQuote(quote);
-      
+
       // onQuote returns a boolean indicating whether to proceed with payment
       const shouldPay = await onQuote(quote, prompt);
 
@@ -955,7 +982,7 @@ export class AskExpertsClient {
         try {
           // Parse the invoice using parseBolt11
           const parsedInvoice = parseBolt11(invoice.invoice);
-          
+
           // Check if the parsed amount matches the expected amount
           if (parsedInvoice.amount_sats !== invoice.amount) {
             throw new PaymentRejectedError(
@@ -968,7 +995,9 @@ export class AskExpertsClient {
             throw error;
           }
           throw new PaymentRejectedError(
-            `Failed to validate invoice: ${error instanceof Error ? error.message : String(error)}`
+            `Failed to validate invoice: ${
+              error instanceof Error ? error.message : String(error)
+            }`
           );
         }
       }

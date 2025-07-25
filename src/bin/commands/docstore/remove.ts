@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import { DocStoreSQLite } from "../../../docstore/index.js";
 import { DocstoreCommandOptions, getDocstorePath } from "./index.js";
-import { debugError } from "../../../common/debug.js";
+import { debugError, enableAllDebug } from "../../../common/debug.js";
 import { createInterface } from "readline";
 
 /**
@@ -13,18 +13,23 @@ export async function removeDocstore(
   id: string,
   options: DocstoreCommandOptions
 ): Promise<void> {
-  const docstorePath = getDocstorePath(options);
+  const docstorePath = getDocstorePath();
 
   try {
-    const docstore = new DocStoreSQLite(docstorePath);
+    // Enable debug output if debug flag is set
+    if (options.debug) {
+      enableAllDebug();
+    }
+    
+    const docstoreClient = new DocStoreSQLite(docstorePath);
 
     // Check if docstore exists
-    const docstores = docstore.listDocstores();
+    const docstores = docstoreClient.listDocstores();
     const targetDocstore = docstores.find((ds) => ds.id.toString() === id);
 
     if (!targetDocstore) {
       debugError(`Docstore with ID '${id}' not found`);
-      docstore[Symbol.dispose]();
+      docstoreClient[Symbol.dispose]();
       process.exit(1);
     }
 
@@ -46,12 +51,12 @@ export async function removeDocstore(
 
       if (answer.toLowerCase() !== "y" && answer.toLowerCase() !== "yes") {
         console.log("Operation cancelled");
-        docstore[Symbol.dispose]();
+        docstoreClient[Symbol.dispose]();
         return;
       }
     }
 
-    const result = docstore.deleteDocstore(id);
+    const result = docstoreClient.deleteDocstore(id);
 
     if (result) {
       console.log(
@@ -62,7 +67,7 @@ export async function removeDocstore(
       process.exit(1);
     }
 
-    docstore[Symbol.dispose]();
+    docstoreClient[Symbol.dispose]();
   } catch (error) {
     debugError(`Error removing docstore: ${error}`);
     process.exit(1);
@@ -76,7 +81,7 @@ export async function removeDocstore(
  */
 export function registerRemoveCommand(
   docstoreCommand: Command,
-  addPathOption: (cmd: Command) => Command
+  addCommonOptions: (cmd: Command) => Command
 ): void {
   const rmCommand = docstoreCommand
     .command("rm")
@@ -85,5 +90,5 @@ export function registerRemoveCommand(
     .option("-y, --yes", "Skip confirmation prompt")
     .action(removeDocstore);
   
-  addPathOption(rmCommand);
+  addCommonOptions(rmCommand);
 }

@@ -1,4 +1,4 @@
-import { XenovaEmbeddings, ChromaRagDB, Chunk } from '../src/rag/index.js';
+import { ChromaRagDB, Chunk, createRagEmbeddings } from '../src/rag/index.js';
 
 /**
  * Example demonstrating how to use the RAG system.
@@ -8,7 +8,7 @@ async function main() {
     console.log('Initializing RAG components...');
     
     // Initialize the embeddings model
-    const embeddings = new XenovaEmbeddings();
+    const embeddings = createRagEmbeddings();
     
     // Start the embeddings model
     console.log('Starting embeddings model...');

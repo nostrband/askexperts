@@ -76,7 +76,7 @@ async function testOpenaiExpert() {
   } finally {
     // Clean up resources
     console.log('Cleaning up resources...');
-    expert[Symbol.dispose]();
+    await expert[Symbol.asyncDispose]();
     console.log('Resources cleaned up');
   }
 }

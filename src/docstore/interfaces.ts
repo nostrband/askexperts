@@ -12,7 +12,7 @@ export interface Doc {
   created_at: number; // unix timestamp of doc creation time (for imported docs)
   type: string;
   data: string;
-  embeddings: string;
+  embeddings: Float32Array[]; // Array of embedding vectors
 }
 
 /**
@@ -22,6 +22,9 @@ export interface DocStore {
   id: string;
   name: string;
   timestamp: number;
+  model: string;       // name of embeddings model
+  vector_size: number; // size of embedding vectors
+  options: string;     // options of the model, '' by default
 }
 
 /**
@@ -92,9 +95,19 @@ export interface DocStoreClient {
   /**
    * Create a new docstore if one with the given name doesn't exist
    * @param name - Name of the docstore to create
+   * @param model - Name of the embeddings model
+   * @param vector_size - Size of embedding vectors
+   * @param options - Options for the model, defaults to empty string
    * @returns ID of the created or existing docstore
    */
-  createDocstore(name: string): string;
+  createDocstore(name: string, model?: string, vector_size?: number, options?: string): string;
+  
+  /**
+   * Get a docstore by ID
+   * @param id - ID of the docstore to get
+   * @returns The docstore if found, null otherwise
+   */
+  getDocstore(id: string): Promise<DocStore | undefined>;
   
   /**
    * List all docstores

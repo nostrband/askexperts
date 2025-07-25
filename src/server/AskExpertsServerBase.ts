@@ -518,7 +518,6 @@ export class AskExpertsServerBase {
     // Subscribe to prompt events
     const sub = subscribeToRelays([filter], this.#promptRelays, this.pool, {
       onevent: async (event: Event) => {
-        debugExpert("prompt", event);
         try {
           await this.handlePromptEvent(event);
         } catch (error) {
@@ -991,7 +990,7 @@ export class AskExpertsServerBase {
         this.pool
       );
 
-      debugExpert(`Published reply to ${publishedRelays.length} relays`);
+      debugExpert(`Published reply to ${publishedRelays.length} relays for prompt ${prompt.id}`);
     } catch (error) {
       debugError("Error sending expert reply:", error);
     }
@@ -1021,7 +1020,10 @@ export class AskExpertsServerBase {
   /**
    * Disposes of resources when the expert is no longer needed
    */
-  [Symbol.dispose](): void {
+  async [Symbol.asyncDispose]() {
+    debugExpert("Clearing AskExpertsServerBase")
+    // FIXME make sure existing queries are answered
+
     // Close all subscriptions
     this.askSub?.close();
     this.promptSub?.close();

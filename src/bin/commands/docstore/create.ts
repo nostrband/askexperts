@@ -1,7 +1,8 @@
 import { Command } from "commander";
 import { DocStoreSQLite } from "../../../docstore/index.js";
 import { DocstoreCommandOptions, getDocstorePath } from "./index.js";
-import { debugError } from "../../../common/debug.js";
+import { debugError, enableAllDebug } from "../../../common/debug.js";
+import { createRagEmbeddings } from "../../../rag/index.js";
 
 /**
  * Create a new docstore
@@ -10,14 +11,35 @@ import { debugError } from "../../../common/debug.js";
  */
 export async function createDocstore(
   name: string,
-  options: DocstoreCommandOptions
+  options: DocstoreCommandOptions & {
+    model?: string;
+    model_options?: string;
+  }
 ): Promise<void> {
-  const docstorePath = getDocstorePath(options);
+  const docstorePath = getDocstorePath();
 
   try {
+    // Enable debug output if debug flag is set
+    if (options.debug) {
+      enableAllDebug();
+    }
+    
+    // load embeddings to learn the vector size
+    const embeddings = createRagEmbeddings(options.model);
+    await embeddings.start();
+    const vectorSize = await embeddings.getVectorSize();
+    const model = embeddings.getModelName();
+
     const docstore = new DocStoreSQLite(docstorePath);
-    const docstoreId = docstore.createDocstore(name);
+    const docstoreId = docstore.createDocstore(
+      name,
+      model,
+      vectorSize,
+      options.model_options || ""
+    );
     console.log(`Docstore '${name}' created with ID: ${docstoreId}`);
+    console.log(`Model: ${model}`);
+    console.log(`Vector size: ${vectorSize}`);
     docstore[Symbol.dispose]();
   } catch (error) {
     debugError(`Error creating docstore: ${error}`);
@@ -32,13 +54,15 @@ export async function createDocstore(
  */
 export function registerCreateCommand(
   docstoreCommand: Command,
-  addPathOption: (cmd: Command) => Command
+  addCommonOptions: (cmd: Command) => Command
 ): void {
   const createCommand = docstoreCommand
     .command("create")
     .description("Create a new docstore")
     .argument("<name>", "Name of the docstore")
+    .option("-m, --model <model>", "Embeddings model name")
+    .option("-o, --model-options <options>", "Model options")
     .action(createDocstore);
   
-  addPathOption(createCommand);
+  addCommonOptions(createCommand);
 }

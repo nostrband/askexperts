@@ -3,6 +3,7 @@ import { fileURLToPath } from "url";
 import { dirname, resolve } from "path";
 import fs from "fs";
 import dotenv from "dotenv";
+import { APP_DIR, APP_ENV_PATH } from "../common/constants.js";
 import { registerMcpCommand } from "./commands/mcp.js";
 import { registerSmartMcpCommand } from "./commands/smart-mcp.js";
 import { registerProxyCommand } from "./commands/proxy.js";
@@ -12,9 +13,15 @@ import { registerExpertCommand } from "./commands/expert/index.js";
 import { registerClientCommand } from "./commands/client.js";
 import { registerChatCommand } from "./commands/chat.js";
 import { registerDocstoreCommand } from "./commands/docstore/index.js";
+import { registerWalletCommands } from "./commands/wallet/index.js";
 
-// Load environment variables from .env file without debug logs
-dotenv.config({ debug: false });
+// Ensure the app directory exists
+if (!fs.existsSync(APP_DIR)) {
+  fs.mkdirSync(APP_DIR, { recursive: true });
+}
+
+// Load environment variables from .env file in the app directory
+dotenv.config({ path: APP_ENV_PATH, debug: false });
 
 /**
  * Get the package version from package.json
@@ -58,6 +65,7 @@ export function runCli(): void {
   registerClientCommand(program);
   registerChatCommand(program);
   registerDocstoreCommand(program);
+  registerWalletCommands(program);
 
   // Parse command line arguments
   program.parse();

@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import { DocStoreSQLite } from "../../../docstore/index.js";
-import { DocstoreCommandOptions, getDocstorePath, getDocstoreId } from "./index.js";
-import { debugError } from "../../../common/debug.js";
+import { DocstoreCommandOptions, getDocstorePath, getDocstore } from "./index.js";
+import { debugError, enableAllDebug } from "../../../common/debug.js";
 
 /**
  * Delete a document from a docstore
@@ -12,34 +12,28 @@ export async function deleteDoc(
   id: string,
   options: DocstoreCommandOptions
 ): Promise<void> {
-  const docstorePath = getDocstorePath(options);
+  const docstorePath = getDocstorePath();
 
   try {
-    const docstore = new DocStoreSQLite(docstorePath);
-    
-    // Get docstore ID
-    let docstoreId: string;
-    try {
-      const result = await getDocstoreId(docstore, options);
-      docstoreId = result.docstoreId;
-    } catch (error) {
-      debugError(`Error: ${error instanceof Error ? error.message : String(error)}`);
-      docstore[Symbol.dispose]();
-      process.exit(1);
+    // Enable debug output if debug flag is set
+    if (options.debug) {
+      enableAllDebug();
     }
-
-    const result = docstore.delete(docstoreId, id);
+    
+    const docstoreClient = new DocStoreSQLite(docstorePath);
+    const docstore = await getDocstore(docstoreClient, options.docstore);
+    const result = docstoreClient.delete(docstore.id, id);
 
     if (result) {
       console.log(`Document with ID '${id}' deleted successfully`);
     } else {
       debugError(
-        `Document with ID '${id}' not found in docstore '${docstoreId}'`
+        `Document with ID '${id}' not found in docstore '${docstore.id}'`
       );
       process.exit(1);
     }
 
-    docstore[Symbol.dispose]();
+    docstoreClient[Symbol.dispose]();
   } catch (error) {
     debugError(`Error deleting document: ${error}`);
     process.exit(1);
@@ -53,7 +47,7 @@ export async function deleteDoc(
  */
 export function registerDeleteCommand(
   docstoreCommand: Command,
-  addPathOption: (cmd: Command) => Command
+  addCommonOptions: (cmd: Command) => Command
 ): void {
   const deleteCommand = docstoreCommand
     .command("delete")
@@ -65,5 +59,5 @@ export function registerDeleteCommand(
     )
     .action(deleteDoc);
   
-  addPathOption(deleteCommand);
+  addCommonOptions(deleteCommand);
 }

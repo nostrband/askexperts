@@ -1,18 +1,23 @@
 import { Command } from "commander";
 import { DocStoreSQLite } from "../../../docstore/index.js";
 import { DocstoreCommandOptions, getDocstorePath } from "./index.js";
-import { debugError } from "../../../common/debug.js";
+import { debugError, enableAllDebug } from "../../../common/debug.js";
 
 /**
  * List all docstores
  * @param options Command options
  */
 export async function listDocstores(options: DocstoreCommandOptions): Promise<void> {
-  const docstorePath = getDocstorePath(options);
+  const docstorePath = getDocstorePath();
 
   try {
-    const docstore = new DocStoreSQLite(docstorePath);
-    const docstores = docstore.listDocstores();
+    // Enable debug output if debug flag is set
+    if (options.debug) {
+      enableAllDebug();
+    }
+    
+    const docstoreClient = new DocStoreSQLite(docstorePath);
+    const docstores = docstoreClient.listDocstores();
 
     if (docstores.length === 0) {
       console.log("No docstores found");
@@ -27,7 +32,7 @@ export async function listDocstores(options: DocstoreCommandOptions): Promise<vo
       });
     }
 
-    docstore[Symbol.dispose]();
+    docstoreClient[Symbol.dispose]();
   } catch (error) {
     debugError(`Error listing docstores: ${error}`);
     process.exit(1);
@@ -41,12 +46,12 @@ export async function listDocstores(options: DocstoreCommandOptions): Promise<vo
  */
 export function registerListCommand(
   docstoreCommand: Command,
-  addPathOption: (cmd: Command) => Command
+  addCommonOptions: (cmd: Command) => Command
 ): void {
   const lsCommand = docstoreCommand
     .command("ls")
     .description("List all docstores")
     .action(listDocstores);
   
-  addPathOption(lsCommand);
+  addCommonOptions(lsCommand);
 }

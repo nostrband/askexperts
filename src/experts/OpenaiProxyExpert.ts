@@ -83,15 +83,15 @@ export class OpenaiProxyExpert extends OpenaiProxyExpertBase {
   /**
    * Disposes of resources when the expert is no longer needed
    */
-  [Symbol.dispose](): void {
+  async [Symbol.asyncDispose]() {
+    // Call the parent's dispose method
+    await super[Symbol.asyncDispose]();
+
     // Clear the interval when disposing
     if (this.descriptionCheckInterval) {
       clearInterval(this.descriptionCheckInterval);
       this.descriptionCheckInterval = null;
-    }
-    
-    // Call the parent's dispose method
-    super[Symbol.dispose]?.();
+    }    
   }
 
   private async getDescription(): Promise<string> {

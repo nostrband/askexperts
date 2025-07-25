@@ -1,20 +1,17 @@
-import { getPublicKey, SimplePool } from "nostr-tools";
-import { OpenaiProxyExpert } from "../../../experts/OpenaiProxyExpert.js";
+import { Command } from "commander";
 import { OpenRouter } from "../../../experts/utils/OpenRouter.js";
-import { createOpenAI } from "../../../openai/index.js";
 import {
   debugError,
   debugExpert,
   enableAllDebug,
   enableErrorDebug,
 } from "../../../common/debug.js";
+import { getDB } from "../../../db/utils.js";
 import { generateRandomKeyPair } from "../../../common/crypto.js";
-import { createWallet } from "nwc-enclaved-utils";
-import fs from "fs";
-import path from "path";
-import { Command } from "commander";
-import { AskExpertsServer } from "../../../server/AskExpertsServer.js";
-import { LightningPaymentManager } from "../../../payments/LightningPaymentManager.js";
+import { getPublicKey } from "nostr-tools";
+import { bytesToHex } from "nostr-tools/utils";
+import { DBExpert } from "../../../db/interfaces.js";
+import { getWalletByNameOrDefault } from "../wallet/utils.js";
 
 /**
  * Options for the OpenRouter experts command
@@ -23,26 +20,17 @@ export interface OpenRouterExpertsCommandOptions {
   margin: number;
   models?: string[];
   debug?: boolean;
-  apiKey?: string;
+  wallet?: string;
 }
 
 /**
- * Expert configuration stored in JSON file
- */
-interface ExpertConfig {
-  experts: {
-    model: string;
-    privkeyHex: string;
-    nwcString: string;
-  }[];
-}
-
-/**
- * Start OpenRouter experts with the given options
+ * Manage OpenRouter experts in the database
+ * Creates or updates experts for available models
+ * Disables experts for unavailable models
  *
  * @param options Command line options
  */
-export async function startOpenRouterExperts(
+export async function manageOpenRouterExperts(
   options: OpenRouterExpertsCommandOptions
 ): Promise<void> {
   // Enable debug if requested
@@ -50,10 +38,10 @@ export async function startOpenRouterExperts(
   else enableErrorDebug();
 
   try {
-    // Create a shared pool for all experts
-    const pool = new SimplePool();
+    // Get the database instance
+    const db = getDB();
 
-    // Create OpenRouter instance for pricing
+    // Create OpenRouter instance for model listing
     const openRouter = new OpenRouter();
 
     // Get the list of models
@@ -68,129 +56,115 @@ export async function startOpenRouterExperts(
       debugExpert(`Filtered to ${filteredModels.length} requested models`);
     }
 
-    // Load or create the configuration file
-    const configPath = path.resolve("openrouter_experts.json");
-    let config: ExpertConfig = { experts: [] };
+    // Get the wallet to use for experts
+    const wallet = getWalletByNameOrDefault(options.wallet);
+    debugExpert(`Using wallet: ${wallet.name} (ID: ${wallet.id})`);
 
-    if (fs.existsSync(configPath)) {
-      try {
-        const configData = fs.readFileSync(configPath, "utf8");
-        config = JSON.parse(configData);
-        debugExpert(
-          `Loaded configuration for ${config.experts.length} experts`
-        );
-      } catch (error) {
-        debugError(`Error loading configuration: ${error}`);
-        config = { experts: [] };
-      }
-    }
+    // Get all existing OpenRouter experts from the database
+    const allExperts = db.listExperts();
+    const openRouterExperts = allExperts.filter(
+      (expert) => expert.type === "openrouter"
+    );
+    debugExpert(`Found ${openRouterExperts.length} existing OpenRouter experts in database`);
 
     // Create a map of existing experts by model ID
-    const existingExperts = new Map<
-      string,
-      {
-        privkeyHex: string;
-        nwcString: string;
+    const existingExpertsByModel = new Map<string, DBExpert>();
+    for (const expert of openRouterExperts) {
+      // Extract model from env (format: EXPERT_MODEL=model\nEXPERT_MARGIN=margin)
+      const envLines = expert.env.split("\n");
+      const modelLine = envLines.find((line) => line.startsWith("EXPERT_MODEL="));
+      if (modelLine) {
+        const model = modelLine.substring("EXPERT_MODEL=".length);
+        existingExpertsByModel.set(model, expert);
       }
-    >();
-
-    for (const expert of config.experts) {
-      existingExperts.set(expert.model, {
-        privkeyHex: expert.privkeyHex,
-        nwcString: expert.nwcString,
-      });
     }
 
-    // Create experts for each model
-    const activeExperts: OpenaiProxyExpert[] = [];
-    const updatedConfig: ExpertConfig = { experts: [] };
-
-    const launch = async (modelId: string) => {
+    // Create or update experts for each available model
+    for (const model of filteredModels) {
+      const modelId = model.id;
       try {
-        // Check if the model is accessible with the provided API key
-        const apiKey = options.apiKey || process.env.OPENROUTER_API_KEY || "";
+        debugExpert(`Processing model: ${modelId}`);
+        
+        // Check if the model is accessible
+        const apiKey = process.env.OPENROUTER_API_KEY || "";
         const isModelAccessible = await openRouter.checkModel(modelId, apiKey);
-
+        
         if (!isModelAccessible) {
-          debugExpert(
-            `Skipping model ${modelId} as it requires a provider API key or is not accessible`
-          );
-          return;
+          debugExpert(`Skipping model ${modelId} as it requires a provider API key or is not accessible`);
+          
+          // If we have an existing expert for this model, disable it
+          const existingExpert = existingExpertsByModel.get(modelId);
+          if (existingExpert && !existingExpert.disabled) {
+            debugExpert(`Disabling expert for inaccessible model ${modelId}`);
+            db.setDisabled(existingExpert.pubkey, true);
+          }
+          
+          continue;
         }
 
-        let privkey: Uint8Array;
-        let nwcString: string;
-
-        // Check if we already have configuration for this model
-        const existingExpert = existingExperts.get(modelId);
+        // Check if we already have an expert for this model
+        const existingExpert = existingExpertsByModel.get(modelId);
 
         if (existingExpert) {
-          // Use existing configuration
-          privkey = new Uint8Array(
-            Buffer.from(existingExpert.privkeyHex, "hex")
-          );
-          nwcString = existingExpert.nwcString;
-          debugExpert(`Using existing configuration for model ${modelId}`);
+          // Update existing expert
+          debugExpert(`Updating existing expert for model ${modelId}`);
+          
+          // Update environment variables with current margin
+          const envLines = existingExpert.env.split("\n");
+          const updatedEnvLines = envLines.map(line => {
+            if (line.startsWith("EXPERT_MARGIN=")) {
+              return `EXPERT_MARGIN=${options.margin}`;
+            }
+            return line;
+          });
+          
+          existingExpert.env = updatedEnvLines.join("\n");
+          existingExpert.disabled = false; // Ensure expert is enabled
+          
+          // Update in database
+          db.updateExpert(existingExpert);
+          debugExpert(`Updated expert for model ${modelId}`);
         } else {
-          // Generate new keypair
+          // Create new expert
+          debugExpert(`Creating new expert for model ${modelId}`);
+          
+          // Generate keypair
           const { privateKey } = generateRandomKeyPair();
-          privkey = privateKey;
-
-          // Create new wallet
-          debugExpert(`Creating new wallet for model ${modelId}`);
-          const wallet = await createWallet();
-          nwcString = wallet.nwcString;
-
-          debugExpert(`Created new configuration for model ${modelId}`);
+          const privkey = privateKey;
+          const pubkey = getPublicKey(privkey);
+          
+          // Create environment variables
+          const env = `EXPERT_MODEL=${modelId}\nEXPERT_MARGIN=${options.margin}`;
+          
+          // Create expert object
+          const expert: DBExpert = {
+            pubkey,
+            wallet_id: wallet.id,
+            type: "openrouter",
+            nickname: `openrouter_${modelId}`,
+            env,
+            docstores: "",
+            privkey: bytesToHex(privkey),
+            disabled: false
+          };
+          
+          // Insert into database
+          db.insertExpert(expert);
+          debugExpert(`Created expert for model ${modelId} with pubkey ${pubkey}`);
         }
-
-        // Create OpenAI interface instance
-        const openai = createOpenAI(apiKey, "https://openrouter.ai/api/v1");
-
-        const server = new AskExpertsServer({
-          privkey,
-          paymentManager: new LightningPaymentManager(nwcString),
-          pool,
-        });
-
-        // Create the expert
-        const expert = new OpenaiProxyExpert({
-          server,
-          openai,
-          model: modelId,
-          margin: options.margin,
-          pricingProvider: openRouter,
-        });
-
-        // Start the expert
-        await expert.start();
-        activeExperts.push(expert);
-
-        // Add to updated configuration
-        updatedConfig.experts.push({
-          model: modelId,
-          privkeyHex: Buffer.from(privkey).toString("hex"),
-          nwcString,
-        });
-
-        debugExpert(
-          `Started expert for model ${modelId} pubkey ${getPublicKey(privkey)}`
-        );
       } catch (error) {
-        debugError(`Error creating expert for model ${modelId}: ${error}`);
+        debugError(`Error processing model ${modelId}: ${error}`);
       }
-    };
-
-    // Launch the models
-    for (const model of filteredModels) {
-      await launch(model.id);
     }
 
-    // Save the updated configuration
-    fs.writeFileSync(configPath, JSON.stringify(updatedConfig, null, 2));
-    debugExpert(
-      `Saved configuration for ${updatedConfig.experts.length} experts`
-    );
+    // Disable experts for models that are no longer available
+    const availableModelIds = new Set(filteredModels.map(model => model.id));
+    for (const [modelId, expert] of existingExpertsByModel.entries()) {
+      if (!availableModelIds.has(modelId)) {
+        debugExpert(`Disabling expert for unavailable model ${modelId}`);
+        db.setDisabled(expert.pubkey, true);
+      }
+    }
 
     // Set up hourly refresh
     const refreshInterval = 60 * 60 * 1000; // 1 hour
@@ -212,57 +186,95 @@ export async function startOpenRouterExperts(
           );
         }
 
-        // Get current model IDs
-        const currentModelIds = new Set(
-          activeExperts.map((expert) => expert.model)
+        // Get all existing OpenRouter experts from the database
+        const currentExperts = db.listExperts().filter(
+          (expert) => expert.type === "openrouter"
         );
 
-        // Find new models to add
+        // Create a map of existing experts by model ID
+        const currentExpertsByModel = new Map<string, DBExpert>();
+        for (const expert of currentExperts) {
+          const envLines = expert.env.split("\n");
+          const modelLine = envLines.find((line) => line.startsWith("EXPERT_MODEL="));
+          if (modelLine) {
+            const model = modelLine.substring("EXPERT_MODEL=".length);
+            currentExpertsByModel.set(model, expert);
+          }
+        }
+
+        // Create or update experts for each available model
         for (const model of latestFilteredModels) {
-          if (!currentModelIds.has(model.id)) {
-            await launch(model.id);
+          const modelId = model.id;
+          try {
+            // Check if the model is accessible
+            const apiKey = process.env.OPENROUTER_API_KEY || "";
+            const isModelAccessible = await openRouter.checkModel(modelId, apiKey);
+            
+            if (!isModelAccessible) {
+              debugExpert(`Skipping model ${modelId} as it requires a provider API key or is not accessible`);
+              
+              // If we have an existing expert for this model, disable it
+              const existingExpert = currentExpertsByModel.get(modelId);
+              if (existingExpert && !existingExpert.disabled) {
+                debugExpert(`Disabling expert for inaccessible model ${modelId}`);
+                db.setDisabled(existingExpert.pubkey, true);
+              }
+              
+              continue;
+            }
+            
+            // Check if we already have an expert for this model
+            const existingExpert = currentExpertsByModel.get(modelId);
+
+            if (existingExpert) {
+              // Enable expert if it was disabled
+              if (existingExpert.disabled) {
+                debugExpert(`Re-enabling expert for model ${modelId}`);
+                db.setDisabled(existingExpert.pubkey, false);
+              }
+            } else {
+              // Create new expert
+              debugExpert(`Creating new expert for model ${modelId}`);
+              
+              // Generate keypair
+              const { privateKey } = generateRandomKeyPair();
+              const privkey = privateKey;
+              const pubkey = getPublicKey(privkey);
+              
+              // Create environment variables
+              const env = `EXPERT_MODEL=${modelId}\nEXPERT_MARGIN=${options.margin}`;
+              
+              // Create expert object
+              const expert: DBExpert = {
+                pubkey,
+                wallet_id: wallet.id,
+                type: "openrouter",
+                nickname: `openrouter_${modelId}`,
+                env,
+                docstores: "",
+                privkey: bytesToHex(privkey),
+                disabled: false
+              };
+              
+              // Insert into database
+              db.insertExpert(expert);
+              debugExpert(`Created expert for model ${modelId} with pubkey ${pubkey}`);
+            }
+          } catch (error) {
+            debugError(`Error processing model ${modelId}: ${error}`);
           }
         }
 
-        // Find models to remove
-        const latestModelIds = new Set(
-          latestFilteredModels.map((model) => model.id)
-        );
-        const expertsToRemove: OpenaiProxyExpert[] = [];
-
-        for (const expert of activeExperts) {
-          const modelId = expert.model;
-          if (!latestModelIds.has(modelId)) {
-            expertsToRemove.push(expert);
+        // Disable experts for models that are no longer available
+        const availableModelIds = new Set(latestFilteredModels.map(model => model.id));
+        for (const [modelId, expert] of currentExpertsByModel.entries()) {
+          if (!availableModelIds.has(modelId)) {
+            debugExpert(`Disabling expert for unavailable model ${modelId}`);
+            db.setDisabled(expert.pubkey, true);
           }
         }
 
-        // Remove experts for models that no longer exist
-        for (const expert of expertsToRemove) {
-          const modelId = expert.model;
-          debugExpert(`Shutting down expert for removed model ${modelId}`);
-
-          // Dispose of the expert
-          expert[Symbol.dispose]();
-
-          // Remove from active experts
-          const index = activeExperts.indexOf(expert);
-          if (index !== -1) {
-            activeExperts.splice(index, 1);
-          }
-
-          // Remove from configuration
-          const configIndex = updatedConfig.experts.findIndex(
-            (e) => e.model === modelId
-          );
-          if (configIndex !== -1) {
-            updatedConfig.experts.splice(configIndex, 1);
-          }
-        }
-
-        // Save the updated configuration
-        fs.writeFileSync(configPath, JSON.stringify(updatedConfig, null, 2));
-        debugExpert(`Refreshed experts: ${activeExperts.length} active`);
+        debugExpert(`Refreshed experts: ${latestFilteredModels.length} active models`);
       } catch (error) {
         debugError(`Error refreshing experts: ${error}`);
       }
@@ -273,17 +285,12 @@ export async function startOpenRouterExperts(
 
     // Handle SIGINT/SIGTERM (Ctrl+C)
     const sigHandler = async () => {
-      debugExpert("\nReceived SIGINT. Shutting down experts...");
+      debugExpert("\nReceived SIGINT. Shutting down...");
 
       // Clear the interval
       clearInterval(intervalId);
 
-      // Dispose of all experts
-      for (const expert of activeExperts) {
-        expert[Symbol.dispose]();
-      }
-
-      debugExpert("All experts shut down.");
+      debugExpert("Shutdown complete.");
       process.exit(0);
     };
 
@@ -291,11 +298,11 @@ export async function startOpenRouterExperts(
     process.on("SIGTERM", sigHandler);
 
     debugExpert(
-      `Started ${activeExperts.length} OpenRouter experts with margin ${options.margin}`
+      `Managed ${filteredModels.length} OpenRouter experts with margin ${options.margin}`
     );
     debugExpert("Press Ctrl+C to exit.");
   } catch (error) {
-    debugError("Error starting OpenRouter experts:", error);
+    debugError("Error managing OpenRouter experts:", error);
     throw error;
   }
 }
@@ -310,7 +317,7 @@ export function registerOpenRouterCommand(program: Command): void {
   program
     .command("openrouter")
     .description(
-      "Launch experts for OpenRouter models. Expert settings are saved to openrouter_experts.json file."
+      "Manage experts for OpenRouter models in the database. Creates or updates experts for available models and disables experts for unavailable models."
     )
     .requiredOption(
       "-m, --margin <number>",
@@ -319,21 +326,21 @@ export function registerOpenRouterCommand(program: Command): void {
     )
     .option(
       "--models <items>",
-      "Comma-separated list of specific models to launch",
+      "Comma-separated list of specific models to manage",
       (value: string) => value.split(",").map((item) => item.trim())
     )
     .option(
-      "-k, --api-key <key>",
-      "OpenRouter API key (defaults to OPENROUTER_API_KEY env var)"
+      "-w, --wallet <name>",
+      "Wallet name to use (uses default if not provided)"
     )
     .option("-d, --debug", "Enable debug logging")
     .action(async (options) => {
       if (options.debug) enableAllDebug();
       else enableErrorDebug();
       try {
-        await startOpenRouterExperts(options);
+        await manageOpenRouterExperts(options);
       } catch (error) {
-        debugError("Error starting OpenRouter experts:", error);
+        debugError("Error managing OpenRouter experts:", error);
         process.exit(1);
       }
     });

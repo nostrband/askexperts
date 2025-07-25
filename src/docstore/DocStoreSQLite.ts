@@ -25,16 +25,25 @@ export class DocStoreSQLite implements DocStoreClient {
    * Initialize the database by creating required tables if they don't exist
    */
   private initDatabase(): void {
-    // Create docstores table
+
+    // Allow concurrent readers
+    this.db.exec('PRAGMA journal_mode = WAL;');
+    // Wait up to 3 seconds for locks
+    this.db.exec('PRAGMA busy_timeout = 3000;');
+
+    // Create docstores table with new fields for embeddings model
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS docstores (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
-        timestamp INTEGER NOT NULL
+        timestamp INTEGER NOT NULL,
+        model TEXT,
+        vector_size INTEGER,
+        options TEXT
       )
     `);
 
-    // Create docs table with auto-incremented aid field
+    // Create docs table with auto-incremented aid field and BLOB for embeddings
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS docs (
         aid INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -44,7 +53,7 @@ export class DocStoreSQLite implements DocStoreClient {
         created_at INTEGER NOT NULL,
         type TEXT NOT NULL,
         data TEXT NOT NULL,
-        embeddings TEXT,
+        embeddings BLOB,
         UNIQUE(docstore_id, id)
       )
     `);
@@ -85,16 +94,24 @@ export class DocStoreSQLite implements DocStoreClient {
     debugDocstore(`Subscribing to docstore: ${docstore_id}, type: ${type || 'all'}, since: ${since || 'beginning'}, until: ${until || 'now'}`);
 
     // Function to convert row to Doc interface
-    const rowToDoc = (row: Record<string, any>): Doc => ({
-      id: row.id?.toString() || "",
-      docstore_id: row.docstore_id?.toString() || "",
-      timestamp: Number(row.timestamp || 0),
-      created_at: Number(row.created_at || 0),
-      type: row.type?.toString() || "",
-      data: row.data?.toString() || "",
-      embeddings: row.embeddings ? row.embeddings.toString() : "",
-      // aid is not included in the returned Doc object as it's an internal implementation detail
-    });
+    const rowToDoc = (row: Record<string, any>): Doc => {
+      // Convert embeddings from BLOB to Float32Array[]
+      let embeddingsArray: Float32Array[] = [];
+      if (row.embeddings) {
+        embeddingsArray = this.blobToFloat32Arrays(row.embeddings as Buffer, row.docstore_id.toString());
+      }
+  
+      return {
+        id: row.id?.toString() || "",
+        docstore_id: row.docstore_id?.toString() || "",
+        timestamp: Number(row.timestamp || 0),
+        created_at: Number(row.created_at || 0),
+        type: row.type?.toString() || "",
+        data: row.data?.toString() || "",
+        embeddings: embeddingsArray,
+        // aid is not included in the returned Doc object as it's an internal implementation detail
+      };
+    };
 
     // Function to fetch a batch of documents
     const fetchBatch = async () => {
@@ -193,8 +210,148 @@ export class DocStoreSQLite implements DocStoreClient {
    * Upsert a document in the store using a single atomic operation
    * @param doc - Document to upsert
    */
+  /**
+   * Convert Float32Array[] to a single Uint8Array for storage
+   * @param embeddings - Array of Float32Array embeddings
+   * @param vectorSize - Size of each embedding vector
+   * @returns Uint8Array containing all embeddings
+   */
+  private float32ArraysToBlob(embeddings: Float32Array[], vector_size: number): Uint8Array {
+    // Check that we don't exceed the maximum number of vectors (2^16)
+    if (embeddings.length >= (1 << 16)) {
+      throw new Error(`Too many embeddings: ${embeddings.length}, maximum is ${(1 << 16) - 1}`);
+    }
+
+    // Check that each embedding has the correct size
+    for (let i = 0; i < embeddings.length; i++) {
+      if (embeddings[i].length !== vector_size) {
+        throw new Error(`Embedding at index ${i} has incorrect size: ${embeddings[i].length}, expected ${vector_size}`);
+      }
+    }
+
+    // Calculate total size: 2 bytes for count + (vector_size * 4 bytes per float32) * number of embeddings
+    const totalSize = 2 + (vector_size * 4 * embeddings.length);
+    const result = new Uint8Array(totalSize);
+    
+    // Write number of vectors as uint16 (2 bytes)
+    result[0] = embeddings.length & 0xFF;
+    result[1] = (embeddings.length >> 8) & 0xFF;
+    
+    // Write each embedding
+    let offset = 2;
+    for (const embedding of embeddings) {
+      const byteArray = new Uint8Array(embedding.buffer);
+      result.set(byteArray, offset);
+      offset += byteArray.length;
+    }
+    
+    return result;
+  }
+
+  /**
+   * Convert a Uint8Array blob back to an array of Float32Array embeddings
+   * @param blob - Uint8Array blob containing embeddings
+   * @param docstore_id - ID of the docstore the blob belongs to
+   * @returns Array of Float32Array embeddings
+   */
+  private blobToFloat32Arrays(blob: Buffer | Uint8Array, docstore_id: string): Float32Array[] {
+    // Get the docstore to determine vector_size
+    const docstore = this.getDocstoreSync(docstore_id);
+    if (!docstore || !docstore.vector_size) {
+      return [];
+    }
+    
+    const vector_size = docstore.vector_size;
+    
+    // Validate blob size - ensure it has at least 2 bytes
+    if (!blob || blob.length < 2) {
+      debugError(`Invalid blob size: ${blob ? blob.length : 'null'}, expected at least 2 bytes`);
+      return [];
+    }
+    
+    // Parse the blob
+    // First 2 bytes are the count of vectors
+    const count = blob[0] | (blob[1] << 8);
+    
+    // Each vector is vector_size * 4 bytes (4 bytes per float32)
+    const bytesPerVector = vector_size * 4;
+    
+    // Calculate expected blob size
+    const expectedSize = 2 + (count * bytesPerVector);
+    
+    // Validate blob size - ensure it has the expected size
+    if (blob.length !== expectedSize) {
+      debugError(`Invalid blob size: ${blob.length}, expected ${expectedSize} bytes for ${count} vectors of size ${vector_size}`);
+      return [];
+    }
+    
+    // Create an array to hold the embeddings
+    const embeddings: Float32Array[] = [];
+    
+    // Extract each embedding
+    let offset = 2;
+    for (let i = 0; i < count; i++) {
+      // Create a view into the blob for this embedding using subarray
+      const vectorBytes = blob.subarray(offset, offset + bytesPerVector);
+      
+      // Convert to Float32Array
+      const embedding = new Float32Array(vectorBytes.buffer.slice(vectorBytes.byteOffset, vectorBytes.byteOffset + vectorBytes.byteLength));
+      
+      embeddings.push(embedding);
+      offset += bytesPerVector;
+    }
+    
+    return embeddings;
+  }
+
+  // This method is no longer needed as we pass docstore_id directly to blobToFloat32Arrays
+
+  /**
+   * Get a docstore by ID
+   * @param id - ID of the docstore to get
+   * @returns The docstore if found, null otherwise
+   */
+  getDocstoreSync(id: string): DocStore | undefined {
+    const stmt = this.db.prepare("SELECT * FROM docstores WHERE id = ?");
+    const row = stmt.get(id);
+    
+    if (!row) {
+      return undefined;
+    }
+    
+    return {
+      id: String(row.id || ""),
+      name: String(row.name || ""),
+      timestamp: Number(row.timestamp || 0),
+      model: String(row.model || ""),
+      vector_size: Number(row.vector_size || 0),
+      options: String(row.options || "")
+    };
+  }
+
+  async getDocstore(id: string): Promise<DocStore | undefined> {
+    return Promise.resolve(this.getDocstoreSync(id));
+  }
+
   upsert(doc: Doc): void {
     debugDocstore(`Upserting document: ${doc.id} in docstore: ${doc.docstore_id}, type: ${doc.type}`);
+    
+    // Get the docstore to check vector_size
+    const docstore = this.getDocstoreSync(doc.docstore_id);
+    if (!docstore) {
+      throw new Error(`Docstore not found: ${doc.docstore_id}`);
+    }
+    
+    if (!docstore.vector_size) {
+      throw new Error(`Docstore ${doc.docstore_id} has no vector_size defined`);
+    }
+    
+    // Convert embeddings to blob if present
+    let embeddingsBlob: Uint8Array | null = null;
+    if (doc.embeddings && doc.embeddings.length > 0) {
+      embeddingsBlob = this.float32ArraysToBlob(doc.embeddings, docstore.vector_size);
+    }
+    
     // Use INSERT OR REPLACE to handle both insert and update in a single atomic operation
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO docs (
@@ -209,7 +366,7 @@ export class DocStoreSQLite implements DocStoreClient {
       doc.created_at,
       doc.type,
       doc.data,
-      doc.embeddings || ""
+      embeddingsBlob
     );
   }
 
@@ -230,6 +387,12 @@ export class DocStoreSQLite implements DocStoreClient {
       return null;
     }
 
+    // Convert embeddings from BLOB to Float32Array[]
+    let embeddingsArray: Float32Array[] = [];
+    if (row.embeddings) {
+      embeddingsArray = this.blobToFloat32Arrays(row.embeddings as Buffer, docstore_id);
+    }
+
     // Convert row to Doc interface
     return {
       id: row.id?.toString() || "",
@@ -238,7 +401,7 @@ export class DocStoreSQLite implements DocStoreClient {
       created_at: Number(row.created_at || 0),
       type: row.type?.toString() || "",
       data: row.data?.toString() || "",
-      embeddings: row.embeddings ? row.embeddings.toString() : "",
+      embeddings: embeddingsArray,
     };
   }
 
@@ -264,8 +427,16 @@ export class DocStoreSQLite implements DocStoreClient {
    * @param name - Name of the docstore to create
    * @returns ID of the created or existing docstore
    */
-  createDocstore(name: string): string {
-    debugDocstore(`Creating docstore with name: ${name}`);
+  /**
+   * Create a new docstore if one with the given name doesn't exist
+   * @param name - Name of the docstore to create
+   * @param model - Name of the embeddings model
+   * @param vector_size - Size of embedding vectors
+   * @param options - Options for the model, defaults to empty string
+   * @returns ID of the created or existing docstore
+   */
+  createDocstore(name: string, model: string = "", vector_size: number = 0, options: string = ""): string {
+    debugDocstore(`Creating docstore with name: ${name}, model: ${model}, vector_size: ${vector_size}`);
     // Check if docstore with this name already exists
     const existingDocstore = this.db
       .prepare("SELECT id FROM docstores WHERE name = ?")
@@ -281,11 +452,11 @@ export class DocStoreSQLite implements DocStoreClient {
     const id = crypto.randomUUID();
 
     const stmt = this.db.prepare(
-      "INSERT INTO docstores (id, name, timestamp) VALUES (?, ?, ?)"
+      "INSERT INTO docstores (id, name, timestamp, model, vector_size, options) VALUES (?, ?, ?, ?, ?, ?)"
     );
 
-    stmt.run(id, name, timestamp);
-    debugDocstore(`Created new docstore with name: ${name}, ID: ${id}`);
+    stmt.run(id, name, timestamp, model, vector_size, options);
+    debugDocstore(`Created new docstore with name: ${name}, ID: ${id}, model: ${model}, vector_size: ${vector_size}`);
     return id;
   }
 
@@ -299,9 +470,12 @@ export class DocStoreSQLite implements DocStoreClient {
 
     return rows.map(
       (row: Record<string, any>): DocStore => ({
-        id: row.id,
-        name: row.name,
-        timestamp: row.timestamp,
+        id: String(row.id || ""),
+        name: String(row.name || ""),
+        timestamp: Number(row.timestamp || 0),
+        model: String(row.model || ""),
+        vector_size: Number(row.vector_size || 0),
+        options: String(row.options || ""),
       })
     );
   }

@@ -2,12 +2,13 @@ import { AskExpertsSmartMCP } from '../../mcp/index.js';
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { debugMCP, debugError, enableAllDebug, enableErrorDebug } from '../../common/debug.js';
 import { Command } from "commander";
+import { getWalletByNameOrDefault } from "./wallet/utils.js";
 
 /**
  * Options for the Smart MCP server command
  */
 export interface SmartMcpCommandOptions {
-  nwc?: string;
+  wallet?: string;
   relays?: string[];
   openaiApiKey?: string;
   openaiBaseUrl?: string;
@@ -19,13 +20,9 @@ export interface SmartMcpCommandOptions {
  * @param options Command line options
  */
 export async function startSmartMcpServer(options: SmartMcpCommandOptions): Promise<void> {
-  // Try to get NWC connection string from options or environment variables
-  const nwcString = options.nwc || process.env.NWC_STRING;
-  
-  // Validate NWC connection string
-  if (!nwcString) {
-    throw new Error('NWC connection string is required. Use --nwc option or set NWC_STRING environment variable.');
-  }
+  // Get wallet from database using the provided wallet name or default
+  const wallet = getWalletByNameOrDefault(options.wallet);
+  const nwcString = wallet.nwc;
   
   // Try to get OpenAI API key from options or environment variables
   const openaiApiKey = options.openaiApiKey || process.env.OPENAI_API_KEY;
@@ -36,7 +33,12 @@ export async function startSmartMcpServer(options: SmartMcpCommandOptions): Prom
   }
   
   // Try to get OpenAI base URL from options or environment variables
-  const openaiBaseUrl = options.openaiBaseUrl || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
+  const openaiBaseUrl = options.openaiBaseUrl || process.env.OPENAI_BASE_URL;
+  
+  // Validate OpenAI URL
+  if (!openaiBaseUrl) {
+    throw new Error('OpenAI base URL is required. Use --openai-base-url option or set OPENAI_BASE_URL environment variable.');
+  }
   
   // Try to get discovery relays from options or environment variables
   let discoveryRelays = options.relays;
@@ -101,7 +103,7 @@ export function registerSmartMcpCommand(program: Command): void {
   program
     .command("smart")
     .description("Launch the stdio Smart MCP server with LLM capabilities")
-    .option("-n, --nwc <string>", "NWC connection string for payments")
+    .option("-w, --wallet <name>", "Wallet name to use for payments (uses default if not specified)")
     .option(
       "-r, --relays <items>",
       "Comma-separated list of discovery relays",

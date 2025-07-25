@@ -230,7 +230,7 @@ export class LightningPaymentManager implements ExpertPaymentManager {
     }
 
     // Verify the payment
-    this.verifyLightningPayment({
+    await this.verifyLightningPayment({
       invoice: lightningInvoice.invoice,
       preimage: proof.preimage,
     });

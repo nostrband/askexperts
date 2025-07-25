@@ -1,8 +1,5 @@
 import { AskExpertsServer } from "../server/AskExpertsServer.js";
-import {
-  FORMAT_OPENAI,
-  FORMAT_TEXT,
-} from "../common/constants.js";
+import { FORMAT_OPENAI, FORMAT_TEXT } from "../common/constants.js";
 import {
   ExpertQuote,
   ExpertReply,
@@ -39,17 +36,20 @@ export class OpenaiProxyExpertBase {
    */
   public readonly openai: OpenaiInterface;
 
-  // FIXME make these two private and add accessors
+  /**
+   * Model pricing provider
+   */
+  public readonly pricingProvider: ModelPricing;
 
   /**
    * Optional callback to get context for prompts
    */
-  onGetContext?: (prompt: Prompt) => Promise<string>;
+  #onGetContext?: (prompt: Prompt) => Promise<string>;
 
-    /**
+  /**
    * Optional callback to get system prompt for prompts
    */
-  onGetSystemPrompt?: (prompt: Prompt) => Promise<string>;
+  #onGetSystemPrompt?: (prompt: Prompt) => Promise<string>;
 
   /**
    * Model id to use
@@ -60,11 +60,6 @@ export class OpenaiProxyExpertBase {
    * Profit margin (e.g., 0.1 for 10%)
    */
   #margin: number;
-
-  /**
-   * Model pricing provider
-   */
-  public readonly pricingProvider: ModelPricing;
 
   /**
    * Average output token count for pricing estimates
@@ -95,8 +90,8 @@ export class OpenaiProxyExpertBase {
     this.#margin = options.margin;
     this.pricingProvider = options.pricingProvider;
     this.avgOutputCount = options.avgOutputTokens || 300;
-    this.onGetContext = options.onGetContext;
-    this.onGetSystemPrompt = options.onGetSystemPrompt;
+    this.#onGetContext = options.onGetContext;
+    this.#onGetSystemPrompt = options.onGetSystemPrompt;
 
     // Use the provided OpenAI client
     this.openai = options.openai;
@@ -143,6 +138,24 @@ export class OpenaiProxyExpertBase {
     this.#margin = value;
   }
 
+  get onGetContext(): ((prompt: Prompt) => Promise<string>) | undefined {
+    return this.#onGetContext;
+  }
+
+  set onGetContext(value: ((prompt: Prompt) => Promise<string>) | undefined) {
+    this.#onGetContext = value;
+  }
+
+  get onGetSystemPrompt(): ((prompt: Prompt) => Promise<string>) | undefined {
+    return this.#onGetSystemPrompt;
+  }
+
+  set onGetSystemPrompt(
+    value: ((prompt: Prompt) => Promise<string>) | undefined
+  ) {
+    this.#onGetSystemPrompt = value;
+  }
+
   /**
    * Handles prompt events
    *
@@ -161,7 +174,7 @@ export class OpenaiProxyExpertBase {
 
   /**
    * Callback that fetches the system prompt and context for
-   * this prompt and estimates it's price. Made public to be 
+   * this prompt and estimates it's price. Made public to be
    * reusable.
    * @param prompt - prompt
    * @returns - expert price
@@ -176,7 +189,9 @@ export class OpenaiProxyExpertBase {
       // If onGetContext is provided, call it and set the result to prompt.context
       if (this.onGetSystemPrompt) {
         context.systemPrompt = await this.onGetSystemPrompt(prompt);
-        debugExpert(`Got system prompt of ${context.systemPrompt.length} chars`);
+        debugExpert(
+          `Got system prompt of ${context.systemPrompt.length} chars`
+        );
       }
 
       // If onGetContext is provided, call it and set the result to prompt.context
@@ -229,7 +244,7 @@ export class OpenaiProxyExpertBase {
       // Return the price information
       return {
         amountSats: totalPrice,
-        description: `Payment for ${this.model} completion`
+        description: `Payment for ${this.model} completion`,
       };
     } catch (error) {
       debugError("Error handling prompt:", error);
@@ -264,11 +279,6 @@ export class OpenaiProxyExpertBase {
 
             // Ensure proper model
             content.model = this.model;
-
-            // Check if streaming is requested
-            if (content.stream) {
-              throw new Error("Streaming is not supported yet");
-            }
             break;
           }
           case FORMAT_TEXT: {
@@ -322,29 +332,52 @@ ${lastMessage.content}
         }
 
         // Call the OpenAI API
-        const completion = await this.openai.chat.completions.create(content);
+        if (content.stream) {
+          const stream = await this.openai.chat.completions.create(content);
+          const produceReplies = async function* (): AsyncIterable<ExpertReply> {
 
-        // Extract content in text format
-        const output = completion.choices[0]?.message?.content || "";
+            // NOTE: sending each word as a separate nostr event creates 
+            // 5x overhead (vs inference on gpt-4.1), so we're batching
+            // to make it go away
+            const batch = [];            
+            for await (const chunk of stream) {
+              batch.push(chunk);
+              const done = chunk.choices[0]?.finish_reason !== null;
+              if (batch.length >= 10 || done) {
+                yield {
+                  content: batch,
+                  done: chunk.choices[0]?.finish_reason !== null
+                }
+                batch.length = 0;
+              }
+            }
+          }
+          return produceReplies();
+        } else {
+          const completion = await this.openai.chat.completions.create(content);
 
-        // Update average output token count
-        this.updateAverageOutputCount(output);
+          // Extract content in text format
+          const output = completion.choices[0]?.message?.content || "";
 
-        switch (prompt.format) {
-          case FORMAT_OPENAI:
-            // Return the full API response
-            return {
-              content: completion,
-              done: true,
-            };
-          case FORMAT_TEXT:
-            // Return the output only
-            return {
-              content: output,
-              done: true,
-            };
-          default:
-            throw new Error("Unsupported format");
+          // Update average output token count
+          this.updateAverageOutputCount(output);
+
+          switch (prompt.format) {
+            case FORMAT_OPENAI:
+              // Return the full API response
+              return {
+                content: completion,
+                done: true,
+              };
+            case FORMAT_TEXT:
+              // Return the output only
+              return {
+                content: output,
+                done: true,
+              };
+            default:
+              throw new Error("Unsupported format");
+          }
         }
       } catch (error) {
         debugError("Error processing prompt:", error);
@@ -359,7 +392,8 @@ ${lastMessage.content}
   /**
    * Disposes of resources when the expert is no longer needed
    */
-  [Symbol.dispose](): void {
+  async [Symbol.asyncDispose]() {
+    debugExpert("Clearing OpenaiProxyExpertBase");
     // Nothing to dispose here really
   }
 

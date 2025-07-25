@@ -1,8 +1,8 @@
 import { Command } from "commander";
 import { DocStoreSQLite } from "../../../docstore/index.js";
-import { XenovaEmbeddings, ChromaRagDB, RagDocument } from "../../../rag/index.js";
-import { DocstoreCommandOptions, getDocstorePath, getDocstoreId } from "./index.js";
-import { debugError } from "../../../common/debug.js";
+import { ChromaRagDB, createRagEmbeddings, RagDocument } from "../../../rag/index.js";
+import { DocstoreCommandOptions, getDocstorePath, getDocstore } from "./index.js";
+import { debugDocstore, debugError, enableAllDebug } from "../../../common/debug.js";
 
 /**
  * Search documents in a docstore using vector similarity
@@ -13,34 +13,26 @@ export async function searchDocs(
   query: string,
   options: DocstoreCommandOptions
 ): Promise<void> {
-  const docstorePath = getDocstorePath(options);
+  const docstorePath = getDocstorePath();
 
   try {
-    const docstore = new DocStoreSQLite(docstorePath);
-    
-    // Get docstore ID
-    let docstoreId: string;
-    let targetDocstore;
-    
-    try {
-      const result = await getDocstoreId(docstore, options);
-      docstoreId = result.docstoreId;
-      targetDocstore = result.targetDocstore;
-    } catch (error) {
-      debugError(`Error: ${error instanceof Error ? error.message : String(error)}`);
-      docstore[Symbol.dispose]();
-      process.exit(1);
+    // Enable debug output if debug flag is set
+    if (options.debug) {
+      enableAllDebug();
     }
+    
+    const docstoreClient = new DocStoreSQLite(docstorePath);
+    const docstore = await getDocstore(docstoreClient, options.docstore);
 
-    console.log(`Searching in docstore '${targetDocstore.name}' (ID: ${docstoreId})...`);
+    console.log(`Searching in docstore '${docstore.name}' (ID: ${docstore.id})...`);
     
     // Initialize ChromaRagDB and XenovaEmbeddings
     const ragDb = new ChromaRagDB();
-    const embeddings = new XenovaEmbeddings();
+    const embeddings = createRagEmbeddings(docstore.model);
     await embeddings.start();
     
-    const collectionName = `search-${docstoreId}`;
-    console.log("Loading documents into search index...");
+    const collectionName = `search-${docstore.id}`;
+    debugDocstore("Loading documents into search index...");
     
     // Track document count and batch for efficient storage
     let count = 0;
@@ -48,49 +40,48 @@ export async function searchDocs(
     
     // Subscribe to all documents
     await new Promise<void>((resolve) => {
-      const subscription = docstore.subscribe(
-        { docstore_id: docstoreId },
+      const subscription = docstoreClient.subscribe(
+        { docstore_id: docstore.id },
         async (doc) => {
           try {
             // If doc is undefined, it signals EOF
             if (!doc) {
               // Store any remaining documents
               if (batch.length > 0) {
-                console.log("Writing last batch to db", batch.length);
+                debugDocstore("Writing last batch to db", batch.length);
                 await ragDb.storeBatch(collectionName, batch);
                 batch = [];
               }
               
-              console.log(`Indexed ${count} documents`);
+              debugDocstore(`Indexed ${count} documents`);
               subscription.close();
               resolve();
               return;
             }
             
-            // Parse embeddings if they exist
-            let docEmbeddings: number[][] = [];
-            if (doc.embeddings) {
-              try {
-                docEmbeddings = JSON.parse(doc.embeddings);
-              } catch (e) {
-                console.warn(`Failed to parse embeddings for document ${doc.id}: ${e}`);
-              }
-            }
-            
-            // Add each embedding as a separate document in the RAG DB
-            for (let i = 0; i < docEmbeddings.length; i++) {
-              const chunkId = `${doc.id}-${i}`;
-              batch.push({
-                id: chunkId,
-                vector: docEmbeddings[i],
-                metadata: {
-                  docId: doc.id,
-                }
+            // Use embeddings directly if they exist
+            if (doc.embeddings && doc.embeddings.length > 0) {
+              // Convert Float32Array to regular arrays for the RAG DB
+              const embeddings = doc.embeddings.map(embedding => {
+                // Convert Float32Array to regular array
+                return Array.from(embedding);
               });
+              
+              // Add each embedding as a separate document in the RAG DB
+              for (let i = 0; i < embeddings.length; i++) {
+                const chunkId = `${doc.id}-${i}`;
+                batch.push({
+                  id: chunkId,
+                  vector: embeddings[i],
+                  metadata: {
+                    docId: doc.id,
+                  }
+                });
+              }
               
               // Store in batches of 100
               if (batch.length >= 100) {
-                console.log("Writing batch to db", batch.length);
+                debugDocstore("Writing batch to db", batch.length);
                 await ragDb.storeBatch(collectionName, batch);
                 batch = [];
               }
@@ -107,13 +98,13 @@ export async function searchDocs(
     });
     
     // Now perform the search
-    console.log(`Searching for: "${query}"`);
+    debugDocstore(`Searching for: "${query}"`);
     
     // Generate embeddings for the query
     const queryChunks = await embeddings.embed(query);
     if (queryChunks.length === 0) {
       debugError("Failed to generate embeddings for the query");
-      docstore[Symbol.dispose]();
+      docstoreClient[Symbol.dispose]();
       process.exit(1);
     }
     
@@ -127,13 +118,13 @@ export async function searchDocs(
     const results = await ragDb.search(collectionName, queryVector, limit);
     
     if (results.length === 0) {
-      console.log("No matching documents found");
+      console.error("No matching documents found");
     } else {
-      console.log(`Found ${results.length} matching documents:`);
+      debugDocstore(`Found ${results.length} matching documents:`);
       results.forEach((result, index) => {
         console.log(`\n--- Result ${index + 1} (distance: ${(result.distance).toFixed(4)}) ---`);
         console.log(`Document ID: ${result.metadata.docId}`);
-        const doc = docstore.get(docstoreId, result.metadata.docId);
+        const doc = docstoreClient.get(docstore.id, result.metadata.docId);
         if (doc!.type) {
           console.log(`Type: ${doc!.type}`);
         }
@@ -143,7 +134,7 @@ export async function searchDocs(
       });
     }
     
-    docstore[Symbol.dispose]();
+    docstoreClient[Symbol.dispose]();
   } catch (error) {
     debugError(`Error searching documents: ${error}`);
     process.exit(1);
@@ -157,7 +148,7 @@ export async function searchDocs(
  */
 export function registerSearchCommand(
   docstoreCommand: Command,
-  addPathOption: (cmd: Command) => Command
+  addCommonOptions: (cmd: Command) => Command
 ): void {
   const searchCommand = docstoreCommand
     .command("search")
@@ -175,5 +166,5 @@ export function registerSearchCommand(
     )
     .action(searchDocs);
   
-  addPathOption(searchCommand);
+  addCommonOptions(searchCommand);
 }

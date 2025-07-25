@@ -1,9 +1,10 @@
 import { Command } from "commander";
-import { DocStoreSQLite } from "../../../docstore/index.js";
+import { DocStore, DocStoreClient } from "../../../docstore/index.js";
 import fs from "fs";
 import path from "path";
-import { debugError, debugDocstore } from "../../../common/debug.js";
-import { registerNostrImportCommand } from "./import-nostr.js";
+import { debugError, debugDocstore, enableAllDebug } from "../../../common/debug.js";
+import { APP_DOCSTORE_PATH } from "../../../common/constants.js";
+import { registerImportCommand } from "./import/index.js";
 import { registerCreateCommand } from "./create.js";
 import { registerListCommand } from "./ls.js";
 import { registerRemoveCommand } from "./remove.js";
@@ -18,7 +19,7 @@ import { registerSearchCommand } from "./search.js";
  * Options for docstore commands
  */
 export interface DocstoreCommandOptions {
-  path?: string;
+  debug?: boolean;
   yes?: boolean;
   docstore?: string;
   type?: string;
@@ -27,68 +28,49 @@ export interface DocstoreCommandOptions {
 }
 
 /**
- * Get the docstore path from options or environment
- * @param options Command options
+ * Get the fixed docstore path from constants
  * @returns The docstore path
  */
-export function getDocstorePath(options: DocstoreCommandOptions): string {
-  const docstorePath =
-    options.path || process.env.DOCSTORE_PATH || "./docstore.db";
-
+export function getDocstorePath(): string {
   // Ensure the directory exists
-  const dir = path.dirname(docstorePath);
+  const dir = path.dirname(APP_DOCSTORE_PATH);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
 
-  return docstorePath;
+  return APP_DOCSTORE_PATH;
 }
 
 /**
  * Get the docstore ID from options or select the default one
- * @param docstore DocStoreSQLite instance
+ * @param client DocStoreSQLite instance
  * @param options Command options
  * @returns Object containing docstore ID and the docstore object
  * @throws Error if no docstores found or multiple docstores without specified ID
  */
-export async function getDocstoreId(
-  docstore: DocStoreSQLite,
-  options: DocstoreCommandOptions
-): Promise<{ docstoreId: string; targetDocstore: any }> {
-  debugDocstore("Getting docstore ID from options");
-  const docstores = docstore.listDocstores();
+export async function getDocstore(
+  client: DocStoreClient,
+  docstoreId?: string
+): Promise<DocStore> {
+  if (docstoreId) {
+    const docstore = await client.getDocstore(docstoreId);
+    if (!docstore) throw new Error("Docstore not found");
+  }
 
+  const docstores = client.listDocstores();
   if (docstores.length === 0) {
     debugError("No docstores found");
     throw new Error("No docstores found");
   }
 
-  // If more than one docstore exists, -s option is required
-  let docstoreId: string;
-  let targetDocstore;
-
-  if (docstores.length > 1 && !options.docstore) {
+  if (docstores.length > 1 && !client) {
     debugError("Multiple docstores found but no docstore ID specified");
     throw new Error("Multiple docstores found. Please specify a docstore ID with -s option.");
-  } else if (options.docstore) {
-    // Use the specified docstore
-    targetDocstore = docstores.find(
-      (ds) => ds.id.toString() === options.docstore
-    );
-    if (!targetDocstore) {
-      debugError(`Docstore with ID '${options.docstore}' not found`);
-      throw new Error(`Docstore with ID '${options.docstore}' not found`);
-    }
-    docstoreId = options.docstore;
-    debugDocstore(`Using specified docstore: ${docstoreId}`);
-  } else {
-    // Use the only docstore
-    docstoreId = docstores[0].id.toString();
-    targetDocstore = docstores[0];
-    debugDocstore(`Using default docstore: ${docstoreId}`);
-  }
-
-  return { docstoreId, targetDocstore };
+  } 
+  
+  // Use the only docstore
+  debugDocstore(`Using default docstore: ${docstores[0].id}`);
+  return docstores[0];
 }
 
 /**
@@ -100,27 +82,27 @@ export function registerDocstoreCommand(program: Command): void {
     .command("docstore")
     .description("Manage document stores");
 
-  // Common options for all subcommands
-  const addPathOption = (cmd: Command) =>
-    cmd.option("-p, --path <path>", "Path to the docstore database");
+  // Add debug option to all subcommands
+  const addDebugOption = (cmd: Command) =>
+    cmd.option("-d, --debug", "Enable debug output");
+
+  // Helper to add all common options
+  const addCommonOptions = (cmd: Command) => {
+    addDebugOption(cmd);
+    return cmd;
+  };
 
   // Register all subcommands
-  registerCreateCommand(docstoreCommand, addPathOption);
-  registerListCommand(docstoreCommand, addPathOption);
-  registerRemoveCommand(docstoreCommand, addPathOption);
-  registerCountCommand(docstoreCommand, addPathOption);
-  registerAddCommand(docstoreCommand, addPathOption);
-  registerDeleteCommand(docstoreCommand, addPathOption);
-  registerGetCommand(docstoreCommand, addPathOption);
-  registerListDocsCommand(docstoreCommand, addPathOption);
-  registerSearchCommand(docstoreCommand, addPathOption);
+  registerCreateCommand(docstoreCommand, addCommonOptions);
+  registerListCommand(docstoreCommand, addCommonOptions);
+  registerRemoveCommand(docstoreCommand, addCommonOptions);
+  registerCountCommand(docstoreCommand, addCommonOptions);
+  registerAddCommand(docstoreCommand, addCommonOptions);
+  registerDeleteCommand(docstoreCommand, addCommonOptions);
+  registerGetCommand(docstoreCommand, addCommonOptions);
+  registerListDocsCommand(docstoreCommand, addCommonOptions);
+  registerSearchCommand(docstoreCommand, addCommonOptions);
   
-  // Import command
-  const importCommand = docstoreCommand
-    .command("import")
-    .description("Import documents from various sources");
-  addPathOption(importCommand);
-  
-  // Register import subcommands
-  registerNostrImportCommand(importCommand);
+  // Register import command with its subcommands
+  registerImportCommand(docstoreCommand, addCommonOptions);
 }

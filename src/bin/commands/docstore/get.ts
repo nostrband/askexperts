@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import { DocStoreSQLite } from "../../../docstore/index.js";
-import { DocstoreCommandOptions, getDocstorePath, getDocstoreId } from "./index.js";
-import { debugError } from "../../../common/debug.js";
+import { DocstoreCommandOptions, getDocstorePath, getDocstore } from "./index.js";
+import { debugError, enableAllDebug } from "../../../common/debug.js";
 
 /**
  * Get a document by ID
@@ -12,24 +12,19 @@ export async function getDoc(
   id: string,
   options: DocstoreCommandOptions
 ): Promise<void> {
-  const docstorePath = getDocstorePath(options);
+  const docstorePath = getDocstorePath();
 
   try {
-    const docstore = new DocStoreSQLite(docstorePath);
-    
-    // Get docstore ID
-    let docstoreId: string;
-    try {
-      const result = await getDocstoreId(docstore, options);
-      docstoreId = result.docstoreId;
-    } catch (error) {
-      debugError(`Error: ${error instanceof Error ? error.message : String(error)}`);
-      docstore[Symbol.dispose]();
-      process.exit(1);
+    // Enable debug output if debug flag is set
+    if (options.debug) {
+      enableAllDebug();
     }
+    
+    const docstoreClient = new DocStoreSQLite(docstorePath);
+    const docstore = await getDocstore(docstoreClient, options.docstore);
 
     // Use the get method to retrieve the document
-    const foundDoc = docstore.get(docstoreId, id);
+    const foundDoc = docstoreClient.get(docstore.id, id);
 
     if (foundDoc) {
       console.log(`Document ID: ${foundDoc.id}`);
@@ -47,12 +42,12 @@ export async function getDoc(
       console.log(foundDoc.embeddings);
     } else {
       debugError(
-        `Document with ID '${id}' not found in docstore '${docstoreId}'`
+        `Document with ID '${id}' not found in docstore '${docstore.id}'`
       );
       process.exit(1);
     }
 
-    docstore[Symbol.dispose]();
+    docstoreClient[Symbol.dispose]();
   } catch (error) {
     debugError(`Error getting document: ${error}`);
     process.exit(1);
@@ -66,7 +61,7 @@ export async function getDoc(
  */
 export function registerGetCommand(
   docstoreCommand: Command,
-  addPathOption: (cmd: Command) => Command
+  addCommonOptions: (cmd: Command) => Command
 ): void {
   const getCommand = docstoreCommand
     .command("get")
@@ -78,5 +73,5 @@ export function registerGetCommand(
     )
     .action(getDoc);
   
-  addPathOption(getCommand);
+  addCommonOptions(getCommand);
 }

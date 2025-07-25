@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import { DocStoreSQLite } from "../../../docstore/index.js";
-import { DocstoreCommandOptions, getDocstorePath } from "./index.js";
-import { debugError } from "../../../common/debug.js";
+import { DocstoreCommandOptions, getDocstore, getDocstorePath } from "./index.js";
+import { debugError, enableAllDebug } from "../../../common/debug.js";
 
 /**
  * Count documents in a docstore
@@ -12,27 +12,21 @@ export async function countDocs(
   id: string,
   options: DocstoreCommandOptions
 ): Promise<void> {
-  const docstorePath = getDocstorePath(options);
+  const docstorePath = getDocstorePath();
 
   try {
-    const docstore = new DocStoreSQLite(docstorePath);
-
-    // Check if docstore exists
-    const docstores = docstore.listDocstores();
-    const targetDocstore = docstores.find((ds) => ds.id.toString() === id);
-
-    if (!targetDocstore) {
-      debugError(`Docstore with ID '${id}' not found`);
-      docstore[Symbol.dispose]();
-      process.exit(1);
+    // Enable debug output if debug flag is set
+    if (options.debug) {
+      enableAllDebug();
     }
-
-    const count = docstore.countDocs(id);
+    
+    const docstoreClient = new DocStoreSQLite(docstorePath);
+    const docstore = await getDocstore(docstoreClient, options.docstore);
+    const count = docstoreClient.countDocs(id);
     console.log(
-      `Docstore '${targetDocstore.name}' (ID: ${id}) contains ${count} document(s)`
+      `Docstore '${docstore.name}' (ID: ${id}) contains ${count} document(s)`
     );
-
-    docstore[Symbol.dispose]();
+    docstoreClient[Symbol.dispose]();
   } catch (error) {
     debugError(`Error counting documents: ${error}`);
     process.exit(1);
@@ -46,7 +40,7 @@ export async function countDocs(
  */
 export function registerCountCommand(
   docstoreCommand: Command,
-  addPathOption: (cmd: Command) => Command
+  addCommonOptions: (cmd: Command) => Command
 ): void {
   const countCommand = docstoreCommand
     .command("count")
@@ -54,5 +48,5 @@ export function registerCountCommand(
     .argument("<id>", "ID of the docstore")
     .action(countDocs);
   
-  addPathOption(countCommand);
+  addCommonOptions(countCommand);
 }

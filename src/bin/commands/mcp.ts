@@ -2,12 +2,13 @@ import { AskExpertsMCP } from '../../mcp/index.js';
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { enableAllDebug, enableErrorDebug, debugMCP, debugError } from '../../common/debug.js';
 import { Command } from "commander";
+import { getWalletByNameOrDefault } from "./wallet/utils.js";
 
 /**
  * Options for the MCP server command
  */
 export interface McpCommandOptions {
-  nwc?: string;
+  wallet?: string;
   relays?: string[];
 }
 
@@ -18,13 +19,9 @@ export interface McpCommandOptions {
  */
 export async function startMcpServer(options: McpCommandOptions): Promise<void> {
 
-  // Try to get NWC connection string from options or environment variables
-  const nwcString = options.nwc || process.env.NWC_STRING;
-  
-  // Validate NWC connection string
-  if (!nwcString) {
-    throw new Error('NWC connection string is required. Use --nwc option or set NWC_STRING environment variable.');
-  }
+  // Get wallet from database using the provided wallet name or default
+  const wallet = getWalletByNameOrDefault(options.wallet);
+  const nwcString = wallet.nwc;
   
   // Try to get discovery relays from options or environment variables
   let discoveryRelays = options.relays;
@@ -89,7 +86,7 @@ export function registerMcpCommand(program: Command): void {
   program
     .command("mcp")
     .description("Launch the stdio MCP server")
-    .option("-n, --nwc <string>", "NWC connection string for payments")
+    .option("-w, --wallet <name>", "Wallet name to use for payments (uses default if not specified)")
     .option(
       "-r, --relays <items>",
       "Comma-separated list of discovery relays",

@@ -8,15 +8,17 @@ import {
   enableAllDebug,
   enableErrorDebug,
 } from "../../../common/debug.js";
+import { APP_DOCSTORE_PATH } from "../../../common/constants.js";
 import { generateRandomKeyPair } from "../../../common/crypto.js";
 import { createWallet } from "nwc-enclaved-utils";
-import { XenovaEmbeddings, ChromaRagDB } from "../../../rag/index.js";
+import { ChromaRagDB } from "../../../rag/index.js";
 import { createOpenAI } from "../../../openai/index.js";
 import { AskExpertsServer } from "../../../server/AskExpertsServer.js";
 import fs from "fs";
 import path from "path";
 import { Command } from "commander";
 import { LightningPaymentManager } from "../../../payments/LightningPaymentManager.js";
+import { DocStoreSQLite } from "../../../docstore/DocStoreSQLite.js";
 
 /**
  * Options for the Nostr expert command
@@ -28,12 +30,9 @@ export interface NostrExpertCommandOptions {
   nwc?: string;
   debug?: boolean;
   apiKey?: string;
-  useRag?: boolean;
-  ragChunkSize?: number;
-  ragChunkOverlap?: number;
-  ragModel?: string;
   ragHost?: string;
   ragPort?: number;
+  docstoreId: string; // Required option
 }
 
 /**
@@ -57,12 +56,6 @@ export async function startNostrExpert(
   else enableErrorDebug();
 
   try {
-    // Create a shared pool
-    const pool = new SimplePool();
-
-    // Create OpenRouter instance for pricing
-    const openRouter = new OpenRouter();
-
     // User pubkey
     const pubkey = options.pubkey;
 
@@ -126,38 +119,41 @@ export async function startNostrExpert(
       nwcString = wallet.nwcString;
     }
 
-    // Initialize RAG components if enabled
-    let ragEmbeddings;
-    let ragDB;
+    // Initialize RAG components
+    debugExpert("Initializing RAG components...");
 
-    if (options.useRag) {
-      debugExpert("Initializing RAG components...");
-
-      // Create and initialize embeddings
-      ragEmbeddings = new XenovaEmbeddings();
-      await ragEmbeddings.start();
-      debugExpert("RAG embeddings initialized");
-
-      // Create RAG database
-      ragDB = new ChromaRagDB(options.ragHost, options.ragPort);
-      debugExpert("RAG database initialized");
-    }
+    // Create RAG database
+    const ragDB = new ChromaRagDB(options.ragHost, options.ragPort);
+    debugExpert("RAG database initialized");
+    
+    // Get fixed docstore path
+    const docstorePath = getDocstorePath();
+    debugExpert(`Using docstore at: ${docstorePath}`);
+    
+    // Create DocStoreSQLite instance
+    using docStoreClient = new DocStoreSQLite(docstorePath);
 
     // Create OpenAI interface instance
     const openai = createOpenAI(apiKey, "https://openrouter.ai/api/v1");
 
     // Create payment manager
-    const paymentManager = new LightningPaymentManager(nwcString);
+    using paymentManager = new LightningPaymentManager(nwcString);
+
+    // Create a shared pool
+    const pool = new SimplePool();
+
+    // Create OpenRouter instance for pricing
+    const openRouter = new OpenRouter();
 
     // Create server
-    const server = new AskExpertsServer({
+    await using server = new AskExpertsServer({
       privkey,
       pool,
       paymentManager,
     });
 
     // Create OpenaiProxyExpertBase instance
-    const openaiExpert = new OpenaiProxyExpertBase({
+    await using openaiExpert = new OpenaiProxyExpertBase({
       server,
       openai,
       model: options.model,
@@ -166,11 +162,12 @@ export async function startNostrExpert(
     });
 
     // Create the expert
-    const expert = new NostrExpert({
+    await using expert = new NostrExpert({
       openaiExpert,
       pubkey,
-      ragEmbeddings,
       ragDB,
+      docStoreClient,
+      docstoreId: options.docstoreId,
     });
 
     // Start the expert
@@ -185,29 +182,40 @@ export async function startNostrExpert(
     fs.writeFileSync(configPath, JSON.stringify(updatedConfig, null, 2));
     debugExpert(`Saved configuration to ${configPath}`);
 
-    // Handle SIGINT/SIGTERM (Ctrl+C)
-    const sigHandler = async () => {
-      debugExpert("\nReceived SIGINT. Shutting down Nostr expert...");
-
-      // Dispose of the expert
-      expert[Symbol.dispose]();
-
-      debugExpert("Nostr expert shut down.");
-      process.exit(0);
-    };
-
-    process.on("SIGINT", sigHandler);
-    process.on("SIGTERM", sigHandler);
-
     debugExpert(
       `Started Nostr expert imitating ${pubkey} with model ${options.model} and margin ${options.margin}`
     );
     debugExpert(`Expert pubkey: ${getPublicKey(privkey)}`);
     debugExpert("Press Ctrl+C to exit.");
+
+    // Handle SIGINT/SIGTERM (Ctrl+C)
+    await new Promise(ok => {
+      process.on("SIGINT", ok);
+      process.on("SIGTERM", ok);
+
+    })
+    debugExpert("\nReceived SIGINT. Shutting down Nostr expert...");
+
+    // Must be manually terminated
+    pool.destroy();
   } catch (error) {
     debugError("Error starting Nostr expert:", error);
     throw error;
   }
+}
+
+/**
+ * Get the fixed docstore path from constants
+ * @returns The docstore path
+ */
+export function getDocstorePath(): string {
+  // Ensure the directory exists
+  const dir = path.dirname(APP_DOCSTORE_PATH);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+
+  return APP_DOCSTORE_PATH;
 }
 
 /**
@@ -238,29 +246,12 @@ export function registerNostrCommand(program: Command): void {
       "OpenRouter API key (defaults to OPENROUTER_API_KEY env var)"
     )
     .option("-d, --debug", "Enable debug logging")
-    .option(
-      "--use-rag",
-      "Enable RAG (Retrieval-Augmented Generation) for better context"
-    )
-    .option(
-      "--rag-model <model>",
-      "Embedding model for RAG",
-      "Xenova/all-MiniLM-L6-v2"
-    )
-    .option(
-      "--rag-chunk-size <size>",
-      "Size of text chunks for RAG",
-      parseInt,
-      400
-    )
-    .option(
-      "--rag-chunk-overlap <size>",
-      "Overlap between text chunks for RAG",
-      parseInt,
-      50
-    )
     .option("--rag-host <host>", "ChromaDB host")
     .option("--rag-port <port>", "ChromaDB port", parseInt)
+    .requiredOption(
+      "-s, --docstore-id <id>",
+      "ID of the docstore to use for RAG"
+    )
     .action(async (pubkey, options) => {
       if (options.debug) enableAllDebug();
       else enableErrorDebug();

@@ -2,12 +2,13 @@ import { Command } from "commander";
 import { AskExpertsSmartClient } from "../../client/index.js";
 import { FORMAT_TEXT } from "../../common/constants.js";
 import { debugMCP, debugError, enableAllDebug, enableErrorDebug } from '../../common/debug.js';
+import { getWalletByNameOrDefault } from "./wallet/utils.js";
 
 /**
  * Options for the client command
  */
 export interface ClientCommandOptions {
-  nwc?: string;
+  wallet?: string;
   relays?: string[];
   openaiApiKey?: string;
   openaiBaseUrl?: string;
@@ -23,13 +24,9 @@ export interface ClientCommandOptions {
  * @param options Command line options
  */
 export async function executeClientCommand(question: string, options: ClientCommandOptions): Promise<void> {
-  // Try to get NWC connection string from options or environment variables
-  const nwcString = options.nwc || process.env.NWC_STRING;
-  
-  // Validate NWC connection string
-  if (!nwcString) {
-    throw new Error('NWC connection string is required. Use --nwc option or set NWC_STRING environment variable.');
-  }
+  // Get wallet from database using the provided wallet name or default
+  const wallet = getWalletByNameOrDefault(options.wallet);
+  const nwcString = wallet.nwc;
   
   // Try to get OpenAI API key from options or environment variables
   const openaiApiKey = options.openaiApiKey || process.env.OPENAI_API_KEY;
@@ -101,7 +98,7 @@ export function registerClientCommand(program: Command): void {
     .command("client")
     .description("Ask experts a question using the AskExpertsSmartClient")
     .argument("<question>", "The question to ask experts")
-    .option("-n, --nwc <string>", "NWC connection string for payments")
+    .option("-w, --wallet <name>", "Wallet name to use for payments (uses default if not specified)")
     .option(
       "-r, --relays <items>",
       "Comma-separated list of discovery relays",

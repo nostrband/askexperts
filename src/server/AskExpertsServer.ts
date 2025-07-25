@@ -195,15 +195,4 @@ export class AskExpertsServer extends AskExpertsServerBase {
       throw error;
     }
   }
-
-  /**
-   * Disposes of resources when the server is no longer needed
-   */
-  [Symbol.dispose](): void {
-    // Call the base class dispose method
-    super[Symbol.dispose]();
-
-    // Dispose the payment manager
-    this.paymentManager[Symbol.dispose]();
-  }
 }

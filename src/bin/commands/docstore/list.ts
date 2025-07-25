@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import { DocStoreSQLite } from "../../../docstore/index.js";
-import { DocstoreCommandOptions, getDocstorePath, getDocstoreId } from "./index.js";
-import { debugError } from "../../../common/debug.js";
+import { DocstoreCommandOptions, getDocstorePath, getDocstore } from "./index.js";
+import { debugError, enableAllDebug } from "../../../common/debug.js";
 
 /**
  * List all documents in a docstore
@@ -12,32 +12,19 @@ export async function listDocs(
   id: string | undefined,
   options: DocstoreCommandOptions
 ): Promise<void> {
-  const docstorePath = getDocstorePath(options);
+  const docstorePath = getDocstorePath();
 
   try {
-    const docstore = new DocStoreSQLite(docstorePath);
-    
-    // Get docstore ID
-    let docstoreId: string;
-    let targetDocstore;
-    
-    try {
-      // If ID is provided via command line argument, use it instead of options
-      if (id) {
-        options = { ...options, docstore: id };
-      }
-      
-      const result = await getDocstoreId(docstore, options);
-      docstoreId = result.docstoreId;
-      targetDocstore = result.targetDocstore;
-    } catch (error) {
-      debugError(`Error: ${error instanceof Error ? error.message : String(error)}`);
-      docstore[Symbol.dispose]();
-      process.exit(1);
+    // Enable debug output if debug flag is set
+    if (options.debug) {
+      enableAllDebug();
     }
+    
+    const docstoreClient = new DocStoreSQLite(docstorePath);
+    const docstore = await getDocstore(docstoreClient, options.docstore);
 
     console.log(
-      `Listing all documents in docstore '${targetDocstore.name}' (ID: ${docstoreId})...`
+      `Listing all documents in docstore '${docstore.name}' (ID: ${docstore.id})...`
     );
 
     // Track document count
@@ -45,16 +32,16 @@ export async function listDocs(
 
     // Subscribe to all documents without type, since, and until filters
     await new Promise<void>((resolve) => {
-      const subscription = docstore.subscribe(
-        { docstore_id: docstoreId },
+      const subscription = docstoreClient.subscribe(
+        { docstore_id: docstore.id },
         async (doc) => {
           // If doc is undefined, it signals EOF
           if (!doc) {
             console.log(
-              `Fetched all ${count} documents from docstore '${targetDocstore.name}'`
+              `Fetched all ${count} documents from docstore '${docstore.name}'`
             );
             subscription.close();
-            docstore[Symbol.dispose]();
+            docstoreClient[Symbol.dispose]();
             resolve();
             return;
           }
@@ -91,7 +78,7 @@ export async function listDocs(
  */
 export function registerListDocsCommand(
   docstoreCommand: Command,
-  addPathOption: (cmd: Command) => Command
+  addCommonOptions: (cmd: Command) => Command
 ): void {
   const listCommand = docstoreCommand
     .command("list")
@@ -99,5 +86,5 @@ export function registerListDocsCommand(
     .argument("[id]", "ID of the docstore (optional if only one docstore exists)")
     .action(listDocs);
   
-  addPathOption(listCommand);
+  addCommonOptions(listCommand);
 }

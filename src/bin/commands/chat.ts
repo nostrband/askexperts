@@ -11,15 +11,17 @@ import {
 } from "../../common/debug.js";
 import * as readline from "readline";
 import { Expert } from "../../common/types.js";
+import { getWalletByNameOrDefault } from "./wallet/utils.js";
 
 /**
  * Options for the chat command
  */
 export interface ChatCommandOptions {
-  nwc?: string;
+  wallet?: string;
   relays?: string[];
   maxAmount?: string;
   debug?: boolean;
+  stream?: boolean;
 }
 
 /**
@@ -42,15 +44,9 @@ export async function executeChatCommand(
 ): Promise<void> {
   // Initialize message history for the conversation
   const messageHistory: ChatMessage[] = [];
-  // Try to get NWC connection string from options or environment variables
-  const nwcString = options.nwc || process.env.NWC_STRING;
-
-  // Validate NWC connection string
-  if (!nwcString) {
-    throw new Error(
-      "NWC connection string is required. Use --nwc option or set NWC_STRING environment variable."
-    );
-  }
+  // Get wallet from database using the provided wallet name or default
+  const wallet = getWalletByNameOrDefault(options.wallet);
+  const nwcString = wallet.nwc;
 
   // Try to get discovery relays from options or environment variables
   let discoveryRelays: string[] | undefined = options.relays;
@@ -112,7 +108,9 @@ export async function executeChatCommand(
         const preimage = await paymentManager.payInvoice(
           lightningInvoice.invoice
         );
-        console.log(`Paid ${lightningInvoice.amount} sats to ${expert?.name || "expert"}.`);
+        console.log(
+          `Paid ${lightningInvoice.amount} sats to ${expert?.name || "expert"}.`
+        );
 
         // Return the proof
         return {
@@ -124,7 +122,7 @@ export async function executeChatCommand(
 
     debugClient(`Starting chat with expert ${expertPubkey}`);
     debugClient(`Maximum payment per message: ${maxAmountSats} sats`);
-    
+
     // Fetch the expert's profile once at the beginning
     debugClient(`Fetching expert profile for ${expertPubkey}...`);
     const experts = await client.fetchExperts({
@@ -132,17 +130,26 @@ export async function executeChatCommand(
     });
 
     if (experts.length === 0) {
-      throw new Error(`Expert ${expertPubkey} not found. Make sure they have published an expert profile.`);
+      throw new Error(
+        `Expert ${expertPubkey} not found. Make sure they have published an expert profile.`
+      );
     }
 
     expert = experts[0];
     debugClient(`Found expert: ${expert.description}`);
-    
+
     // Verify that the expert supports FORMAT_OPENAI
     if (!expert.formats.includes(FORMAT_OPENAI)) {
-      throw new Error(`Expert ${expertPubkey} doesn't support OpenAI format. Supported formats: ${expert.formats.join(', ')}`);
+      throw new Error(
+        `Expert ${expertPubkey} doesn't support OpenAI format. Supported formats: ${expert.formats.join(
+          ", "
+        )}`
+      );
     }
 
+    console.log(`Expert: ${expert.name}`);
+    console.log(`Description: ${expert.description}`);
+    console.log("-----------------------------------------------------------");
     console.log(
       'Type your messages and press Enter to send. Type "exit" to quit.'
     );
@@ -173,6 +180,7 @@ export async function executeChatCommand(
         return;
       }
 
+      const start = Date.now();
       try {
         debugClient(`Sending message to expert ${expertPubkey}...`);
 
@@ -186,6 +194,7 @@ export async function executeChatCommand(
         const openaiRequest = {
           model: expertPubkey,
           messages: messageHistory,
+          stream: !!options.stream,
         };
 
         debugClient(
@@ -201,45 +210,47 @@ export async function executeChatCommand(
         });
 
         // Process the replies
-        let responseContent = null;
+        let expertReply: string = "";
+        let first = true;
 
         // Iterate through the replies
         for await (const reply of replies) {
+          // console.log("chunk", JSON.stringify(reply.content, null, 2));
+          if (first) process.stdout.write(`${expert.name || "Expert"} > `);
+          first = false;
+
           if (reply.done) {
             debugClient(`Received final reply from expert ${expertPubkey}`);
 
             // OpenAI format response
-            responseContent = reply.content;
-
-            // Extract the assistant's message from the response
-            if (
-              responseContent &&
-              responseContent.choices &&
-              responseContent.choices.length > 0 &&
-              responseContent.choices[0].message
-            ) {
-              const assistantMessage = responseContent.choices[0].message;
-
-              // Add the assistant's response to the message history
-              messageHistory.push({
-                role: "assistant",
-                content: assistantMessage.content,
-              });
-
-              // Display the response to the user
-              console.log(`${expert.name || 'Expert'} > ${assistantMessage.content}`);
+            let chunk = "";
+            if (options.stream) {
+              for (const c of reply.content) {
+                chunk +=
+                  c.choices[0]?.[options.stream ? "delta" : "message"].content;
+              }
             } else {
-              debugError(
-                "Received invalid response format from expert:",
-                JSON.stringify(responseContent, null, 2)
-              );
-              console.error(
-                "Received invalid response format from expert: ",
-                JSON.stringify(responseContent, null, 2)
-              );
+              chunk = reply.content.choices[0]?.message.content;
             }
+            expertReply += chunk;
+            console.log(chunk);
+          } else {
+            debugClient(`Received chunk from expert ${expertPubkey}`);
+            let chunk = "";
+            for (const c of reply.content) {
+              chunk += c.choices[0]?.delta.content;
+            }
+            expertReply += chunk;
+            process.stdout.write(chunk);
           }
         }
+
+        // Add the full expert's response to the message history
+        if (expertReply)
+          messageHistory.push({
+            role: "assistant",
+            content: expertReply,
+          });
       } catch (error) {
         debugError(
           "Error sending message:",
@@ -251,7 +262,9 @@ export async function executeChatCommand(
       }
 
       console.log(
-        "-----------------------------------------------------------"
+        `-------------------------(${
+          Date.now() - start
+        } ms)----------------------------`
       );
       rl.prompt();
     });
@@ -292,7 +305,10 @@ export function registerChatCommand(program: Command): void {
     .command("chat")
     .description("Start a chat with a specific expert")
     .argument("<expert-pubkey>", "The pubkey of the expert to chat with")
-    .option("-n, --nwc <string>", "NWC connection string for payments")
+    .option(
+      "-w, --wallet <name>",
+      "Wallet name to use for payments (uses default if not specified)"
+    )
     .option(
       "-r, --relays <items>",
       "Comma-separated list of discovery relays",
@@ -304,6 +320,7 @@ export function registerChatCommand(program: Command): void {
       "100"
     )
     .option("-d, --debug", "Enable debug logging")
+    .option("-s, --stream", "Enable streaming")
     .action(async (expertPubkey, options) => {
       if (options.debug) enableAllDebug();
       else enableErrorDebug();

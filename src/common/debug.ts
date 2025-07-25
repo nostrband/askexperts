@@ -14,6 +14,7 @@ export const debugMCP = debug(`${BASE_NAMESPACE}:mcp`);
 export const debugExpert = debug(`${BASE_NAMESPACE}:expert`);
 export const debugClient = debug(`${BASE_NAMESPACE}:client`);
 export const debugDocstore = debug(`${BASE_NAMESPACE}:docstore`);
+export const debugDB = debug(`${BASE_NAMESPACE}:db`);
 
 // Create debug instances for different log levels
 export const debugError = debug(`${BASE_NAMESPACE}:error`);

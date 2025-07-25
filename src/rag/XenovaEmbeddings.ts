@@ -1,6 +1,6 @@
 // @ts-ignore
-import { pipeline } from '@xenova/transformers';
-import { Chunk, RagEmbeddings } from './interfaces.js';
+import { pipeline } from "@xenova/transformers";
+import { Chunk, RagEmbeddings } from "./interfaces.js";
 
 /**
  * Implementation of RagEmbeddings using Xenova transformers library.
@@ -11,6 +11,8 @@ export class XenovaEmbeddings implements RagEmbeddings {
   private chunkSize: number;
   private chunkOverlap: number;
 
+  public static DEFAULT_MODEL = "Xenova/all-MiniLM-L6-v2";
+
   /**
    * Creates a new instance of XenovaEmbeddings.
    * @param model The model name to use for embeddings
@@ -19,7 +21,7 @@ export class XenovaEmbeddings implements RagEmbeddings {
    */
   constructor(
     // Good multi-lingual model w/ 256-token context size
-    model: string = 'Xenova/all-MiniLM-L6-v2', // 'nomic-ai/nomic-embed-text-v1'
+    model: string = XenovaEmbeddings.DEFAULT_MODEL, // 'nomic-ai/nomic-embed-text-v1'
     // I guess we should split by sentence?
     chunkSize: number = 400,
     chunkOverlap: number = 50
@@ -36,9 +38,21 @@ export class XenovaEmbeddings implements RagEmbeddings {
    */
   public async start(): Promise<void> {
     if (this.embedder) {
-      throw new Error('Embedder is already initialized');
+      throw new Error("Embedder is already initialized");
     }
-    this.embedder = await pipeline('feature-extraction', this.model);
+    this.embedder = await pipeline("feature-extraction", this.model);
+  }
+
+  /**
+   * Returns the name of the model used for embeddings
+   * @returns The model name
+   */
+  public getModelName(): string {
+    return this.model;
+  }
+
+  public async getVectorSize() {
+    return (await this.embedText('')).length;
   }
 
   /**
@@ -49,21 +63,21 @@ export class XenovaEmbeddings implements RagEmbeddings {
   private splitTextIntoChunks(text: string): Chunk[] {
     const chunks: Chunk[] = [];
     let index = 0;
-    
+
     for (let i = 0; i < text.length; i += this.chunkSize - this.chunkOverlap) {
       const end = Math.min(i + this.chunkSize, text.length);
       chunks.push({
         index,
         offset: i,
         text: text.substring(i, end),
-        embedding: []
+        embedding: [],
       });
       index++;
-      
+
       // If we've reached the end of the text, break
       if (end === text.length) break;
     }
-    
+
     return chunks;
   }
 
@@ -75,17 +89,16 @@ export class XenovaEmbeddings implements RagEmbeddings {
    */
   private async embedText(text: string): Promise<number[]> {
     if (!this.embedder) {
-      throw new Error('Embedder is not initialized. Call start() first.');
+      throw new Error("Embedder is not initialized. Call start() first.");
     }
-    
-    try {
 
-    const embeddings = await this.embedder(text, {
-      pooling: 'mean', // average over token embeddings
-      normalize: true,
-    });
-    // Convert to regular array if it's not already
-    return Array.from(embeddings.data);
+    try {
+      const embeddings = await this.embedder(text, {
+        pooling: "mean", // average over token embeddings
+        normalize: true,
+      });
+      // Convert to regular array if it's not already
+      return Array.from(embeddings.data);
     } catch (e) {
       console.error(e);
       throw e;
@@ -99,7 +112,7 @@ export class XenovaEmbeddings implements RagEmbeddings {
    */
   async embed(text: string): Promise<Chunk[]> {
     const chunks = this.splitTextIntoChunks(text);
-    
+
     // Process chunks in parallel for better performance
     const chunksWithEmbeddings = await Promise.all(
       chunks.map(async (chunk) => {
@@ -107,12 +120,12 @@ export class XenovaEmbeddings implements RagEmbeddings {
         // Create a new chunk with the embedding property
         const chunkWithEmbedding: Chunk = {
           ...chunk,
-          embedding
+          embedding,
         };
         return chunkWithEmbedding;
       })
     );
-    
+
     return chunksWithEmbeddings;
   }
 }

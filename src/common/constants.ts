@@ -1,6 +1,15 @@
+import os from 'os';
+import path from 'path';
+
 /**
  * Constants for NIP-174 (Ask Experts) protocol
  */
+
+// Application paths
+export const APP_DIR = path.join(os.homedir(), '.askexperts');
+export const APP_ENV_PATH = path.join(APP_DIR, '.env');
+export const APP_DOCSTORE_PATH = path.join(APP_DIR, 'docstore.db');
+export const APP_DB_PATH = path.join(APP_DIR, 'askexperts.db');
 
 // Event kinds
 export const EVENT_KIND_EXPERT_PROFILE = 10174;
