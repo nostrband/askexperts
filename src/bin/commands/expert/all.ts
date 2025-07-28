@@ -2,12 +2,11 @@ import { Command } from "commander";
 import { getDB } from "../../../db/utils.js";
 import { DBExpert } from "../../../db/interfaces.js";
 import { SimplePool } from "nostr-tools";
-import { ChromaRagDB, RagDB } from "../../../rag/index.js";
-import { createOpenAI, OpenaiInterface } from "../../../openai/index.js";
+import { ChromaRagDB } from "../../../rag/index.js";
+import { createOpenAI } from "../../../openai/index.js";
 import { LightningPaymentManager } from "../../../payments/LightningPaymentManager.js";
 import { DocStoreSQLite } from "../../../docstore/DocStoreSQLite.js";
 import { getDocstorePath } from "../../commands/docstore/index.js";
-import { DocStoreClient } from "../../../docstore/interfaces.js";
 import { OpenRouter } from "../../../experts/utils/OpenRouter.js";
 import {
   debugError,
@@ -15,7 +14,6 @@ import {
   enableAllDebug,
   enableErrorDebug,
 } from "../../../common/debug.js";
-import dotenv from "dotenv";
 
 // Import the start functions from run.js
 import { 
@@ -157,7 +155,6 @@ export async function runAllExperts(options: AllExpertsCommandOptions): Promise<
             pool,
             paymentManager,
             openai,
-            openRouter,
             ragDB,
             docStoreClient,
             expertStopPromise

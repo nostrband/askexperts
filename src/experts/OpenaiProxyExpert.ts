@@ -1,7 +1,6 @@
 import { AskExpertsServer } from "../server/AskExpertsServer.js";
 import { Ask, ExpertBid } from "../common/types.js";
 import { debugExpert, debugError } from "../common/debug.js";
-import { ModelPricing } from "./utils/ModelPricing.js";
 import { OpenaiInterface } from "../openai/index.js";
 import { OpenaiProxyExpertBase } from "./OpenaiProxyExpertBase.js";
 
@@ -40,8 +39,6 @@ export class OpenaiProxyExpert extends OpenaiProxyExpertBase {
     openai: OpenaiInterface;
     model: string;
     margin: number;
-    pricingProvider: ModelPricing;
-    avgOutputTokens?: number;
     systemPrompt?: string;
   }) {
     super(options);
@@ -96,14 +93,18 @@ export class OpenaiProxyExpert extends OpenaiProxyExpertBase {
 
   private async getDescription(): Promise<string> {
     // Get current pricing, it might change over time
-    const pricing = await this.pricingProvider.pricing(this.model);
-    return `I'm an expert providing direct access to LLM model ${
-      this.model
-    }. Input token price per million: ${
-      pricing.inputPricePPM
-    } sats, output token price per million ${
-      pricing.outputPricePPM
-    } sats. System prompt: ${this.systemPrompt ? "disallowed" : "allowed"}`;
+    const pricing = await this.openai.pricing(this.model);
+    
+    let description = `I'm an expert providing direct access to LLM model ${this.model}.`;
+    
+    // Add pricing information if available
+    if (pricing) {
+      description += ` Input token price per million: ${pricing.inputPricePPM} sats, output token price per million ${pricing.outputPricePPM} sats.`;
+    }
+    
+    description += ` System prompt: ${this.systemPrompt ? "disallowed" : "allowed"}`;
+    
+    return description;
   }
 
   /**

@@ -158,7 +158,6 @@ export async function startNostrExpert(
       openai,
       model: options.model,
       margin: options.margin,
-      pricingProvider: openRouter,
     });
 
     // Create the expert

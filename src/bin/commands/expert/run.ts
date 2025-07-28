@@ -109,7 +109,6 @@ export async function startOpenRouterExpert(
     openai,
     model,
     margin,
-    pricingProvider: openRouter,
   });
 
   // Start the expert
@@ -131,7 +130,6 @@ export async function startNostrExpert(
   pool: SimplePool,
   paymentManager: LightningPaymentManager,
   openai: OpenaiInterface,
-  openRouter: OpenRouter,
   ragDB: RagDB,
   docStoreClient: DocStoreClient,
   onStop: Promise<void>
@@ -183,7 +181,6 @@ export async function startNostrExpert(
     openai,
     model,
     margin,
-    pricingProvider: openRouter,
   });
 
   // Create the expert
@@ -261,9 +258,6 @@ async function runNostrExpert(
     // Create a shared pool
     const pool = new SimplePool();
 
-    // Create OpenRouter instance for pricing
-    const openRouter = new OpenRouter();
-
     const onStop = new Promise<void>((ok) => {
       const sigHandler = () => {
         debugExpert("\nReceived SIGINT. Shutting down expert...");
@@ -289,7 +283,6 @@ async function runNostrExpert(
       pool,
       paymentManager,
       openai,
-      openRouter,
       ragDB,
       docStoreClient,
       onStop

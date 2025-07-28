@@ -1,4 +1,4 @@
-import { OpenAIProxy } from "../../proxy/index.js";
+import { OpenaiProxy } from "../../proxy/index.js";
 import { debugClient, debugError, enableAllDebug, enableErrorDebug } from "../../common/debug.js";
 import { Command } from "commander";
 
@@ -29,7 +29,7 @@ export async function startProxyServer(
 
   try {
     // Create the OpenAI proxy server
-    const proxy = new OpenAIProxy(options.port, options.basePath, discoveryRelays);
+    const proxy = new OpenaiProxy(options.port, options.basePath, discoveryRelays);
 
     // Handle SIGINT/SIGTERM (Ctrl+C)
     const sigHandler = async () => {

@@ -13,12 +13,11 @@ import {
   ChatCompletionCreateParams,
   ChatCompletionMessageParam,
 } from "openai/resources";
-import { ModelPricing } from "./utils/ModelPricing.js";
 import { OpenaiInterface } from "../openai/index.js";
 
 interface PromptContext {
-  context?: string;
-  systemPrompt?: string;
+  content?: ChatCompletionCreateParams;
+  quoteId?: string;
 }
 
 /**
@@ -35,11 +34,6 @@ export class OpenaiProxyExpertBase {
    * OpenAI client
    */
   public readonly openai: OpenaiInterface;
-
-  /**
-   * Model pricing provider
-   */
-  public readonly pricingProvider: ModelPricing;
 
   /**
    * Optional callback to get context for prompts
@@ -62,16 +56,6 @@ export class OpenaiProxyExpertBase {
   #margin: number;
 
   /**
-   * Average output token count for pricing estimates
-   */
-  private avgOutputCount: number;
-
-  /**
-   * Number of outputs processed (for averaging)
-   */
-  private outputCount: number = 1;
-
-  /**
    * Creates a new OpenaiExpert instance
    *
    * @param options - Configuration options
@@ -81,15 +65,11 @@ export class OpenaiProxyExpertBase {
     openai: OpenaiInterface;
     model: string;
     margin: number;
-    pricingProvider: ModelPricing;
-    avgOutputTokens?: number;
     onGetContext?: (prompt: Prompt) => Promise<string>;
     onGetSystemPrompt?: (prompt: Prompt) => Promise<string>;
   }) {
     this.#model = options.model;
     this.#margin = options.margin;
-    this.pricingProvider = options.pricingProvider;
-    this.avgOutputCount = options.avgOutputTokens || 300;
     this.#onGetContext = options.onGetContext;
     this.#onGetSystemPrompt = options.onGetSystemPrompt;
 
@@ -179,6 +159,92 @@ export class OpenaiProxyExpertBase {
    * @param prompt - prompt
    * @returns - expert price
    */
+  /**
+   * Creates ChatCompletionCreateParams from a prompt
+   *
+   * @param prompt - The prompt to create params for
+   * @returns ChatCompletionCreateParams object
+   */
+  private async createChatCompletionCreateParams(prompt: Prompt): Promise<ChatCompletionCreateParams> {
+    let content: ChatCompletionCreateParams;
+    let systemPrompt: string | undefined;
+    let contextText: string | undefined;
+
+    // Get system prompt if callback is provided
+    if (this.onGetSystemPrompt) {
+      systemPrompt = await this.onGetSystemPrompt(prompt);
+      debugExpert(`Got system prompt of ${systemPrompt.length} chars`);
+    }
+
+    // Get context if callback is provided
+    if (this.onGetContext) {
+      contextText = await this.onGetContext(prompt);
+      debugExpert(`Got prompt context of ${contextText.length} chars`);
+    }
+
+    // Process the prompt based on its format
+    switch (prompt.format) {
+      case FORMAT_OPENAI: {
+        // For OpenAI format, we will pass the content directly to the OpenAI API
+        content = prompt.content as ChatCompletionCreateParams;
+
+        // Ensure proper model
+        content.model = this.model;
+        break;
+      }
+      case FORMAT_TEXT: {
+        // For text format, convert to a single user message
+        content = {
+          model: this.model,
+          messages: [
+            {
+              role: "user" as const,
+              content: prompt.content,
+            },
+          ],
+        };
+        break;
+      }
+      default:
+        throw new Error(`Unsupported format: ${prompt.format}`);
+    }
+
+    // If system prompt is set, replace all system/developer roles with user
+    // and prepend our system prompt
+    if (systemPrompt) {
+      const messages = content.messages.map((msg) => {
+        if (msg.role === "system") {
+          return { ...msg, role: "user" as const };
+        }
+        return msg;
+      }) as ChatCompletionMessageParam[];
+
+      // Prepend system prompt
+      messages.unshift({
+        role: "system" as const,
+        content: systemPrompt,
+      });
+
+      content.messages = messages;
+    }
+
+    // If context is provided, prepend it to the last message
+    if (contextText && content.messages.length > 0) {
+      const lastMessage = content.messages[content.messages.length - 1];
+      if (typeof lastMessage.content === "string") {
+        lastMessage.content = `
+### Context
+${contextText}
+
+### User Message
+${lastMessage.content}
+`;
+      }
+    }
+
+    return content;
+  }
+
   public async onPromptPrice(prompt: Prompt): Promise<ExpertPrice> {
     try {
       debugExpert(`Received prompt: ${prompt.id}`);
@@ -186,64 +252,27 @@ export class OpenaiProxyExpertBase {
       const context: PromptContext = {};
       prompt.context = context;
 
-      // If onGetContext is provided, call it and set the result to prompt.context
-      if (this.onGetSystemPrompt) {
-        context.systemPrompt = await this.onGetSystemPrompt(prompt);
-        debugExpert(
-          `Got system prompt of ${context.systemPrompt.length} chars`
-        );
-      }
+      // Create ChatCompletionCreateParams
+      context.content = await this.createChatCompletionCreateParams(prompt);
 
-      // If onGetContext is provided, call it and set the result to prompt.context
-      if (this.onGetContext) {
-        context.context = await this.onGetContext(prompt);
-        debugExpert(`Got prompt context of ${context.context.length} chars`);
-      }
-
-      // Calculate the number of tokens in the prompt
-      let inputTokenCount = 0;
-      if (context.systemPrompt)
-        inputTokenCount += this.countTokens(context.systemPrompt);
-
-      // Count tokens in the context if available
-      if (context.context) {
-        inputTokenCount += this.countTokens(context.context);
-      }
-
-      if (prompt.format === FORMAT_OPENAI) {
-        // For OpenAI format, count tokens in each message
-        inputTokenCount += this.countTokens(
-          JSON.stringify(prompt.content.messages)
-        );
-      } else if (prompt.format === FORMAT_TEXT) {
-        // For text format, count tokens in the content
-        inputTokenCount += this.countTokens(prompt.content);
-      } else {
-        throw new Error(`Unsupported format: ${prompt.format}`);
-      }
-
-      // Use the average output count for pricing
-      const outputTokenCount = this.avgOutputCount;
-
-      // Get current pricing
-      const pricing = await this.pricingProvider.pricing(this.model);
-
-      // Calculate the price in sats
-      const inputPrice = (inputTokenCount * pricing.inputPricePPM) / 1000000;
-      const outputPrice = (outputTokenCount * pricing.outputPricePPM) / 1000000;
-      const totalPrice = Math.ceil(
-        (inputPrice + outputPrice) * (1 + this.margin)
+      // Use the OpenAI interface to estimate the price
+      const priceEstimate = await this.openai.estimatePrice(
+        this.model,
+        context.content
       );
 
+      // Store quote id to use it in chat completions
+      context.quoteId = priceEstimate.quoteId;
+
       debugExpert(
-        `Calculated price: ${totalPrice} sats (input: ${inputTokenCount} tokens, output: ${outputTokenCount} tokens, context: ${
-          context.context?.length || 0
+        `Estimated price: ${priceEstimate.amountSats} sats (quoteId: ${
+          priceEstimate.quoteId || "none"
         })`
       );
 
       // Return the price information
       return {
-        amountSats: totalPrice,
+        amountSats: priceEstimate.amountSats,
         description: `Payment for ${this.model} completion`,
       };
     } catch (error) {
@@ -267,100 +296,53 @@ export class OpenaiProxyExpertBase {
       debugExpert(`Processing paid prompt: ${prompt.id}`);
 
       try {
-        let content: ChatCompletionCreateParams;
-
         const context = prompt.context as PromptContext | undefined;
-
-        // Process the prompt based on its format
-        switch (prompt.format) {
-          case FORMAT_OPENAI: {
-            // For OpenAI format, we will pass the content directly to the OpenAI API
-            content = prompt.content as ChatCompletionCreateParams;
-
-            // Ensure proper model
-            content.model = this.model;
-            break;
-          }
-          case FORMAT_TEXT: {
-            // For text format, convert to a single user message
-            content = {
-              model: this.model,
-              messages: [
-                {
-                  role: "user" as const,
-                  content: prompt.content,
-                },
-              ],
-            };
-            break;
-          }
-          default:
-            throw new Error(`Unsupported format: ${prompt.format}`);
+        
+        // Use the content that was created in onPromptPrice
+        if (!context?.content) {
+          throw new Error("Content not found in prompt context");
         }
+        
+        const content = context.content;
 
-        // If system prompt is set, replace all system/developer roles with user
-        // and prepend our system prompt
-        if (context?.systemPrompt) {
-          const messages = content.messages.map((msg) => {
-            if (msg.role === "system") {
-              return { ...msg, role: "user" as const };
-            }
-            return msg;
-          }) as ChatCompletionMessageParam[];
-
-          // Prepend system prompt
-          messages.unshift({
-            role: "system" as const,
-            content: context.systemPrompt,
-          });
-
-          content.messages = messages;
-        }
-
-        // If context is provided, prepend it to the last message
-        if (context?.context && content.messages.length > 0) {
-          const lastMessage = content.messages[content.messages.length - 1];
-          if (typeof lastMessage.content === "string") {
-            lastMessage.content = `
-### Context
-${context.context}
-
-### Message
-${lastMessage.content}
-`;
-          }
-        }
+        const options: { quoteId?: string } = {};
+        if (context?.quoteId) options.quoteId = context?.quoteId;
 
         // Call the OpenAI API
         if (content.stream) {
-          const stream = await this.openai.chat.completions.create(content);
-          const produceReplies = async function* (): AsyncIterable<ExpertReply> {
-
-            // NOTE: sending each word as a separate nostr event creates 
-            // 5x overhead (vs inference on gpt-4.1), so we're batching
-            // to make it go away
-            const batch = [];            
-            for await (const chunk of stream) {
-              batch.push(chunk);
-              const done = chunk.choices[0]?.finish_reason !== null;
-              if (batch.length >= 10 || done) {
-                yield {
-                  content: batch,
-                  done: chunk.choices[0]?.finish_reason !== null
+          const stream = await this.openai.chat.completions.create(content, options);
+          const produceReplies =
+            async function* (): AsyncIterable<ExpertReply> {
+              // NOTE: sending each word as a separate nostr event creates
+              // 5x overhead (vs inference on gpt-4.1), so we're batching
+              // to make it go away
+              const batch = [];
+              let lastSendTime = Date.now();
+              const BATCH_INTERVAL_MS = 3000; // 3 seconds
+              
+              for await (const chunk of stream) {
+                batch.push(chunk);
+                const done = chunk.choices[0]?.finish_reason !== null;
+                const currentTime = Date.now();
+                const timeElapsed = currentTime - lastSendTime;
+                
+                // Send batch if 3 seconds have passed or if this is the last chunk
+                if ((timeElapsed >= BATCH_INTERVAL_MS && batch.length > 0) || done) {
+                  yield {
+                    content: batch.slice(), // Create a copy of the batch
+                    done: done,
+                  };
+                  batch.length = 0;
+                  lastSendTime = currentTime;
                 }
-                batch.length = 0;
               }
-            }
-          }
+            };
           return produceReplies();
         } else {
-          const completion = await this.openai.chat.completions.create(content);
+          const completion = await this.openai.chat.completions.create(content, options);
 
           // Extract content in text format
           const output = completion.choices[0]?.message?.content || "";
-
-          // Update average output token count
-          this.updateAverageOutputCount(output);
 
           switch (prompt.format) {
             case FORMAT_OPENAI:
@@ -395,24 +377,5 @@ ${lastMessage.content}
   async [Symbol.asyncDispose]() {
     debugExpert("Clearing OpenaiProxyExpertBase");
     // Nothing to dispose here really
-  }
-
-  /**
-   * Updates the average output token count based on new output
-   *
-   * @param outputContent - The content to count tokens for
-   */
-  private updateAverageOutputCount(outputContent: string): void {
-    const outputTokenCount = this.countTokens(outputContent);
-
-    // Update the average using the formula: avgOutputTokens = (avgOutputTokens * outputCount + newOutputCount) / (outputCount + 1)
-    this.avgOutputCount =
-      (this.avgOutputCount * this.outputCount + outputTokenCount) /
-      (this.outputCount + 1);
-    this.outputCount++;
-
-    debugExpert(
-      `Updated average output token count: ${this.avgOutputCount} (based on ${this.outputCount} outputs)`
-    );
   }
 }

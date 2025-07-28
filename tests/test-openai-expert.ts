@@ -55,7 +55,6 @@ async function testOpenaiExpert() {
     model: 'openai/gpt-4.1',
     margin: 0.1, // 10% margin
 //    systemPrompt: 'You are a helpful assistant.',
-    pricingProvider,
   });
 
   try {
