@@ -16,7 +16,6 @@ import {
   EVENT_KIND_QUOTE,
   EVENT_KIND_PROOF,
   EVENT_KIND_REPLY,
-  COMPRESSION_PLAIN,
   METHOD_LIGHTNING,
   DEFAULT_DISCOVERY_RELAYS,
   FORMAT_TEXT,
@@ -39,7 +38,7 @@ import {
   ExpertReply,
 } from "../common/types.js";
 
-import { Compression, DefaultCompression } from "../common/compression.js";
+import { Compression, COMPRESSION_NONE, getCompression } from "../stream/compression.js";
 import {
   encrypt,
   decrypt,
@@ -254,7 +253,7 @@ export class AskExpertsServerBase {
 
     // Optional parameters with defaults
     this.#paymentMethods = options.paymentMethods || [METHOD_LIGHTNING];
-    this.#compression = options.compression || new DefaultCompression();
+    this.#compression = options.compression || getCompression();
 
     // Set the required pool
     this.pool = options.pool;
@@ -674,7 +673,7 @@ export class AskExpertsServerBase {
       const cTag = promptEvent.tags.find(
         (tag) => tag.length > 1 && tag[0] === "c"
       );
-      const promptCompr = (cTag?.[1] as CompressionMethod) || COMPRESSION_PLAIN;
+      const promptCompr = (cTag?.[1] as CompressionMethod) || COMPRESSION_NONE;
 
       // Decrypt the prompt payload
       const decryptedPrompt = decrypt(
@@ -961,7 +960,10 @@ export class AskExpertsServerBase {
       // Compress the payload
       const compressedPayload = await this.#compression.compress(
         replyPayloadStr,
-        COMPRESSION_PLAIN // Use plain compression for simplicity
+        COMPRESSION_NONE // Use plain compression for simplicity
+      );
+      debugExpert(
+        `Expert reply ${replyPayloadStr.length} chars, compressed to ${compressedPayload.length} bytes`
       );
 
       // Encrypt the payload
@@ -978,7 +980,7 @@ export class AskExpertsServerBase {
         [
           ["p", prompt.event.pubkey],
           ["e", prompt.id],
-          ["c", COMPRESSION_PLAIN],
+          ["c", COMPRESSION_NONE],
         ],
         this.#privkey
       );
@@ -990,7 +992,9 @@ export class AskExpertsServerBase {
         this.pool
       );
 
-      debugExpert(`Published reply to ${publishedRelays.length} relays for prompt ${prompt.id}`);
+      debugExpert(
+        `Published reply to ${publishedRelays.length} relays for prompt ${prompt.id}`
+      );
     } catch (error) {
       debugError("Error sending expert reply:", error);
     }
@@ -1021,7 +1025,7 @@ export class AskExpertsServerBase {
    * Disposes of resources when the expert is no longer needed
    */
   async [Symbol.asyncDispose]() {
-    debugExpert("Clearing AskExpertsServerBase")
+    debugExpert("Clearing AskExpertsServerBase");
     // FIXME make sure existing queries are answered
 
     // Close all subscriptions

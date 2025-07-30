@@ -3,11 +3,9 @@ import { getDB } from "../../../db/utils.js";
 import { DBExpert } from "../../../db/interfaces.js";
 import { SimplePool } from "nostr-tools";
 import { ChromaRagDB } from "../../../rag/index.js";
-import { createOpenAI } from "../../../openai/index.js";
 import { LightningPaymentManager } from "../../../payments/LightningPaymentManager.js";
 import { DocStoreSQLite } from "../../../docstore/DocStoreSQLite.js";
 import { getDocstorePath } from "../../commands/docstore/index.js";
-import { OpenRouter } from "../../../experts/utils/OpenRouter.js";
 import {
   debugError,
   debugExpert,
@@ -73,20 +71,6 @@ export async function runAllExperts(options: AllExpertsCommandOptions): Promise<
 
     // Create DocStoreSQLite instance
     const docStoreClient = new DocStoreSQLite(docstorePath);
-
-    // Get API key from environment
-    const apiKey = process.env.OPENROUTER_API_KEY || "";
-    if (!apiKey) {
-      throw new Error(
-        "OpenRouter API key is required. Set OPENROUTER_API_KEY in the environment."
-      );
-    }
-
-    // Create OpenAI interface instance
-    const openai = createOpenAI(apiKey, "https://openrouter.ai/api/v1");
-
-    // Create OpenRouter instance for pricing
-    const openRouter = new OpenRouter();
 
     // Track running experts
     const runningExperts: Map<string, RunningExpert> = new Map();
@@ -154,7 +138,6 @@ export async function runAllExperts(options: AllExpertsCommandOptions): Promise<
             expert,
             pool,
             paymentManager,
-            openai,
             ragDB,
             docStoreClient,
             expertStopPromise
@@ -164,8 +147,6 @@ export async function runAllExperts(options: AllExpertsCommandOptions): Promise<
             expert,
             pool,
             paymentManager,
-            openai,
-            openRouter,
             expertStopPromise
           );
         } else {

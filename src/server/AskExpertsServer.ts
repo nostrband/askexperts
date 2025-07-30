@@ -16,7 +16,7 @@ import {
   OnPromptPaidCallback,
 } from "../common/types.js";
 import { debugError } from "../common/debug.js";
-import { Compression } from "../common/compression.js";
+import { Compression } from "../stream/compression.js";
 
 /**
  * Expert server with payment handling

@@ -1,16 +1,14 @@
 import { encode } from "gpt-tokenizer";
-import { APIPromise } from "openai";
+import OpenAI, { APIPromise } from "openai";
 import {
   ChatCompletionCreateParams,
   ChatCompletion,
-  ChatCompletionCreateParamsNonStreaming,
-  ChatCompletionCreateParamsStreaming,
-  ChatCompletionCreateParamsBase,
   ChatCompletionChunk,
 } from "openai/resources/chat/completions";
 import { OpenaiInterface } from "./index.js";
 import { OpenRouter } from "../experts/utils/OpenRouter.js";
 import { PricingResult } from "../experts/utils/ModelPricing.js";
+import { debugExpert } from "../common/debug.js";
 
 /**
  * Helper function to process an AsyncIterable with a side effect
@@ -34,7 +32,7 @@ export class OpenaiOpenRouter implements OpenaiInterface {
   /**
    * The underlying OpenAI client
    */
-  private openai: OpenaiInterface;
+  private openai: OpenAI;
 
   /**
    * The OpenRouter instance for pricing
@@ -57,30 +55,12 @@ export class OpenaiOpenRouter implements OpenaiInterface {
   private outputCount: number = 1;
 
   /**
-   * Chat completions implementation
+   * Map of active quotes with their model and content
    */
-  chat: {
-    completions: {
-      create(
-        body: ChatCompletionCreateParamsNonStreaming,
-        options?: any
-      ): APIPromise<ChatCompletion>;
-      create(
-        body: ChatCompletionCreateParamsStreaming,
-        options?: any
-      ): APIPromise<AsyncIterable<ChatCompletionChunk>>;
-      create(
-        body: ChatCompletionCreateParamsBase,
-        options?: any
-      ): APIPromise<AsyncIterable<ChatCompletionChunk> | ChatCompletion>;
-      create(
-        body: ChatCompletionCreateParams,
-        options?: any
-      ):
-        | APIPromise<ChatCompletion>
-        | APIPromise<AsyncIterable<ChatCompletionChunk>>;
-    };
-  };
+  private activeQuotes: Map<string, {
+    model: string,
+    content: ChatCompletionCreateParams
+  }> = new Map();
 
   /**
    * Creates a new OpenaiOpenRouter instance
@@ -90,57 +70,13 @@ export class OpenaiOpenRouter implements OpenaiInterface {
    * @param margin - Profit margin (default: 0)
    */
   constructor(
-    openai: OpenaiInterface,
+    openai: OpenAI,
     openRouter: OpenRouter,
     margin: number = 0
   ) {
     this.openai = openai;
     this.openRouter = openRouter;
     this.margin = margin;
-
-    // Initialize the chat completions implementation
-    this.chat = {
-      completions: {
-        create: ((body: ChatCompletionCreateParams, options?: any) => {
-          // Handle streaming responses
-          if (body.stream === true) {
-            // Call the underlying OpenAI client to get the stream
-            const resultPromise = this.openai.chat.completions.create(body, options) as APIPromise<AsyncIterable<ChatCompletionChunk>>;
-            
-            // Return a new promise that will resolve to a wrapped AsyncIterable
-            return resultPromise.then(stream => {
-              let accumulatedContent = "";
-              
-              // Use tapAsyncIterable to process each chunk while passing it through
-              return tapAsyncIterable(stream, async (chunk) => {
-                // Accumulate the content from each chunk
-                accumulatedContent += chunk.choices[0]?.delta?.content || "";
-                
-                // When we receive the last chunk, update the average output count
-                if (chunk.choices[0]?.finish_reason !== null) {
-                  this.updateAverageOutputCount(accumulatedContent);
-                }
-              });
-            });
-          } else {
-            // Handle non-streaming responses (existing code)
-            const result = this.openai.chat.completions.create(body, options);
-            
-            // Update the average output token count when the result is available
-            result.then(response => {
-              if ('choices' in response) {
-                const output = response.choices[0]?.message?.content || "";
-                this.updateAverageOutputCount(output);
-              }
-            }).catch(error => {
-              console.error("Error processing completion result:", error);
-            });
-            
-            return result;
-          }
-        }) as any,
-      },
-    };
   }
 
   /**
@@ -177,10 +113,10 @@ export class OpenaiOpenRouter implements OpenaiInterface {
    * @param content - The chat completion parameters
    * @returns Promise resolving to the estimated price object
    */
-  async estimatePrice(
+  async getQuote(
     model: string,
     content: ChatCompletionCreateParams
-  ): Promise<{ amountSats: number, quoteId?: string }> {
+  ): Promise<{ amountSats: number, quoteId: string }> {
     try {
       // Calculate the number of tokens in the content
       let inputTokenCount = 0;
@@ -196,7 +132,9 @@ export class OpenaiOpenRouter implements OpenaiInterface {
       // Get current pricing
       const pricing = await this.pricing(model);
       if (!pricing) {
-        return { amountSats: 0 };
+        // Generate a unique quote ID even for error cases
+        const quoteId = `openrouter-error-${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+        return { amountSats: 0, quoteId };
       }
 
       // Calculate the price in sats
@@ -206,13 +144,84 @@ export class OpenaiOpenRouter implements OpenaiInterface {
         (inputPrice + outputPrice) * (1 + this.margin)
       );
 
-      return { 
+      // Generate a unique quote ID
+      const quoteId = `openrouter-${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+      
+      // Store the model and content in the activeQuotes map
+      this.activeQuotes.set(quoteId, {
+        model,
+        content
+      });
+
+      return {
         amountSats: totalPrice,
-        quoteId: undefined  // OpenRouter doesn't provide quote IDs
+        quoteId
       };
     } catch (error) {
       console.error("Error estimating price:", error);
-      return { amountSats: 0 };
+      // Generate a unique quote ID for error cases
+      const quoteId = `openrouter-error-${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+      return { amountSats: 0, quoteId };
+    }
+  }
+
+  /**
+   * Execute a chat completion request
+   * Implementation of the interface method
+   *
+   * @param quoteId - Quote ID for the request
+   * @param options - Additional options for the request
+   * @returns Promise resolving to chat completion or chunks
+   */
+  execute(
+    quoteId: string,
+    options?: any
+  ): APIPromise<ChatCompletion> | APIPromise<AsyncIterable<ChatCompletionChunk>> {
+    // Get the stored model and content from the activeQuotes map
+    const quoteData = this.activeQuotes.get(quoteId);
+    
+    if (!quoteData) {
+      throw new Error(`No active quote found for ID: ${quoteId}`);
+    }
+    
+    // Use the stored content
+    const body = quoteData.content;
+    
+    // Handle streaming responses
+    if (body.stream === true) {
+      // Call the underlying OpenAI client to get the stream
+      const resultPromise = this.openai.chat.completions.create(body, options) as APIPromise<AsyncIterable<ChatCompletionChunk>>;
+      
+      // Return a new promise that will resolve to a wrapped AsyncIterable
+      return resultPromise.then(stream => {
+        let accumulatedContent = "";
+        
+        // Use tapAsyncIterable to process each chunk while passing it through
+        return tapAsyncIterable(stream, async (chunk) => {
+          // Accumulate the content from each chunk
+          accumulatedContent += chunk.choices[0]?.delta?.content || "";
+          
+          // When we receive the last chunk, update the average output count
+          if (chunk.choices[0]?.finish_reason !== null) {
+            this.updateAverageOutputCount(accumulatedContent);
+          }
+        });
+      }) as APIPromise<AsyncIterable<ChatCompletionChunk>>;
+    } else {
+      // Handle non-streaming responses
+      const result = this.openai.chat.completions.create(body, options) as APIPromise<ChatCompletion>;
+      
+      // Update the average output token count when the result is available
+      result.then(response => {
+        if ('choices' in response) {
+          const output = response.choices[0]?.message?.content || "";
+          this.updateAverageOutputCount(output);
+        }
+      }).catch(error => {
+        console.error("Error processing completion result:", error);
+      });
+      
+      return result;
     }
   }
 
@@ -230,7 +239,7 @@ export class OpenaiOpenRouter implements OpenaiInterface {
       (this.outputCount + 1);
     this.outputCount++;
 
-    console.log(
+    debugExpert(
       `Updated average output token count: ${this.avgOutputCount} (based on ${this.outputCount} outputs)`
     );
   }

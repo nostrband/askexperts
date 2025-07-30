@@ -4,7 +4,6 @@ import { DBExpert, DBWallet } from "../../../db/interfaces.js";
 import { NostrExpert } from "../../../experts/NostrExpert.js";
 import { OpenaiProxyExpertBase } from "../../../experts/OpenaiProxyExpertBase.js";
 import { OpenaiProxyExpert } from "../../../experts/OpenaiProxyExpert.js";
-import { OpenRouter } from "../../../experts/utils/OpenRouter.js";
 import {
   debugError,
   debugExpert,
@@ -69,8 +68,6 @@ export async function startOpenRouterExpert(
   expert: DBExpert,
   pool: SimplePool,
   paymentManager: LightningPaymentManager,
-  openai: OpenaiInterface,
-  openRouter: OpenRouter,
   onStop: Promise<void>
 ) {
   // Get private key from the expert
@@ -96,6 +93,22 @@ export async function startOpenRouterExpert(
     ? parseFloat(expertEnvVars.EXPERT_MARGIN)
     : 0.1;
 
+  // Get API key from environment
+  const apiKey =
+    expertEnvVars.OPENROUTER_API_KEY || process.env.OPENROUTER_API_KEY || "";
+  if (!apiKey) {
+    throw new Error(
+      "OpenRouter API key is required. Set OPENROUTER_API_KEY in the expert's env configuration."
+    );
+  }
+
+  // Create OpenAI interface instance
+  const openai = createOpenAI({
+    apiKey,
+    baseURL: "https://openrouter.ai/api/v1",
+    margin,
+  });
+
   // Create server
   const server = new AskExpertsServer({
     privkey,
@@ -108,7 +121,6 @@ export async function startOpenRouterExpert(
     server,
     openai,
     model,
-    margin,
   });
 
   // Start the expert
@@ -129,7 +141,6 @@ export async function startNostrExpert(
   expert: DBExpert,
   pool: SimplePool,
   paymentManager: LightningPaymentManager,
-  openai: OpenaiInterface,
   ragDB: RagDB,
   docStoreClient: DocStoreClient,
   onStop: Promise<void>
@@ -168,6 +179,21 @@ export async function startNostrExpert(
   }
   const docstoreId = docstores[0].trim();
 
+  // Get API key from environment
+  const apiKey =
+    expertEnvVars.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+  const baseURL =
+    expertEnvVars.OPENAI_BASE_URL || process.env.OPENAI_BASE_URL;
+
+  // Create OpenAI interface instance
+  const openai = createOpenAI({
+    apiKey,
+    baseURL,
+    margin,
+    pool,
+    paymentManager,
+  });
+
   // Create server
   const server = new AskExpertsServer({
     privkey,
@@ -180,7 +206,6 @@ export async function startNostrExpert(
     server,
     openai,
     model,
-    margin,
   });
 
   // Create the expert
@@ -249,9 +274,6 @@ async function runNostrExpert(
     // Create DocStoreSQLite instance
     const docStoreClient = new DocStoreSQLite(docstorePath);
 
-    // Create OpenAI interface instance
-    const openai = createOpenAI(apiKey, "https://openrouter.ai/api/v1");
-
     // Create payment manager
     const paymentManager = new LightningPaymentManager(nwcString);
 
@@ -282,7 +304,6 @@ async function runNostrExpert(
       expert,
       pool,
       paymentManager,
-      openai,
       ragDB,
       docStoreClient,
       onStop
@@ -310,28 +331,11 @@ async function runOpenRouterExpert(
     const wallet = getWalletForExpert(expert.wallet_id);
     const nwcString = wallet.nwc;
 
-    // Parse environment variables using dotenv
-    const envVars = dotenv.parse(expert.env);
-
-    // Get API key from environment
-    const apiKey = envVars.OPENROUTER_API_KEY || process.env.OPENROUTER_API_KEY || "";
-    if (!apiKey) {
-      throw new Error(
-        "OpenRouter API key is required. Set OPENROUTER_API_KEY in the expert's env configuration."
-      );
-    }
-
-    // Create OpenAI interface instance
-    const openai = createOpenAI(apiKey, "https://openrouter.ai/api/v1");
-
     // Create payment manager
     const paymentManager = new LightningPaymentManager(nwcString);
 
     // Create a shared pool
     const pool = new SimplePool();
-
-    // Create OpenRouter instance for pricing
-    const openRouter = new OpenRouter();
 
     const onStop = new Promise<void>((ok) => {
       const sigHandler = () => {
@@ -352,14 +356,7 @@ async function runOpenRouterExpert(
       process.on("SIGTERM", sigHandler);
     });
 
-    await startOpenRouterExpert(
-      expert,
-      pool,
-      paymentManager,
-      openai,
-      openRouter,
-      onStop
-    );
+    await startOpenRouterExpert(expert, pool, paymentManager, onStop);
 
     debugExpert("Press Ctrl+C to exit.");
   } catch (error) {

@@ -3,7 +3,7 @@
  */
 
 import { Event } from 'nostr-tools';
-import { Compression } from './compression.js';
+import { Compression } from '../stream/compression.js';
 
 /**
  * Supported prompt formats
@@ -21,7 +21,7 @@ export type PaymentMethod = 'lightning' | (string & {});
  * Supported compression methods
  * Can be extended with custom compression methods
  */
-export type CompressionMethod = 'plain' | 'gzip' | (string & {});
+export type CompressionMethod = 'none' | 'gzip' | (string & {});
 
 /**
  * Callback function type for handling quotes

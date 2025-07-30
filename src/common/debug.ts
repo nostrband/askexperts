@@ -15,6 +15,8 @@ export const debugExpert = debug(`${BASE_NAMESPACE}:expert`);
 export const debugClient = debug(`${BASE_NAMESPACE}:client`);
 export const debugDocstore = debug(`${BASE_NAMESPACE}:docstore`);
 export const debugDB = debug(`${BASE_NAMESPACE}:db`);
+export const debugCompression = debug(`${BASE_NAMESPACE}:compression`);
+export const debugStream = debug(`${BASE_NAMESPACE}:stream`);
 
 // Create debug instances for different log levels
 export const debugError = debug(`${BASE_NAMESPACE}:error`);

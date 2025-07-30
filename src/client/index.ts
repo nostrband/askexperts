@@ -32,8 +32,6 @@ export type {
 export {
   FORMAT_TEXT,
   FORMAT_OPENAI,
-  COMPRESSION_PLAIN,
-  COMPRESSION_GZIP,
   METHOD_LIGHTNING,
   DEFAULT_DISCOVERY_RELAYS,
 } from '../common/constants.js';

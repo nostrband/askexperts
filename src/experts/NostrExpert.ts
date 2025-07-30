@@ -6,6 +6,7 @@ import { RagDB, RagEmbeddings } from "../rag/interfaces.js";
 import { OpenaiProxyExpertBase } from "./OpenaiProxyExpertBase.js";
 import { Doc, DocStoreClient } from "../docstore/interfaces.js";
 import { DocstoreToRag, createRagEmbeddings } from "../rag/index.js";
+import { ChatCompletion } from "openai/resources";
 
 /**
  * NostrExpert implementation for NIP-174
@@ -151,20 +152,6 @@ export class NostrExpert {
         });
       });
 
-      // // Crawl the profile data
-      // this.profileInfo = await this.nostr.crawlProfile(this.pubkey, 2000);
-
-      // // Store the profile data as JSON string
-      // const profileData = JSON.stringify(this.profileInfo, null, 2);
-      // debugExpert(
-      //   `Fetched profile data of size ${profileData.length} chars, posts ${this.profileInfo.posts.length}`
-      // );
-
-      // // Add posts to RAG database
-      // if (this.profileInfo) {
-      //   await this.addPostsToRagDB(this.profileInfo.posts);
-      // }
-
       // Extract hashtags from profile info
       const extractedHashtags = await this.extractHashtags(); // this.profileInfo
       debugExpert(`Extracted hashtags: ${extractedHashtags.sort().join(", ")}`);
@@ -182,22 +169,6 @@ Act like you are that person - when users talk to you, look through the person's
 and posts and reply as if you were that person, preserve their unique style, their opinions and their preferences.
 
 ${JSON.stringify(this.profile)}`;
-      // Posts in the provided json context may contain in_reply_to object with the message that the person was replying
-      // to - this should add more context to help you imitate the person better.
-
-      //         : `You will be given a person's profile and his posts in json format below.
-      // Act like you are that person - if users ask you questions or talk to you, look through the person's profile
-      // and posts and reply as if you were that person, preserve their unique style. Posts in the provided json file may contain in_reply_to object
-      // with the message that the person was replying to - this should add more context to help you imitate the person better.
-
-      // # Profile
-
-      // ${this.profile}
-
-      // # Posts
-
-      // ${this.posts}
-      // `;
 
       // Set hashtags to openaiExpert.server.hashtags
       this.openaiExpert.server.hashtags = [
@@ -267,7 +238,7 @@ ${this.profile?.about || "-"}`;
    * Disposes of resources when the expert is no longer needed
    */
   async [Symbol.asyncDispose]() {
-    debugExpert("Clearing NostrExpert")
+    debugExpert("Clearing NostrExpert");
     this.docstoreToRag[Symbol.dispose]();
   }
 
@@ -292,20 +263,21 @@ Example response: ["bitcoin", "programming", "javascript", "webapps", "openproto
       const input = JSON.stringify(
         {
           profile: this.profile,
-          // Use latest 500 posts
+          // Use latest 100 posts
           posts: this.posts
             .sort((a, b) => a.created_at - b.created_at)
-            .slice(-Math.min(this.posts.length, 500)),
+            .slice(-Math.min(this.posts.length, 500))
+            .map((p) => ({
+              content: p.content,
+            })),
         },
         null,
         2
       );
-      debugExpert(
-        `Extract hashtags, input size ${input.length} chars`
-      );
+      debugExpert(`Extract hashtags, input size ${input.length} chars`);
 
       // Make completion request
-      const completion = await openai.chat.completions.create({
+      const quote = await openai.getQuote(this.openaiExpert.model, {
         model: this.openaiExpert.model,
         messages: [
           { role: "system", content: systemPrompt },
@@ -316,6 +288,11 @@ Example response: ["bitcoin", "programming", "javascript", "webapps", "openproto
         ],
         temperature: 0.5,
       });
+      debugExpert(`Paying ${quote.amountSats} for extractHashtags`);
+
+      const completion = (await openai.execute(
+        quote.quoteId
+      )) as ChatCompletion;
 
       // Extract and parse the hashtags from the response
       const content = completion.choices[0]?.message?.content || "[]";
@@ -338,7 +315,7 @@ Example response: ["bitcoin", "programming", "javascript", "webapps", "openproto
       return [];
     } catch (error) {
       debugError("Error extracting hashtags:", error);
-      return [];
+      throw error;
     }
   }
 

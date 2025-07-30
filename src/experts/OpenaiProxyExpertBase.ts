@@ -6,6 +6,7 @@ import {
   ExpertReplies,
   Prompt,
   ExpertPrice,
+  PromptFormat,
 } from "../common/types.js";
 import { debugExpert, debugError } from "../common/debug.js";
 import { encode } from "gpt-tokenizer";
@@ -13,6 +14,7 @@ import {
   ChatCompletionCreateParams,
   ChatCompletionMessageParam,
 } from "openai/resources";
+import { ChatCompletionChunk } from "openai/resources/chat/completions";
 import { OpenaiInterface } from "../openai/index.js";
 
 interface PromptContext {
@@ -51,11 +53,6 @@ export class OpenaiProxyExpertBase {
   #model: string;
 
   /**
-   * Profit margin (e.g., 0.1 for 10%)
-   */
-  #margin: number;
-
-  /**
    * Creates a new OpenaiExpert instance
    *
    * @param options - Configuration options
@@ -64,12 +61,10 @@ export class OpenaiProxyExpertBase {
     server: AskExpertsServer;
     openai: OpenaiInterface;
     model: string;
-    margin: number;
     onGetContext?: (prompt: Prompt) => Promise<string>;
     onGetSystemPrompt?: (prompt: Prompt) => Promise<string>;
   }) {
     this.#model = options.model;
-    this.#margin = options.margin;
     this.#onGetContext = options.onGetContext;
     this.#onGetSystemPrompt = options.onGetSystemPrompt;
 
@@ -103,19 +98,6 @@ export class OpenaiProxyExpertBase {
    */
   get model(): string {
     return this.#model;
-  }
-
-  /**
-   * Gets the margin
-   *
-   * @returns Margin
-   */
-  get margin(): number {
-    return this.#margin;
-  }
-
-  set margin(value: number) {
-    this.#margin = value;
   }
 
   get onGetContext(): ((prompt: Prompt) => Promise<string>) | undefined {
@@ -165,7 +147,9 @@ export class OpenaiProxyExpertBase {
    * @param prompt - The prompt to create params for
    * @returns ChatCompletionCreateParams object
    */
-  private async createChatCompletionCreateParams(prompt: Prompt): Promise<ChatCompletionCreateParams> {
+  private async createChatCompletionCreateParams(
+    prompt: Prompt
+  ): Promise<ChatCompletionCreateParams> {
     let content: ChatCompletionCreateParams;
     let systemPrompt: string | undefined;
     let contextText: string | undefined;
@@ -256,7 +240,7 @@ ${lastMessage.content}
       context.content = await this.createChatCompletionCreateParams(prompt);
 
       // Use the OpenAI interface to estimate the price
-      const priceEstimate = await this.openai.estimatePrice(
+      const priceEstimate = await this.openai.getQuote(
         this.model,
         context.content
       );
@@ -281,6 +265,63 @@ ${lastMessage.content}
     }
   }
 
+  private async *produceReplies(
+    stream: AsyncIterable<ChatCompletionChunk>,
+    format: PromptFormat
+  ): AsyncIterable<ExpertReply> {
+    // NOTE: sending each word as a separate nostr event creates
+    // 5x overhead (vs inference on gpt-4.1), so we're batching
+    // to make it go away
+    const batch = [];
+    let lastSendTime = Date.now();
+    const BATCH_INTERVAL_MS = 3000; // 3 seconds
+    const MAX_BATCH_LENGTH = 50000; // <64Kb
+
+    for await (const chunk of stream) {
+      batch.push(chunk);
+      // Dumb estimate instead of JSON.stringify
+      const length = batch.reduce(
+        (c, d) => c + 100 + (d.choices[0]?.delta?.content?.length || 0),
+        0
+      );
+      const done = chunk.choices[0]?.finish_reason !== null;
+      const currentTime = Date.now();
+      const timeElapsed = currentTime - lastSendTime;
+
+      // Send batch if 3 seconds have passed or if this is the last chunk
+      if (
+        (timeElapsed >= BATCH_INTERVAL_MS && batch.length > 0) ||
+        length > MAX_BATCH_LENGTH ||
+        done
+      ) {
+        switch (format) {
+          case FORMAT_OPENAI:
+            // Return the full API response
+            yield {
+              content: batch.slice(), // Create a copy of the batch
+              done: done,
+            };
+            break;
+          case FORMAT_TEXT:
+            // Return the text output only
+            yield {
+              content: batch
+                .map((b) => b.choices[0]?.delta.content)
+                .filter((s) => !!s)
+                .join(),
+              done: done,
+            };
+            break;
+          default:
+            throw new Error("Unsupported format");
+        }
+
+        batch.length = 0;
+        lastSendTime = currentTime;
+      }
+    }
+  }
+
   /**
    * Executes prompts after the quote was paid
    *
@@ -297,68 +338,58 @@ ${lastMessage.content}
 
       try {
         const context = prompt.context as PromptContext | undefined;
-        
+
         // Use the content that was created in onPromptPrice
         if (!context?.content) {
           throw new Error("Content not found in prompt context");
         }
-        
-        const content = context.content;
+        if (!context.quoteId) {
+          throw new Error("quoteId not found in prompt context");
+        }
 
-        const options: { quoteId?: string } = {};
-        if (context?.quoteId) options.quoteId = context?.quoteId;
+        const content = context.content;
 
         // Call the OpenAI API
         if (content.stream) {
-          const stream = await this.openai.chat.completions.create(content, options);
-          const produceReplies =
-            async function* (): AsyncIterable<ExpertReply> {
-              // NOTE: sending each word as a separate nostr event creates
-              // 5x overhead (vs inference on gpt-4.1), so we're batching
-              // to make it go away
-              const batch = [];
-              let lastSendTime = Date.now();
-              const BATCH_INTERVAL_MS = 3000; // 3 seconds
-              
-              for await (const chunk of stream) {
-                batch.push(chunk);
-                const done = chunk.choices[0]?.finish_reason !== null;
-                const currentTime = Date.now();
-                const timeElapsed = currentTime - lastSendTime;
-                
-                // Send batch if 3 seconds have passed or if this is the last chunk
-                if ((timeElapsed >= BATCH_INTERVAL_MS && batch.length > 0) || done) {
-                  yield {
-                    content: batch.slice(), // Create a copy of the batch
-                    done: done,
-                  };
-                  batch.length = 0;
-                  lastSendTime = currentTime;
-                }
-              }
-            };
-          return produceReplies();
+          const streamResult = await this.openai.execute(context.quoteId);
+
+          // Check if the result is an AsyncIterable
+          if (!("choices" in streamResult)) {
+            const stream = streamResult as AsyncIterable<ChatCompletionChunk>;
+            return this.produceReplies(stream, prompt.format);
+          } else {
+            throw new Error(
+              "Expected streaming response but got non-streaming response"
+            );
+          }
         } else {
-          const completion = await this.openai.chat.completions.create(content, options);
+          const completion = await this.openai.execute(context.quoteId);
 
-          // Extract content in text format
-          const output = completion.choices[0]?.message?.content || "";
+          // Check if the result is a ChatCompletion
+          if ("choices" in completion) {
+            // Extract content in text format
+            const output = completion.choices[0]?.message?.content || "";
 
-          switch (prompt.format) {
-            case FORMAT_OPENAI:
-              // Return the full API response
-              return {
-                content: completion,
-                done: true,
-              };
-            case FORMAT_TEXT:
-              // Return the output only
-              return {
-                content: output,
-                done: true,
-              };
-            default:
-              throw new Error("Unsupported format");
+            switch (prompt.format) {
+              case FORMAT_OPENAI:
+                // Return the full API response
+                return {
+                  content: completion,
+                  done: true,
+                };
+              case FORMAT_TEXT:
+                // Return the output only
+                return {
+                  content: output,
+                  done: true,
+                };
+              default:
+                throw new Error("Unsupported format");
+            }
+          } else {
+            throw new Error(
+              "Expected non-streaming response but got streaming response"
+            );
           }
         }
       } catch (error) {

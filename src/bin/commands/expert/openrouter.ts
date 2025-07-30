@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { OpenRouter } from "../../../experts/utils/OpenRouter.js";
+import { getOpenRouter, OpenRouter } from "../../../experts/utils/OpenRouter.js";
 import {
   debugError,
   debugExpert,
@@ -41,8 +41,7 @@ export async function manageOpenRouterExperts(
     // Get the database instance
     const db = getDB();
 
-    // Create OpenRouter instance for model listing
-    const openRouter = new OpenRouter();
+    const openRouter = getOpenRouter();
 
     // Get the list of models
     const models = await openRouter.list();

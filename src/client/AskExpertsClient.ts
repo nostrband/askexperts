@@ -26,14 +26,12 @@ import {
   EVENT_KIND_PROOF,
   EVENT_KIND_REPLY,
   FORMAT_TEXT,
-  COMPRESSION_PLAIN,
   METHOD_LIGHTNING,
   DEFAULT_DISCOVERY_RELAYS,
   DEFAULT_DISCOVERY_TIMEOUT,
   DEFAULT_FETCH_EXPERTS_TIMEOUT,
   DEFAULT_QUOTE_TIMEOUT,
   DEFAULT_REPLY_TIMEOUT,
-  COMPRESSION_GZIP,
 } from "../common/constants.js";
 
 import {
@@ -54,7 +52,12 @@ import {
   OnPayCallback,
 } from "../common/types.js";
 
-import { Compression, DefaultCompression } from "../common/compression.js";
+import {
+  Compression,
+  COMPRESSION_GZIP,
+  COMPRESSION_NONE,
+  getCompression,
+} from "../stream/compression.js";
 import {
   encrypt,
   decrypt,
@@ -148,7 +151,7 @@ export class AskExpertsClient {
   }) {
     this.defaultOnQuote = options?.onQuote;
     this.defaultOnPay = options?.onPay;
-    this.compression = options?.compression || new DefaultCompression();
+    this.compression = options?.compression || getCompression();
     this.discoveryRelays = options?.discoveryRelays;
 
     // Check if pool is provided or needs to be created internally
@@ -765,7 +768,7 @@ export class AskExpertsClient {
             // Get the compression method from the c tag
             const cTag = event.tags.find((tag) => tag[0] === "c");
             const replyCompr =
-              (cTag?.[1] as CompressionMethod) || COMPRESSION_PLAIN;
+              (cTag?.[1] as CompressionMethod) || COMPRESSION_NONE;
 
             // Decrypt the reply payload
             const decryptedReply = decrypt(
@@ -859,8 +862,8 @@ export class AskExpertsClient {
     }
 
     // Determine which expert to use
-    const expertPubkey = params.expert?.pubkey || params.bid?.pubkey;
-    const expertRelays = params.expert?.relays || params.bid?.relays || [];
+    const expertPubkey = params.bid?.pubkey || params.expert?.pubkey;
+    const expertRelays = params.bid?.relays || params.expert?.relays || [];
 
     if (!expertPubkey) {
       throw new AskExpertsError("Expert pubkey is missing");
@@ -870,13 +873,22 @@ export class AskExpertsClient {
       throw new AskExpertsError("Expert relays are missing");
     }
 
+    const supportedFormats =
+      params.bid?.formats || params.expert?.formats || [];
+    const supportedComprs =
+      params.bid?.compressions || params.expert?.compressions || [];
+
     // Determine format and compression
-    const format = params.format || FORMAT_TEXT;
-    const compr = params.compr || COMPRESSION_GZIP;
+    // Assume the first supported format, fallback to text
+    const format = params.format || supportedFormats[0] || FORMAT_TEXT;
+    // Prefer gzip, assume first supported compr, fallback to none
+    const compr =
+      params.compr ||
+      (supportedComprs.includes(COMPRESSION_GZIP)
+        ? COMPRESSION_GZIP
+        : supportedComprs[0] || COMPRESSION_NONE);
 
     // Check if format is supported
-    const supportedFormats =
-      params.expert?.formats || params.bid?.formats || [];
     if (supportedFormats.length > 0 && !supportedFormats.includes(format)) {
       throw new AskExpertsError(
         `Format ${format} is not supported by the expert`
@@ -884,8 +896,6 @@ export class AskExpertsClient {
     }
 
     // Check if compression is supported
-    const supportedComprs =
-      params.expert?.compressions || params.bid?.compressions || [];
     if (supportedComprs.length > 0 && !supportedComprs.includes(compr)) {
       throw new AskExpertsError(
         `Compression ${compr} is not supported by the expert`

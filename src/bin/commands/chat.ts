@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { AskExpertsClient } from "../../client/AskExpertsClient.js";
-import { FORMAT_OPENAI, COMPRESSION_GZIP } from "../../common/constants.js";
+import { FORMAT_OPENAI } from "../../common/constants.js";
 import { LightningPaymentManager } from "../../payments/LightningPaymentManager.js";
 import {
   debugMCP,
@@ -12,6 +12,7 @@ import {
 import * as readline from "readline";
 import { Expert } from "../../common/types.js";
 import { getWalletByNameOrDefault } from "./wallet/utils.js";
+import { COMPRESSION_GZIP } from "../../stream/compression.js";
 
 /**
  * Options for the chat command

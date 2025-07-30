@@ -38,7 +38,6 @@ export class OpenaiProxyExpert extends OpenaiProxyExpertBase {
     server: AskExpertsServer;
     openai: OpenaiInterface;
     model: string;
-    margin: number;
     systemPrompt?: string;
   }) {
     super(options);

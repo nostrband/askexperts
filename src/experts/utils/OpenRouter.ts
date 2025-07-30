@@ -1,6 +1,6 @@
 import { debugExpert, debugError } from "../../common/debug.js";
 import { ModelPricing, PricingResult } from "./ModelPricing.js";
-import { OpenaiInterface, createOpenAI } from "../../openai/index.js";
+import OpenAI from "openai";
 
 /**
  * Model information from OpenRouter API
@@ -45,7 +45,7 @@ export class OpenRouter implements ModelPricing {
   async list(): Promise<OpenRouterModel[]> {
     // Update cache if needed
     await this.updateCacheIfNeeded();
-    
+
     // Return all models
     return [...this.models];
   }
@@ -65,7 +65,7 @@ export class OpenRouter implements ModelPricing {
   /**
    * Gets a model by name (id)
    * Updates the cache if it's older than 1 hour
-   * 
+   *
    * @param name - Model ID
    * @returns Model information or undefined if not found
    */
@@ -74,7 +74,7 @@ export class OpenRouter implements ModelPricing {
     await this.updateCacheIfNeeded();
 
     // Find the model
-    return this.models.find(m => m.id === name);
+    return this.models.find((m) => m.id === name);
   }
 
   /**
@@ -120,10 +120,10 @@ export class OpenRouter implements ModelPricing {
       // 1 BTC = 100,000,000 sats, so sats = usd * 100,000,000 / btcUsd * 1,000,000,
       // add base price of 1 sat.
       const inputTokenPPM = Math.ceil(
-        1 + (inputPriceUsd * 100000000) / this.btcUsd * 1000000
+        1 + ((inputPriceUsd * 100000000) / this.btcUsd) * 1000000
       );
       const outputTokenPPM = Math.ceil(
-        1 + (outputPriceUsd * 100000000) / this.btcUsd * 1000000
+        1 + ((outputPriceUsd * 100000000) / this.btcUsd) * 1000000
       );
 
       debugExpert(
@@ -132,7 +132,7 @@ export class OpenRouter implements ModelPricing {
 
       return {
         inputPricePPM: inputTokenPPM,
-        outputPricePPM: outputTokenPPM
+        outputPricePPM: outputTokenPPM,
       };
     } catch (error) {
       debugError("Error calculating pricing:", error);
@@ -152,7 +152,10 @@ export class OpenRouter implements ModelPricing {
    */
   private async updateCacheIfNeeded(): Promise<void> {
     const now = Date.now();
-    if (now - this.lastFetchTime > this.cacheExpiryTime || this.models.length === 0) {
+    if (
+      now - this.lastFetchTime > this.cacheExpiryTime ||
+      this.models.length === 0
+    ) {
       await this.fetchModels();
     }
   }
@@ -170,7 +173,9 @@ export class OpenRouter implements ModelPricing {
 
       const data = await response.json();
       // ignore BYOK models
-      this.models = data.data.filter((m: OpenRouterModel) => !m.description.includes("BYOK"));
+      this.models = data.data.filter(
+        (m: OpenRouterModel) => !m.description.includes("BYOK")
+      );
       this.lastFetchTime = Date.now();
       debugExpert(`Fetched ${this.models.length} models from OpenRouter API`);
     } catch (error) {
@@ -211,20 +216,18 @@ export class OpenRouter implements ModelPricing {
   async checkModel(model: string, apiKey: string): Promise<boolean> {
     try {
       debugExpert(`Testing model accessibility: ${model}`);
-      
+
       // Create an OpenAI client with the provided API key
-      const openai = createOpenAI(
+      const openai = new OpenAI({
         apiKey,
-        "https://openrouter.ai/api/v1"
-      );
+        baseURL: "https://openrouter.ai/api/v1",
+      });
 
       // Send a simple test prompt
       await openai.chat.completions.create({
         model: model,
-        messages: [
-          { role: "user", content: "hello" }
-        ],
-        max_tokens: 10
+        messages: [{ role: "user", content: "hello" }],
+        max_tokens: 16,
       });
 
       // If we get 200 return code we assume the model is working
@@ -235,4 +238,11 @@ export class OpenRouter implements ModelPricing {
       return false;
     }
   }
+}
+
+let instance: OpenRouter
+
+export function getOpenRouter(): OpenRouter {
+  if (!instance) instance = new OpenRouter();
+  return instance;
 }

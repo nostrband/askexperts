@@ -29,10 +29,6 @@ export const FORMAT_OPENAI = "openai";
 // Payment methods
 export const METHOD_LIGHTNING = "lightning";
 
-// Compression methods
-export const COMPRESSION_PLAIN = "plain";
-export const COMPRESSION_GZIP = "gzip";
-
 // Default discovery relays
 export const DEFAULT_DISCOVERY_RELAYS = [
   "wss://relay1.askexperts.io",

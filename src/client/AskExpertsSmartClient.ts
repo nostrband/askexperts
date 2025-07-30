@@ -65,14 +65,10 @@ export class AskExpertsSmartClient {
     });
 
     // Initialize OpenAI
-    this.openai = createOpenAI(
-      openaiApiKey,
-      openaiBaseUrl,
-      {
-        "HTTP-Referer": "https://askexperts.io", // Site URL for rankings on openrouter.ai
-        "X-Title": "AskExperts", // Site title for rankings on openrouter.ai
-      }
-    );
+    this.openai = createOpenAI({
+      apiKey: openaiApiKey,
+      baseURL: openaiBaseUrl,
+    });
   }
 
   /**
@@ -166,20 +162,21 @@ export class AskExpertsSmartClient {
       // console.error("question parsing content", content);
 
       // Use OpenAI to generate an answer
-      const completion = await this.openai.chat.completions.create({
-        model: "openai/gpt-4o-mini",
+      const model = "openai/gpt-4o-mini";
+      const quoteResult = await this.openai.getQuote(model, {
+        model,
         messages: [
           {
             role: "system",
-            content: `Your job is to look at the user's detailed question or prompt that might include sensitive or private information, 
+            content: `Your job is to look at the user's detailed question or prompt that might include sensitive or private information,
 and come up with a short anonymized summarized version that can be shared publicly to find experts on the subject, without revealing
-any private data. 
+any private data.
 
-You must also determine at least 10 hashtags that this summarized question/prompt might have to simplify discovery for experts. After you 
+You must also determine at least 10 hashtags that this summarized question/prompt might have to simplify discovery for experts. After you
 select the initial list of hashtags, for each initial hashtag come up with 4 additional variations of it and add those variations to the list as well,
 to make the total of at least 50 hashtags. Hashtags must be without # symbol, with - instead of spaces, english, lowercase.
 
-If the question is super simple and looks like a test, come up with appropriate hashtags but don't summarize the question - just return the input question as summarized one, don't invent your own question/summary. 
+If the question is super simple and looks like a test, come up with appropriate hashtags but don't summarize the question - just return the input question as summarized one, don't invent your own question/summary.
 
 If additional "expert requirements" are provided by the user, use them to figure out which hashtags the required experts might be monitoring and print those as the last line in your output.
 
@@ -196,9 +193,25 @@ expert_hashtags: expert_hashtag1, expert_hashtag2, etc
           },
         ],
       });
+      
+      // Make sure quoteId is defined
+      if (!quoteResult.quoteId) {
+        throw new Error("No quoteId returned from getQuote");
+      }
+      
+      const completion = await this.openai.execute(quoteResult.quoteId);
 
       // Extract the response content
-      const responseContent = completion.choices[0]?.message?.content;
+      // Handle the completion result which could be a ChatCompletion or AsyncIterable<ChatCompletionChunk>
+      let responseContent: string | null = null;
+      
+      if ('choices' in completion) {
+        // It's a ChatCompletion
+        responseContent = completion.choices[0]?.message?.content || null;
+      } else {
+        // It's an AsyncIterable<ChatCompletionChunk>, but we don't expect this case
+        throw new Error("Unexpected streaming response");
+      }
       debugMCP("Prepared ask", { responseContent, question, requirements });
       if (!responseContent || responseContent === "error")
         throw new Error("Failed to parse the question");
@@ -261,23 +274,24 @@ expert_hashtags: expert_hashtag1, expert_hashtag2, etc
       // console.error("select bids content", content);
 
       // Use OpenAI to generate an answer
-      const completion = await this.openai.chat.completions.create({
-        model: "openai/gpt-4o-mini",
+      const model = "openai/gpt-4o-mini";
+      const quoteResult = await this.openai.getQuote(model, {
+        model,
         messages: [
           {
             role: "system",
-            content: `Your job is to look at the question of the user, at the requirements to experts that user provided, and then at the list of 
-"bids" that were received from experts (one per line). 
+            content: `Your job is to look at the question of the user, at the requirements to experts that user provided, and then at the list of
+"bids" that were received from experts (one per line).
 
 Choose bids that are more likely to answer the question.
 
-If pricing is indicated in the offer, take it into account in your evaluation.  
+If pricing is indicated in the offer, take it into account in your evaluation.
 
-If expert requirements are provided - skip bids that don't match. 
+If expert requirements are provided - skip bids that don't match.
 
-Then print up to 5 top bid ids, one per line. 
+Then print up to 5 top bid ids, one per line.
 
-If expert requirements are asking to use several kinds of experts - make sure to include at least 1 bid of each kind in the printed list. 
+If expert requirements are asking to use several kinds of experts - make sure to include at least 1 bid of each kind in the printed list.
 
 Return nothing else, only bid ids.
 `,
@@ -288,9 +302,25 @@ Return nothing else, only bid ids.
           },
         ],
       });
+      
+      // Make sure quoteId is defined
+      if (!quoteResult.quoteId) {
+        throw new Error("No quoteId returned from getQuote");
+      }
+      
+      const completion = await this.openai.execute(quoteResult.quoteId);
 
       // Extract the response content
-      const responseContent = completion.choices[0]?.message?.content;
+      // Handle the completion result which could be a ChatCompletion or AsyncIterable<ChatCompletionChunk>
+      let responseContent: string | null = null;
+      
+      if ('choices' in completion) {
+        // It's a ChatCompletion
+        responseContent = completion.choices[0]?.message?.content || null;
+      } else {
+        // It's an AsyncIterable<ChatCompletionChunk>, but we don't expect this case
+        throw new Error("Unexpected streaming response");
+      }
       // debugMCP("select bids ", { responseContent, question, requirements, bids });
       if (responseContent === null) throw new Error("Failed to parse the bids");
       const lines = responseContent
@@ -425,10 +455,16 @@ Return nothing else, only bid ids.
         compr: bid.compressions[0],
         onQuote: async (quote, prompt) => {
           // Add context property to prompt if it doesn't exist
-          const promptWithContext = prompt.context ? prompt : { ...prompt, context: {} };
-          
+          const promptWithContext = prompt.context
+            ? prompt
+            : { ...prompt, context: {} };
+
           // Call our handleQuote method with the max amount
-          const amount = await this.handleQuote(quote, promptWithContext, max_amount_sats);
+          const amount = await this.handleQuote(
+            quote,
+            promptWithContext,
+            max_amount_sats
+          );
 
           // Store the amount for later use
           invoice_amount = amount;
@@ -438,7 +474,9 @@ Return nothing else, only bid ids.
         },
         onPay: (quote, prompt) => {
           // Add context property to prompt if it doesn't exist
-          const promptWithContext = prompt.context ? prompt : { ...prompt, context: {} };
+          const promptWithContext = prompt.context
+            ? prompt
+            : { ...prompt, context: {} };
           return this.handlePayment(quote, promptWithContext);
         },
       });
