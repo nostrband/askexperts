@@ -3,7 +3,7 @@
  */
 
 import { Event } from 'nostr-tools';
-import { Compression } from '../stream/compression.js';
+import { CompressionMethod } from '../stream/types.js';
 
 /**
  * Supported prompt formats
@@ -16,12 +16,6 @@ export type PromptFormat = 'text' | 'openai' | (string & {});
  * Can be extended with custom methods
  */
 export type PaymentMethod = 'lightning' | (string & {});
-
-/**
- * Supported compression methods
- * Can be extended with custom compression methods
- */
-export type CompressionMethod = 'none' | 'gzip' | (string & {});
 
 /**
  * Callback function type for handling quotes
@@ -202,7 +196,7 @@ export interface AskExpertParams {
   onPay?: OnPayCallback;
   
   /** Custom compression implementation (optional if provided in constructor) */
-  compression?: Compression;
+  compression?: any;
 }
 
 /**

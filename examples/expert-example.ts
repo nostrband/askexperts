@@ -15,7 +15,6 @@ import {
 } from "../src/common/types.js";
 import {
   FORMAT_TEXT,
-  COMPRESSION_NONE,
   METHOD_LIGHTNING,
   FORMAT_OPENAI,
 } from "../src/common/constants.js";

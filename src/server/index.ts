@@ -5,4 +5,4 @@
 
 export { AskExpertsServerBase } from './AskExpertsServerBase.js';
 export { AskExpertsServer } from './AskExpertsServer.js';
-export { ExpertPrice, OnPromptPriceCallback, OnPromptPaidCallback } from '../common/types.js';
+export type { ExpertPrice, OnPromptPriceCallback, OnPromptPaidCallback } from '../common/types.js';

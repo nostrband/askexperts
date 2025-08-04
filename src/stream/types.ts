@@ -4,15 +4,16 @@
 
 import { Event } from 'nostr-tools';
 
-/**
- * Supported encryption schemes for NIP-173 streams
- */
-export type StreamEncryption = 'none' | 'nip44' | (string & {});
 
 /**
  * Supported compression formats for NIP-173 streams
  */
-export type StreamCompression = 'none' | 'gzip' | 'base64' | (string & {});
+export type CompressionMethod = 'none' | 'gzip' | (string & {});
+
+/**
+ * Supported encryption schemes for NIP-173 streams
+ */
+export type EncryptionMethod = 'none' | 'nip44' | (string & {});
 
 /**
  * Status of a stream chunk
@@ -36,10 +37,13 @@ export interface StreamMetadata {
   streamId: string;
   
   /** Encryption scheme used for this stream */
-  encryption: StreamEncryption;
+  encryption: EncryptionMethod;
   
   /** Compression format used per chunk */
-  compression: StreamCompression;
+  compression: CompressionMethod;
+  
+  /** Whether original data is binary */
+  binary?: boolean;
   
   /**
    * Hex-encoded 32-byte private key for the recipient (only when encryption is used)

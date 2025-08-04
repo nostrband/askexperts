@@ -5,7 +5,8 @@ if (process.env.DEBUG) {
 }
 
 // Export the AskExpertsMCP class (new implementation that extends McpServer)
-export { AskExpertsMCP, BidMCP, ReplyMCP } from "./mcp/AskExpertsMCP.js";
+export { AskExpertsMCP } from "./mcp/AskExpertsMCP.js";
+export type { BidMCP, ReplyMCP } from "./mcp/AskExpertsMCP.js";
 
 // Export the OpenAIProxy class
 export { OpenaiProxy } from "./proxy/index.js";
@@ -36,6 +37,8 @@ export type {
   Reply,
   Replies,
   PromptFormat,
-  CompressionMethod,
-  PaymentMethod
+  PaymentMethod,
+  ExpertPrice,
+  OnPromptPriceCallback,
+  OnPromptPaidCallback
 } from "./common/types.js";

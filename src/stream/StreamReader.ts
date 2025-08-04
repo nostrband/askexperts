@@ -4,15 +4,14 @@
 
 import { SimplePool, Event, Filter } from "nostr-tools";
 import { Compression, getCompression } from "./compression.js";
+import { Encryption, getEncryption } from "./encryption.js";
 import { subscribeToRelays } from "../common/relay.js";
-import { decrypt } from "../common/crypto.js";
 import {
   StreamMetadata,
   StreamReaderConfig,
   StreamStatus,
   StreamError as StreamErrorType,
 } from "./types.js";
-import { CompressionMethod } from "../common/types.js";
 import { debugStream, debugError } from "../common/debug.js";
 
 /**
@@ -41,20 +40,22 @@ export class StreamReaderError extends Error {
  * StreamReader for NIP-173 streams
  * Implements AsyncIterable to allow for iterating over chunks
  */
-export class StreamReader implements AsyncIterable<Uint8Array> {
+export class StreamReader implements AsyncIterable<string | Uint8Array> {
   private metadata: StreamMetadata;
   private pool: SimplePool;
   private config: Required<StreamReaderConfig>;
   private compression: Compression;
-  private buffer: Map<number, Event> = new Map();
-  private nextIndex = 0;
+  private encryption: Encryption;
+  private buffer: Map<string, Event> = new Map();
+  private resultBuffer: IteratorResult<string | Uint8Array, any>[] = [];
+  private nextRef = "";
   private totalSize = 0;
   private chunkCount = 0;
   private isDone = false;
   private lastEventTime = 0;
   private subscription: { close: () => void } | null = null;
   private waitingResolvers: ((
-    value: IteratorResult<Uint8Array, any>
+    value: IteratorResult<string | Uint8Array, any>
   ) => void)[] = [];
   private waitingRejecters: ((reason: any) => void)[] = [];
   private error: Error | null = null;
@@ -71,12 +72,14 @@ export class StreamReader implements AsyncIterable<Uint8Array> {
     metadata: StreamMetadata,
     pool: SimplePool,
     config: StreamReaderConfig = {},
-    compression?: Compression
+    compression?: Compression,
+    encryption?: Encryption
   ) {
     this.metadata = metadata;
     this.pool = pool;
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.compression = compression || getCompression();
+    this.encryption = encryption || getEncryption();
 
     // Validate metadata
     if (!metadata.streamId) {
@@ -87,8 +90,16 @@ export class StreamReader implements AsyncIterable<Uint8Array> {
       throw new Error("At least one relay is required");
     }
 
+    if (metadata.encryption === "") {
+      throw new Error("Unspecified encryption");
+    }
+
+    if (metadata.compression === "") {
+      throw new Error("Unspecified compression");
+    }
+
     // Validate encryption requirements
-    if (metadata.encryption === "nip44" && !metadata.key) {
+    if (metadata.encryption !== "none" && !metadata.key) {
       throw new Error(
         "Recipient private key (key) is required for NIP-44 decryption"
       );
@@ -136,7 +147,7 @@ export class StreamReader implements AsyncIterable<Uint8Array> {
     // Update last event time
     this.lastEventTime = Date.now();
 
-    // Extract index from tags
+    // Extract index from tags (still needed for validation and logging)
     const indexTag = event.tags.find((tag) => tag[0] === "i");
     if (!indexTag || !indexTag[1]) {
       debugStream("Received chunk without index tag:", event);
@@ -183,9 +194,20 @@ export class StreamReader implements AsyncIterable<Uint8Array> {
       return;
     }
 
-    // Store the event in the buffer
-    this.buffer.set(index, event);
+    // Extract prev tag (empty string for first chunk)
+    const prevTag = event.tags.find((tag) => tag[0] === "prev");
+    const prevRef = index && prevTag ? prevTag[1] : "";
+    if (index > 0 && !prevRef) {
+      debugError(`Skipping chunk index ${index} without prev tag`);
+      return;
+    }
+
+    // Store the event in the buffer using prev tag as key
+    this.buffer.set(prevRef, event);
     this.chunkCount++;
+    debugStream(
+      `Received chunk index ${index} with prev='${prevRef}' payload size ${event.content.length} buffered count ${this.buffer.size} of total ${this.chunkCount}`
+    );
 
     // Process any events that are now in sequence
     this.processBuffer();
@@ -195,10 +217,20 @@ export class StreamReader implements AsyncIterable<Uint8Array> {
    * Processes events from the buffer in sequence
    */
   private async processBuffer() {
-    // Process events in order
-    while (this.buffer.has(this.nextIndex) && !this.error) {
-      const event = this.buffer.get(this.nextIndex)!;
-      this.buffer.delete(this.nextIndex);
+    // Process events in order based on prev tag chain
+    while (this.buffer.has(this.nextRef) && !this.error) {
+      const event = this.buffer.get(this.nextRef)!;
+
+      // Extract index for logging
+      const indexTag = event.tags.find((tag) => tag[0] === "i");
+      const index = indexTag ? indexTag[1] : "unknown";
+
+      debugStream(
+        `Processing chunk index ${index} with nextRef=${this.nextRef} payload ${event.content.length}`
+      );
+
+      // Remove from buffer
+      this.buffer.delete(this.nextRef);
 
       // Extract status from tags
       const statusTag = event.tags.find((tag) => tag[0] === "status");
@@ -206,7 +238,7 @@ export class StreamReader implements AsyncIterable<Uint8Array> {
 
       // Process the chunk
       try {
-        const chunk = await this.processChunk(event.content, status === "done");
+        const chunk = await this.processChunk(event.content);
 
         // Check if we've exceeded max result size
         if (this.totalSize > this.config.maxResultSize) {
@@ -220,28 +252,25 @@ export class StreamReader implements AsyncIterable<Uint8Array> {
         }
 
         // Resolve waiting promises with the chunk
+        const result = { value: chunk, done: false };
         if (this.waitingResolvers.length > 0) {
           const resolve = this.waitingResolvers.shift()!;
-          resolve({ value: chunk, done: false });
+          resolve(result);
+        } else {
+          this.resultBuffer.push(result);
         }
 
-        // If this was the last chunk, resolve any remaining promises with done
+        // If this was the last chunk
         if (status === "done") {
           this.isDone = true;
           this.close();
-
-          // Resolve any waiting promises with done
-          while (this.waitingResolvers.length > 0) {
-            const resolve = this.waitingResolvers.shift()!;
-            resolve({ value: undefined, done: true });
-          }
         }
       } catch (err: any) {
         this.setError(err);
       }
 
-      // Move to next index
-      this.nextIndex++;
+      // Update nextRef to current event ID for chain continuation
+      this.nextRef = event.id;
     }
   }
 
@@ -251,30 +280,51 @@ export class StreamReader implements AsyncIterable<Uint8Array> {
    * @param content - The chunk content
    * @returns Promise resolving to the processed chunk
    */
-  private async processChunk(
-    content: string,
-  ): Promise<Uint8Array> {
+  private async processChunk(content: string): Promise<string | Uint8Array> {
     try {
-      // Apply NIP-44 decryption if configured
-      let processedContent = content;
+      // Implement the 'recv' logic from NIP-173
+      const isBinary = !!this.metadata.binary;
+      const encType = this.metadata.encryption;
+      const comprType = this.metadata.compression;
 
-      if (this.metadata.encryption === "nip44") {
-        if (!this.metadata.key) {
+      // Following the pseudocode from NIP-173:
+      // recv(data: string, binary: boolean, enc_type: string, compr_type: string): string | Uint8Array
+
+      // Step 1: Determine if we need binary handling based on binary flag or compression
+      const binaryOrCompr = isBinary || comprType !== "none";
+
+      // Step 2: Decode the data if needed (when no encryption but binary or compressed)
+      let decodedData: string | Uint8Array;
+      if (encType === "none" && binaryOrCompr) {
+        // str2bin - convert base64 string to binary
+        try {
+          decodedData = Buffer.from(content, "base64");
+        } catch (err) {
           throw new StreamReaderError(
-            "missing_key",
-            "Missing recipient private key (key) for NIP-44 decryption"
+            "decode_failed",
+            `Failed to decode base64 content: ${
+              err instanceof Error ? err.message : String(err)
+            }`
           );
         }
+      } else {
+        decodedData = content;
+      }
 
+      // Step 3: Decrypt the data if encryption is used
+      let decryptedData: string | Uint8Array;
+      if (encType !== "none") {
         try {
           // Convert hex key to Uint8Array
-          const recipientPrivkey = Buffer.from(this.metadata.key, "hex");
+          const recipientPrivkey = Buffer.from(this.metadata.key!, "hex");
 
-          // Decrypt the content using NIP-44
-          processedContent = decrypt(
-            content,
-            this.metadata.streamId,
-            recipientPrivkey
+          // Decrypt using the encryption interface
+          decryptedData = await this.encryption.decrypt(
+            decodedData as string,
+            encType as any,
+            binaryOrCompr,
+            recipientPrivkey,
+            this.metadata.streamId
           );
         } catch (err) {
           throw new StreamReaderError(
@@ -284,21 +334,26 @@ export class StreamReader implements AsyncIterable<Uint8Array> {
             }`
           );
         }
+      } else {
+        decryptedData = decodedData;
       }
 
-      // Decompress the content
-      const decompressed = await this.compression.decompress(
-        processedContent,
-        this.metadata.compression as CompressionMethod
-      );
-
-      // Convert to Uint8Array
-      const chunk = new TextEncoder().encode(decompressed);
+      // Step 4: Decompress the data if compression is used
+      let result: string | Uint8Array;
+      if (comprType !== "none") {
+        result = await this.compression.decompress(
+          decryptedData,
+          comprType,
+          isBinary
+        );
+      } else {
+        result = decryptedData;
+      }
 
       // Update total size
-      this.totalSize += chunk.length;
+      this.totalSize += result.length;
 
-      return chunk;
+      return result;
     } catch (err) {
       debugError("Error processing chunk:", err);
       throw err instanceof Error
@@ -327,7 +382,7 @@ export class StreamReader implements AsyncIterable<Uint8Array> {
         this.setError(
           new StreamReaderError(
             "ttl_exceeded",
-            `TTL exceeded (${this.config.ttl}ms) while waiting for chunk ${this.nextIndex}`
+            `TTL exceeded (${this.config.ttl}ms) while waiting for next chunk in chain`
           )
         );
         return;
@@ -377,49 +432,56 @@ export class StreamReader implements AsyncIterable<Uint8Array> {
   /**
    * Implements AsyncIterable interface
    */
-  [Symbol.asyncIterator](): AsyncIterator<Uint8Array> {
+  [Symbol.asyncIterator](): AsyncIterator<string | Uint8Array> {
     // Start the subscription if not already started
     this.start();
 
     return {
-      next: async (): Promise<IteratorResult<Uint8Array>> => {
+      next: async (): Promise<IteratorResult<string | Uint8Array>> => {
         // If we have an error, throw it
         if (this.error) {
           throw this.error;
         }
 
         // If the stream is done, return done
-        if (this.isDone) {
+        if (this.isDone && !this.buffer.size && !this.resultBuffer.length) {
+          // Resolve any waiting promises with done
+          while (this.waitingResolvers.length > 0) {
+            const resolve = this.waitingResolvers.shift()!;
+            resolve({ value: undefined, done: true });
+          }
+
           return { value: undefined, done: true };
         }
 
-        // If we have a buffered event for the next index, process it
-        if (this.buffer.has(this.nextIndex)) {
-          this.processBuffer();
-        }
-
-        // If we still have an error after processing, throw it
-        if (this.error) {
-          throw this.error;
+        if (this.resultBuffer.length) {
+          return this.resultBuffer.shift()!;
         }
 
         // Wait for the next chunk
-        return new Promise<IteratorResult<Uint8Array>>((resolve, reject) => {
-          this.waitingResolvers.push(resolve);
-          this.waitingRejecters.push(reject);
-        });
+        return new Promise<IteratorResult<string | Uint8Array>>(
+          (resolve, reject) => {
+            this.waitingResolvers.push(resolve);
+            this.waitingRejecters.push(reject);
+          }
+        );
       },
 
-      return: async (): Promise<IteratorResult<Uint8Array>> => {
+      return: async (): Promise<IteratorResult<string | Uint8Array>> => {
         this.close();
         return { value: undefined, done: true };
       },
 
-      throw: async (err: any): Promise<IteratorResult<Uint8Array>> => {
+      throw: async (err: any): Promise<IteratorResult<string | Uint8Array>> => {
         this.setError(err instanceof Error ? err : new Error(String(err)));
         this.close();
         throw this.error;
       },
     };
+  }
+
+  [Symbol.dispose](): void {
+    this.close();
+    this.resultBuffer.length = 0;
   }
 }

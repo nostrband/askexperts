@@ -21,7 +21,6 @@ export type {
   Replies,
   Prompt,
   PromptFormat,
-  CompressionMethod,
   PaymentMethod,
   Invoice,
   OnQuoteCallback,

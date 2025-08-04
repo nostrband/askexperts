@@ -28,7 +28,6 @@ import {
   Quote,
   Proof,
   PromptFormat,
-  CompressionMethod,
   PaymentMethod,
   OnAskCallback,
   OnPromptCallback,
@@ -50,6 +49,7 @@ import {
   subscribeToRelays,
   waitForEvent,
 } from "../common/relay.js";
+import { CompressionMethod } from "../stream/types.js";
 
 /**
  * Default interval for profile republishing (in milliseconds)
@@ -683,10 +683,17 @@ export class AskExpertsServerBase {
       );
 
       // Decompress the payload
-      const promptPayloadStr = await this.#compression.decompress(
+      // Since decompress now accepts string input, we can pass decryptedPrompt directly
+      const promptPayloadData = await this.#compression.decompress(
         decryptedPrompt,
-        promptCompr
+        promptCompr,
+        false // non-binary mode
       );
+      
+      // Convert to string if it's a Uint8Array
+      const promptPayloadStr = typeof promptPayloadData === 'string'
+        ? promptPayloadData
+        : new TextDecoder().decode(promptPayloadData);
 
       try {
         // Parse and validate the prompt payload using Zod
@@ -962,13 +969,25 @@ export class AskExpertsServerBase {
         replyPayloadStr,
         COMPRESSION_NONE // Use plain compression for simplicity
       );
-      debugExpert(
-        `Expert reply ${replyPayloadStr.length} chars, compressed to ${compressedPayload.length} bytes`
-      );
+      // Log compression results with appropriate property access
+      if (typeof compressedPayload === 'string') {
+        debugExpert(
+          `Expert reply ${replyPayloadStr.length} chars, compressed to ${compressedPayload.length} bytes (string)`
+        );
+      } else {
+        debugExpert(
+          `Expert reply ${replyPayloadStr.length} chars, compressed to ${compressedPayload.byteLength} bytes (binary)`
+        );
+      }
 
       // Encrypt the payload
+      // If compressedPayload is a Uint8Array, convert it to string for encryption
+      const dataToEncrypt = typeof compressedPayload === 'string'
+        ? compressedPayload
+        : new TextDecoder().decode(compressedPayload);
+        
       const encryptedContent = encrypt(
-        compressedPayload,
+        dataToEncrypt,
         prompt.event.pubkey,
         this.#privkey
       );

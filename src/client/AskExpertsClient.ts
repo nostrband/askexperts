@@ -46,7 +46,6 @@ import {
   Reply,
   Replies,
   PromptFormat,
-  CompressionMethod,
   PaymentMethod,
   OnQuoteCallback,
   OnPayCallback,
@@ -72,6 +71,7 @@ import {
   waitForEvent,
   createEventStream,
 } from "../common/relay.js";
+import { CompressionMethod } from "../stream/types.js";
 
 /**
  * AskExpertsClient class for NIP-174 protocol
@@ -491,8 +491,13 @@ export class AskExpertsClient {
     );
 
     // Encrypt the payload
+    // If compressedPayload is a Uint8Array, convert it to string for encryption
+    const dataToEncrypt = typeof compressedPayload === 'string'
+      ? compressedPayload
+      : new TextDecoder().decode(compressedPayload);
+      
     const encryptedContent = encrypt(
-      compressedPayload,
+      dataToEncrypt,
       expertPubkey,
       promptPrivkey
     );
@@ -778,13 +783,20 @@ export class AskExpertsClient {
             );
 
             // Decompress the payload using the compression instance from the Replies object (this)
-            const replyPayloadStr = await compression.decompress(
+            // Since decompress now accepts string input, we can pass decryptedReply directly
+            const replyPayloadData = await compression.decompress(
               decryptedReply,
-              replyCompr
+              replyCompr,
+              false // non-binary mode
             );
 
             try {
               // Parse and validate the reply payload using Zod
+              // Convert to string if it's a Uint8Array
+              const replyPayloadStr = typeof replyPayloadData === 'string'
+                ? replyPayloadData
+                : new TextDecoder().decode(replyPayloadData);
+                
               const rawPayload = JSON.parse(replyPayloadStr);
               const replyPayload = replyPayloadSchema.parse(rawPayload);
 
