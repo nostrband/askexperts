@@ -452,7 +452,7 @@ Return nothing else, only bid ids.
         bid,
         content: question,
         format: FORMAT_TEXT,
-        compr: bid.compressions[0],
+        stream: bid.stream,
         onQuote: async (quote, prompt) => {
           // Add context property to prompt if it doesn't exist
           const promptWithContext = prompt.context

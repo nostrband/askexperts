@@ -643,7 +643,6 @@ export class OpenaiAskExperts implements OpenaiInterface {
   constructor(
     paymentManager: LightningPaymentManager,
     options?: {
-      compression?: Compression;
       pool?: SimplePool;
       discoveryRelays?: string[];
       margin?: number;
@@ -654,7 +653,6 @@ export class OpenaiAskExperts implements OpenaiInterface {
 
     // Create the AskExpertsClient instance with the provided options
     this.client = new AskExpertsClient({
-      compression: options?.compression,
       pool: options?.pool,
       discoveryRelays: options?.discoveryRelays,
       onPay: this.onPay.bind(this),

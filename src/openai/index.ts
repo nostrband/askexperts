@@ -66,7 +66,6 @@ export function createOpenAI(options?: {
   baseURL?: string;
   defaultHeaders?: Record<string, string>;
   paymentManager?: LightningPaymentManager;
-  compression?: Compression;
   pool?: SimplePool;
   discoveryRelays?: string[];
   margin?: number;
@@ -101,7 +100,6 @@ export function createOpenAI(options?: {
 
     // Return an OpenaiAskExperts instance
     return new OpenaiAskExperts(options.paymentManager, {
-      compression: options.compression,
       pool: options.pool,
       discoveryRelays: options.discoveryRelays,
       margin: options.margin,

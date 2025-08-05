@@ -20,7 +20,7 @@ async function testAskExpertsClient() {
       summary: 'What is the meaning of life?',
       hashtags: ['philosophy', 'life', 'test'],
       formats: ['text'],
-      comprs: ['none', 'gzip'],
+      stream: true,
       methods: ['lightning'],
     });
 
@@ -37,7 +37,7 @@ async function testAskExpertsClient() {
       console.log(`  Expert: ${bid.pubkey}`);
       console.log(`  Offer: ${bid.offer}`);
       console.log(`  Formats: ${bid.formats.join(', ')}`);
-      console.log(`  Compressions: ${bid.compressions.join(', ')}`);
+      console.log(`  Stream: ${bid.stream}`);
       console.log(`  Methods: ${bid.methods.join(', ')}`);
       console.log(`  Relays: ${bid.relays.join(', ')}`);
     });
@@ -58,7 +58,7 @@ async function testAskExpertsClient() {
       console.log(`  Description: ${expert.description}`);
       console.log(`  Hashtags: ${expert.hashtags.join(', ')}`);
       console.log(`  Formats: ${expert.formats.join(', ')}`);
-      console.log(`  Compressions: ${expert.compressions.join(', ')}`);
+      console.log(`  Stream: ${expert.stream}`);
       console.log(`  Methods: ${expert.methods.join(', ')}`);
       console.log(`  Relays: ${expert.relays.join(', ')}`);
     });
@@ -128,7 +128,7 @@ async function testAskExpertsClient() {
         expert,
         content: 'What is the meaning of life? I have been pondering this question for a while.',
         format: 'text',
-        compr: 'none',
+        stream: true,
         onQuote,
         onPay,
       });

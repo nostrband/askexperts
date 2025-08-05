@@ -16,13 +16,15 @@ import {
   OnPromptPaidCallback,
 } from "../common/types.js";
 import { debugError } from "../common/debug.js";
-import { Compression } from "../stream/compression.js";
+import { StreamFactory } from "../stream/index.js";
 
 /**
  * Expert server with payment handling
  * Extends the base server with payment functionality
  */
-export class AskExpertsServer extends AskExpertsServerBase {
+import { AskExpertsServerInterface } from "./AskExpertsServerInterface.js";
+
+export class AskExpertsServer extends AskExpertsServerBase implements AskExpertsServerInterface {
   /**
    * Payment manager for handling expert payments
    */
@@ -53,13 +55,13 @@ export class AskExpertsServer extends AskExpertsServerBase {
    * @param options.promptRelays - Relays for prompt phase
    * @param options.hashtags - Hashtags the expert is interested in
    * @param options.formats - Formats supported by the expert
-   * @param options.compressions - Compression methods supported by the expert
+   * @param options.streamFactory - StreamFactory for creating stream readers and writers
    * @param options.paymentMethods - Payment methods supported by the expert
    * @param options.onAsk - Callback for handling asks
    * @param options.onPromptPrice - Callback for determining prompt prices
    * @param options.onPromptPaid - Callback for handling paid prompts
    * @param options.pool - SimplePool instance for relay operations
-   * @param options.compression - Custom compression implementation
+   * @param options.streamFactory - Custom StreamFactory implementation
    */
   constructor(options: {
     privkey: Uint8Array;
@@ -73,7 +75,7 @@ export class AskExpertsServer extends AskExpertsServerBase {
     onPromptPaid?: OnPromptPaidCallback;
     paymentMethods?: string[];
     pool: SimplePool;
-    compression?: Compression;
+    streamFactory?: StreamFactory;
     nickname?: string;
     description?: string;
   }) {
@@ -90,7 +92,7 @@ export class AskExpertsServer extends AskExpertsServerBase {
       onProof: undefined,
       paymentMethods: options.paymentMethods,
       pool: options.pool,
-      compression: options.compression,
+      streamFactory: options.streamFactory,
       nickname: options.nickname,
       description: options.description,
     });

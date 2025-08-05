@@ -3,7 +3,6 @@
  */
 
 import { Event } from 'nostr-tools';
-import { CompressionMethod } from '../stream/types.js';
 
 /**
  * Supported prompt formats
@@ -52,11 +51,10 @@ export type OnPromptCallback = (prompt: Prompt) => Promise<ExpertQuote>;
  * Expert reply structure for server-side implementation
  */
 export interface ExpertReply {
-  /** Whether this is the last reply */
-  done?: boolean;
-  
   /** Reply content */
   content: any;
+  /** Whether this is the last reply */
+  done?: boolean;
 }
 
 /**
@@ -64,7 +62,8 @@ export interface ExpertReply {
  * Extends AsyncIterable to allow streaming replies
  */
 export interface ExpertReplies extends AsyncIterable<ExpertReply> {
-  // No additional fields required
+  /** Whether replies must be sent as bytes */
+  binary?: boolean;
 }
 
 export type OnProofCallback = (prompt: Prompt, quote: ExpertQuote, proof: Proof) => Promise<ExpertReplies | ExpertReply>;
@@ -82,8 +81,8 @@ export interface FindExpertsParams {
   /** Accepted prompt formats (optional) */
   formats?: PromptFormat[];
   
-  /** Accepted compression methods (optional) */
-  comprs?: CompressionMethod[];
+  /** Whether streaming is supported (optional) */
+  stream?: boolean;
   
   /** Accepted payment methods (optional) */
   methods?: PaymentMethod[];
@@ -114,8 +113,8 @@ export interface Bid {
   /** Supported formats */
   formats: PromptFormat[];
   
-  /** Supported compression methods */
-  compressions: CompressionMethod[];
+  /** Whether streaming is supported */
+  stream: boolean;
   
   /** Supported payment methods */
   methods: PaymentMethod[];
@@ -146,8 +145,8 @@ export interface Expert {
   /** Supported formats */
   formats: PromptFormat[];
   
-  /** Supported compression methods */
-  compressions: CompressionMethod[];
+  /** Whether streaming is supported */
+  stream: boolean;
   
   /** Supported payment methods */
   methods: PaymentMethod[];
@@ -186,8 +185,8 @@ export interface AskExpertParams {
   /** Format of the prompt (must be supported by expert/bid) */
   format?: PromptFormat;
   
-  /** Compression method to use (must be supported by expert/bid) */
-  compr?: CompressionMethod;
+  /** Whether to use streaming (must be supported by expert/bid) */
+  stream?: boolean;
   
   /** Callback function called when a quote is received (optional if provided in constructor) */
   onQuote?: OnQuoteCallback;
@@ -195,8 +194,8 @@ export interface AskExpertParams {
   /** Callback function called to process payment after quote is accepted (optional if provided in constructor) */
   onPay?: OnPayCallback;
   
-  /** Custom compression implementation (optional if provided in constructor) */
-  compression?: any;
+  /** Custom StreamFactory implementation (optional if provided in constructor) */
+  streamFactory?: any;
 }
 
 /**
@@ -214,6 +213,9 @@ export interface Prompt {
   
   /** Content of the prompt */
   content: any;
+  
+  /** Whether client supports streaming replies */
+  stream?: boolean;
   
   /** Original prompt event */
   event: Event;
@@ -317,8 +319,8 @@ export interface Ask {
   /** Accepted formats */
   formats: PromptFormat[];
   
-  /** Accepted compression methods */
-  compressions: CompressionMethod[];
+  /** Whether streaming is supported */
+  stream: boolean;
   
   /** Accepted payment methods */
   methods: PaymentMethod[];
@@ -338,8 +340,8 @@ export interface ExpertBid {
   /** Supported formats (optional) */
   formats?: PromptFormat[];
   
-  /** Supported compression methods (optional) */
-  compressions?: CompressionMethod[];
+  /** Whether streaming is supported (optional) */
+  stream?: boolean;
   
   /** Supported payment methods (optional) */
   methods?: PaymentMethod[];

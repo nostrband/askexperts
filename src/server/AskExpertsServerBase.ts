@@ -37,7 +37,13 @@ import {
   ExpertReply,
 } from "../common/types.js";
 
-import { Compression, COMPRESSION_NONE, getCompression } from "../stream/compression.js";
+import {
+  StreamFactory,
+  getStreamFactory,
+  createStreamMetadataEvent,
+  parseStreamMetadataEvent,
+} from "../stream/index.js";
+import { COMPRESSION_GZIP } from "../stream/compression.js";
 import {
   encrypt,
   decrypt,
@@ -49,7 +55,6 @@ import {
   subscribeToRelays,
   waitForEvent,
 } from "../common/relay.js";
-import { CompressionMethod } from "../stream/types.js";
 
 /**
  * Default interval for profile republishing (in milliseconds)
@@ -77,7 +82,9 @@ const proofPayloadSchema = z.object({
  * Expert class for NIP-174 protocol
  * Handles asks and prompts from clients
  */
-export class AskExpertsServerBase {
+import { AskExpertsServerBaseInterface } from "./AskExpertsServerBaseInterface.js";
+
+export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
   /**
    * Expert's private key
    */
@@ -124,9 +131,9 @@ export class AskExpertsServerBase {
   #paymentMethods: PaymentMethod[];
 
   /**
-   * Compression instance for compressing and decompressing data
+   * StreamFactory instance for creating stream readers and writers
    */
-  #compression: Compression;
+  #streamFactory: StreamFactory;
 
   /**
    * SimplePool instance for relay operations
@@ -213,13 +220,11 @@ export class AskExpertsServerBase {
    * @param options.promptRelays - Relays for prompt phase
    * @param options.hashtags - Hashtags the expert is interested in
    * @param options.formats - Formats supported by the expert
-   * @param options.compressions - Compression methods supported by the expert
    * @param options.paymentMethods - Payment methods supported by the expert
    * @param options.onAsk - Callback for handling asks
    * @param options.onPrompt - Callback for handling prompts
    * @param options.onProof - Callback for handling proofs and executing prompts
    * @param options.pool - SimplePool instance for relay operations
-   * @param options.compression - Custom compression implementation
    */
   constructor(options: {
     privkey: Uint8Array;
@@ -232,7 +237,7 @@ export class AskExpertsServerBase {
     onProof?: OnProofCallback;
     paymentMethods?: PaymentMethod[];
     pool: SimplePool;
-    compression?: Compression;
+    streamFactory?: StreamFactory;
     nickname?: string;
     description?: string;
   }) {
@@ -253,7 +258,7 @@ export class AskExpertsServerBase {
 
     // Optional parameters with defaults
     this.#paymentMethods = options.paymentMethods || [METHOD_LIGHTNING];
-    this.#compression = options.compression || getCompression();
+    this.#streamFactory = options.streamFactory || getStreamFactory();
 
     // Set the required pool
     this.pool = options.pool;
@@ -351,12 +356,12 @@ export class AskExpertsServerBase {
     this.#onProof = value;
   }
 
-  get compression() {
-    return this.#compression;
+  get streamFactory() {
+    return this.#streamFactory;
   }
 
-  set compression(value: Compression) {
-    this.#compression = value;
+  set streamFactory(value: StreamFactory) {
+    this.#streamFactory = value;
   }
 
   /**
@@ -408,7 +413,8 @@ export class AskExpertsServerBase {
     const tags: string[][] = [
       ...this.#promptRelays.map((relay) => ["relay", relay]),
       ...this.#formats.map((format) => ["f", format]),
-      ...this.#compression.list().map((compr) => ["c", compr]),
+      // Add streaming support tag
+      ["s", "true"],
       ...this.#paymentMethods.map((method) => ["m", method]),
       ...(this.#hashtags?.map((tag) => ["t", tag]) || []),
     ];
@@ -473,11 +479,8 @@ export class AskExpertsServerBase {
       filter["#f"] = this.#formats;
     }
 
-    // Add compressions to filter if specified
-    const compressionList = this.#compression.list();
-    if (compressionList.length > 0) {
-      filter["#c"] = compressionList;
-    }
+    // Add streaming support to filter
+    filter["#s"] = ["true"];
 
     // Add payment methods to filter if specified
     if (this.#paymentMethods.length > 0) {
@@ -552,10 +555,11 @@ export class AskExpertsServerBase {
         .filter((tag) => tag.length > 1 && tag[0] === "f")
         .map((tag) => tag[1]) as PromptFormat[];
 
-      // Extract compression methods from the tags
-      const askComprs = askEvent.tags
-        .filter((tag) => tag.length > 1 && tag[0] === "c")
-        .map((tag) => tag[1]) as CompressionMethod[];
+      // Check if streaming is supported
+      const streamTag = askEvent.tags.find(
+        (tag) => tag.length > 1 && tag[0] === "s" && tag[1] === "true"
+      );
+      const askStreamSupported = !!streamTag;
 
       // Extract payment methods from the tags
       const askMethods = askEvent.tags
@@ -569,7 +573,7 @@ export class AskExpertsServerBase {
         summary: askEvent.content,
         hashtags: askHashtags,
         formats: askFormats,
-        compressions: askComprs,
+        stream: askStreamSupported,
         methods: askMethods,
         event: askEvent,
       };
@@ -599,15 +603,13 @@ export class AskExpertsServerBase {
 
       // Use provided values or defaults for optional fields
       const formats = expertBid.formats || this.#formats;
-      const compressions = expertBid.compressions || this.#compression.list();
+      const streamSupported =
+        expertBid.stream !== undefined ? expertBid.stream : true;
       const methods = expertBid.methods || this.#paymentMethods;
 
       // Validate that provided values are compatible with supported values
       const validFormats = formats.filter((format) =>
         this.#formats.includes(format)
-      );
-      const validCompressions = compressions.filter((compr) =>
-        this.#compression.list().includes(compr)
       );
       const validMethods = methods.filter((method) =>
         this.#paymentMethods.includes(method)
@@ -617,7 +619,7 @@ export class AskExpertsServerBase {
       const tags: string[][] = [
         ...this.#promptRelays.map((relay) => ["relay", relay]),
         ...validFormats.map((format) => ["f", format]),
-        ...validCompressions.map((compr) => ["c", compr]),
+        ...(streamSupported ? [["s", "true"]] : []),
         ...validMethods.map((method) => ["m", method]),
       ];
 
@@ -669,47 +671,112 @@ export class AskExpertsServerBase {
         return;
       }
 
-      // Get the compression method from the c tag
-      const cTag = promptEvent.tags.find(
-        (tag) => tag.length > 1 && tag[0] === "c"
-      );
-      const promptCompr = (cTag?.[1] as CompressionMethod) || COMPRESSION_NONE;
-
-      // Decrypt the prompt payload
-      const decryptedPrompt = decrypt(
-        promptEvent.content,
-        promptEvent.pubkey,
-        this.#privkey
-      );
-
-      // Decompress the payload
-      // Since decompress now accepts string input, we can pass decryptedPrompt directly
-      const promptPayloadData = await this.#compression.decompress(
-        decryptedPrompt,
-        promptCompr,
-        false // non-binary mode
-      );
-      
-      // Convert to string if it's a Uint8Array
-      const promptPayloadStr = typeof promptPayloadData === 'string'
-        ? promptPayloadData
-        : new TextDecoder().decode(promptPayloadData);
+      // First, decrypt the prompt payload from the event content to get the format
+      // This is required even if we're using streaming
+      let promptPayload;
 
       try {
-        // Parse and validate the prompt payload using Zod
-        const rawPayload = JSON.parse(promptPayloadStr);
-        const promptPayload = promptPayloadSchema.parse(rawPayload);
+        // Decrypt the prompt payload
+        const decryptedPrompt = decrypt(
+          promptEvent.content,
+          promptEvent.pubkey,
+          this.#privkey
+        );
 
-        // Create the Prompt object
-        const prompt: Prompt = {
-          id: promptEvent.id,
-          expertPubkey: this.pubkey,
-          format: promptPayload.format as PromptFormat,
-          content: promptPayload.content,
-          event: promptEvent,
-          context: undefined,
-        };
+        const rawPayload = JSON.parse(decryptedPrompt);
+        promptPayload = promptPayloadSchema.parse(rawPayload);
+      } catch (error) {
+        debugError("Error decrypting or parsing prompt payload:", error);
+        throw error;
+      }
 
+      // Check if this is a streamed prompt
+      const streamTag = promptEvent.tags.find(
+        (tag) => tag.length > 1 && tag[0] === "stream"
+      );
+      
+      // Check if client supports streaming replies
+      const clientSupportsStreaming = !!promptEvent.tags.find(
+        (tag) => tag.length > 1 && tag[0] === "s" && tag[1] === "true"
+      );
+
+      // Create the Prompt object with format from promptPayload
+      // Content will be set later based on whether we have a stream or not
+      const prompt: Prompt = {
+        id: promptEvent.id,
+        expertPubkey: this.pubkey,
+        format: promptPayload.format as PromptFormat,
+        content: undefined, // Will be set below
+        stream: clientSupportsStreaming, // Set the stream flag based on the 's' tag
+        event: promptEvent,
+        context: undefined,
+      };
+
+      // If we have a stream tag, get content from the stream
+      if (streamTag) {
+        try {
+          // Decrypt the stream metadata
+          const decryptedStreamTag = decrypt(
+            streamTag[1],
+            promptEvent.pubkey,
+            this.#privkey
+          );
+
+          // Parse the stream metadata event
+          const streamMetadataEvent = JSON.parse(decryptedStreamTag);
+
+          // Parse the stream metadata
+          const streamMetadata = parseStreamMetadataEvent(streamMetadataEvent);
+
+          // Create stream reader
+          const streamReader = await this.#streamFactory.createReader(
+            streamMetadata,
+            this.pool
+          );
+
+          // Read all chunks from the stream
+          // Don't convert bytes to string if binary
+          let content: string | Uint8Array = "";
+          let chunks: (string | Uint8Array)[] = [];
+
+          for await (const chunk of streamReader) {
+            chunks.push(chunk);
+          }
+
+          // Concatenate chunks based on their type
+          if (!streamMetadata.binary) {
+            // String chunks
+            content = chunks.join("");
+          } else {
+            // Binary chunks - concatenate Uint8Arrays
+            const totalLength = chunks.reduce(
+              (acc, chunk) => acc + (chunk as Uint8Array).length,
+              0
+            );
+
+            content = new Uint8Array(totalLength);
+            let offset = 0;
+            for (const chunk of chunks) {
+              const typedChunk = chunk as Uint8Array;
+              content.set(typedChunk, offset);
+              offset += typedChunk.length;
+            }
+          }
+
+          // Set the content in the prompt
+          prompt.content = content;
+        } catch (error) {
+          debugError("Error processing streamed prompt:", error);
+          throw error;
+        }
+      } else if (promptPayload) {
+        // No stream, use content from promptPayload
+        prompt.content = promptPayload.content;
+      } else {
+        throw new Error("No prompt content available");
+      }
+
+      try {
         try {
           // Call the onPrompt callback
           const expertQuote = await this.#onPrompt(prompt);
@@ -911,30 +978,41 @@ export class AskExpertsServerBase {
           // Call the onProof callback with prompt, expertQuote, and proof
           const result = await this.#onProof(prompt, expertQuote, proof);
 
-          // Check if the result is a single ExpertReply or ExpertReplies
+          let useStreaming: boolean;
           if (Symbol.asyncIterator in result) {
-            // It's ExpertReplies
-            await this.sendExpertReplies(prompt, result);
+            useStreaming = true;
           } else {
-            // It's a single ExpertReply, enforce done=true
-            result.done = true;
-            await this.sendExpertReply(prompt, result);
+            // Check if we need to use streaming based on content size
+            const SIZE_THRESHOLD = 48 * 1024; // 48KB
+            const contentSize = this.getContentSizeBytes(result.content);
+            useStreaming = contentSize > SIZE_THRESHOLD;
+          }
+
+          // Check if streaming is needed but client doesn't support it
+          if (useStreaming && !prompt.stream) {
+            throw new Error("Streaming is required for this response, but client doesn't support it");
+          }
+
+          // Always send 1 reply event
+          if (useStreaming) {
+            // It's ExpertReplies - use streaming
+            await this.streamExpertReplies(prompt, result);
+          } else {
+            // Content is small, embed in reply event
+            await this.sendExpertReply(prompt, (result as ExpertReply).content);
           }
         } catch (error) {
           // If the callback throws an error, send a single error reply with done=true
           debugError("Error in onProof callback:", error);
 
-          // Create a simple error reply
-          const errorReply: ExpertReply = {
-            done: true,
-            content:
-              error instanceof Error
-                ? error.message
-                : "Unknown error in proof processing",
-          };
+          // Get error description
+          const errorString =
+            error instanceof Error
+              ? error.message
+              : "Unknown error in proof processing";
 
           // Send the error reply
-          await this.sendExpertReply(prompt, errorReply);
+          await this.sendExpertReply(prompt, undefined, errorString);
         }
       } catch (error) {
         debugError("Error processing proof payload:", error);
@@ -948,49 +1026,33 @@ export class AskExpertsServerBase {
    * Sends an expert reply to a prompt
    *
    * @param prompt - The prompt
-   * @param expertReply - The expert reply
+   * @param content - Content to send
+   * @param error - Error to send
    */
   private async sendExpertReply(
     prompt: Prompt,
-    expertReply: ExpertReply
+    content?: any,
+    error?: string
   ): Promise<void> {
     try {
-      // Create the reply payload
-      const replyPayload = {
-        content: expertReply.content,
-        done: expertReply.done || false,
-      };
+      let encryptedContent = "";
+      if (content || error) {
+        // Create the reply payload
+        const replyPayload = {
+          content,
+          error,
+        };
 
-      // Convert to JSON string
-      const replyPayloadStr = JSON.stringify(replyPayload);
+        // Convert to JSON string
+        const replyPayloadStr = JSON.stringify(replyPayload);
 
-      // Compress the payload
-      const compressedPayload = await this.#compression.compress(
-        replyPayloadStr,
-        COMPRESSION_NONE // Use plain compression for simplicity
-      );
-      // Log compression results with appropriate property access
-      if (typeof compressedPayload === 'string') {
-        debugExpert(
-          `Expert reply ${replyPayloadStr.length} chars, compressed to ${compressedPayload.length} bytes (string)`
-        );
-      } else {
-        debugExpert(
-          `Expert reply ${replyPayloadStr.length} chars, compressed to ${compressedPayload.byteLength} bytes (binary)`
+        // Use regular encryption for smaller content
+        encryptedContent = encrypt(
+          replyPayloadStr,
+          prompt.event.pubkey,
+          this.#privkey
         );
       }
-
-      // Encrypt the payload
-      // If compressedPayload is a Uint8Array, convert it to string for encryption
-      const dataToEncrypt = typeof compressedPayload === 'string'
-        ? compressedPayload
-        : new TextDecoder().decode(compressedPayload);
-        
-      const encryptedContent = encrypt(
-        dataToEncrypt,
-        prompt.event.pubkey,
-        this.#privkey
-      );
 
       // Create and sign the reply event
       const replyEvent = createEvent(
@@ -999,7 +1061,6 @@ export class AskExpertsServerBase {
         [
           ["p", prompt.event.pubkey],
           ["e", prompt.id],
-          ["c", COMPRESSION_NONE],
         ],
         this.#privkey
       );
@@ -1025,18 +1086,140 @@ export class AskExpertsServerBase {
    * @param prompt - The prompt
    * @param expertReplies - The expert replies
    */
-  private async sendExpertReplies(
+  /**
+   * Helper function to calculate the size of content in bytes
+   *
+   * @param content - The content to measure
+   * @returns Size in bytes
+   */
+  private getContentSizeBytes(content: any): number {
+    if (content instanceof Uint8Array) {
+      return content.length;
+    } else if (typeof content === "string") {
+      return new TextEncoder().encode(content).length;
+    } else {
+      // For objects or other types, stringify then encode
+      return new TextEncoder().encode(JSON.stringify(content)).length;
+    }
+  }
+
+  /**
+   * Streams expert replies using a single reply event with stream metadata
+   *
+   * @param prompt - The prompt
+   * @param expertReplies - The expert replies
+   */
+  private async streamExpertReplies(
     prompt: Prompt,
-    expertReplies: ExpertReplies
+    expertReplies: ExpertReply | ExpertReplies
   ): Promise<void> {
     try {
-      // Iterate through the expert replies
-      for await (const expertReply of expertReplies) {
-        // Send the expert reply
-        await this.sendExpertReply(prompt, expertReply);
+      // Create stream metadata
+      const { privateKey: streamPrivkey, publicKey: streamPubkey } =
+        generateRandomKeyPair();
+
+      // Generate a new key pair for encryption
+      const { privateKey: streamEncryptionPrivkey } = generateRandomKeyPair();
+
+      const binary =
+        Symbol.asyncIterator in expertReplies
+          ? expertReplies.binary
+          : expertReplies.content instanceof Uint8Array;
+
+      // Create stream metadata
+      const streamMetadata = {
+        streamId: streamPubkey,
+        relays: this.#promptRelays,
+        encryption: "nip44",
+        compression: COMPRESSION_GZIP,
+        binary,
+        key: Buffer.from(streamEncryptionPrivkey).toString("hex"),
+        version: "1",
+      };
+
+      // Create stream writer
+      const streamWriter = await this.#streamFactory.createWriter(
+        streamMetadata,
+        this.pool,
+        streamPrivkey
+      );
+
+      // Create stream metadata event
+      const streamMetadataEvent = createStreamMetadataEvent(
+        streamMetadata,
+        streamPrivkey
+      );
+
+      // Encrypt the stream metadata event
+      const encryptedStreamMetadata = encrypt(
+        JSON.stringify(streamMetadataEvent),
+        prompt.event.pubkey,
+        this.#privkey
+      );
+
+      // Create reply event with stream tag
+      const replyEvent = createEvent(
+        EVENT_KIND_REPLY,
+        "", // Empty content when using stream
+        [
+          ["p", prompt.event.pubkey],
+          ["e", prompt.id],
+          ["stream", encryptedStreamMetadata],
+        ],
+        this.#privkey
+      );
+
+      // Publish the reply event
+      const publishedRelays = await publishToRelays(
+        replyEvent,
+        this.#promptRelays,
+        this.pool
+      );
+
+      if (publishedRelays.length === 0) {
+        throw new Error("Failed to publish reply event to any relay");
       }
+
+      // Stream each reply
+      try {
+        let stream =
+          Symbol.asyncIterator in expertReplies
+            ? expertReplies
+            : [expertReplies];
+        // Iterate through the expert replies
+        for await (const expertReply of stream) {
+          let content = expertReply.content;
+          if (content instanceof Uint8Array) {
+            if (!binary) throw new Error("Non-bytes reply for binary stream");
+          } else if (typeof content !== "string") {
+            content = JSON.stringify(content);
+          }
+
+          // Write content directly to stream without creating a payload structure
+          await streamWriter.write(expertReply.content, binary);
+        }
+
+        // Close the stream
+        await streamWriter.write(binary ? new Uint8Array() : "", true);
+      } catch (error) {
+        debugError("Error streaming expert replies:", error);
+        // Try to write an error message and close the stream
+        try {
+          const errorMessage =
+            error instanceof Error
+              ? error.message
+              : "Unknown error streaming replies";
+          await streamWriter.error("INTERNAL", errorMessage);
+        } catch (e) {
+          debugError("Error writing error to stream:", e);
+        }
+      }
+
+      debugExpert(
+        `Streamed replies to ${publishedRelays.length} relays for prompt ${prompt.id}`
+      );
     } catch (error) {
-      debugError("Error sending expert replies:", error);
+      debugError("Error setting up stream for expert replies:", error);
     }
   }
 

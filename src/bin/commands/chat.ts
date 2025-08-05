@@ -207,7 +207,7 @@ export async function executeChatCommand(
           expert,
           content: openaiRequest,
           format: FORMAT_OPENAI,
-          compr: COMPRESSION_GZIP,
+          stream: true,
         });
 
         // Process the replies

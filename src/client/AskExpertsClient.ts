@@ -51,12 +51,16 @@ import {
   OnPayCallback,
 } from "../common/types.js";
 
+// No need to extend AskExpertParams as we've already updated it in types.ts
+
+import { COMPRESSION_GZIP } from "../stream/compression.js";
 import {
-  Compression,
-  COMPRESSION_GZIP,
-  COMPRESSION_NONE,
-  getCompression,
-} from "../stream/compression.js";
+  StreamFactory,
+  getStreamFactory,
+  createStreamMetadataEvent,
+  parseStreamMetadataEvent,
+} from "../stream/index.js";
+import { Event as NostrEvent } from "nostr-tools";
 import {
   encrypt,
   decrypt,
@@ -69,14 +73,14 @@ import {
   subscribeToRelays,
   fetchFromRelays,
   waitForEvent,
-  createEventStream,
 } from "../common/relay.js";
-import { CompressionMethod } from "../stream/types.js";
 
 /**
  * AskExpertsClient class for NIP-174 protocol
  */
-export class AskExpertsClient {
+import { AskExpertsClientInterface } from "./AskExpertsClientInterface.js";
+
+export class AskExpertsClient implements AskExpertsClientInterface {
   /**
    * Zod schema for quote payload
    */
@@ -97,11 +101,19 @@ export class AskExpertsClient {
   /**
    * Zod schema for reply payload
    */
-  private replyPayloadSchema = z.object({
-    content: z.any(),
-    done: z.boolean().optional().default(false),
-    error: z.string().optional(),
-  });
+  /**
+   * Zod schema for reply payload according to NIP-174
+   * A reply payload should have either an "error" field or a "content" field, but not both
+   */
+  private replyPayloadSchema = z
+    .object({
+      content: z.any().optional(),
+      done: z.boolean().optional().default(false),
+      error: z.string().optional(),
+    })
+    .refine((data) => !(data.error && data.content), {
+      message: "Reply payload cannot have both error and content fields",
+    });
   /**
    * Default onQuote callback
    */
@@ -113,9 +125,9 @@ export class AskExpertsClient {
   private defaultOnPay?: OnPayCallback;
 
   /**
-   * Compression instance for compressing and decompressing data
+   * StreamFactory instance for creating stream readers and writers
    */
-  private compression: Compression;
+  private streamFactory: StreamFactory;
 
   /**
    * SimplePool instance for relay operations
@@ -145,13 +157,13 @@ export class AskExpertsClient {
   constructor(options?: {
     onQuote?: OnQuoteCallback;
     onPay?: OnPayCallback;
-    compression?: Compression;
+    streamFactory?: StreamFactory;
     pool?: SimplePool;
     discoveryRelays?: string[];
   }) {
     this.defaultOnQuote = options?.onQuote;
     this.defaultOnPay = options?.onPay;
-    this.compression = options?.compression || getCompression();
+    this.streamFactory = options?.streamFactory || getStreamFactory();
     this.discoveryRelays = options?.discoveryRelays;
 
     // Check if pool is provided or needs to be created internally
@@ -188,20 +200,8 @@ export class AskExpertsClient {
     // Set default values
     const formats = params.formats || [FORMAT_TEXT];
 
-    // Validate compression methods if provided
-    const supportedComprs = this.compression.list();
-    if (params.comprs) {
-      const unsupportedComprs = params.comprs.filter(
-        (compr) => !supportedComprs.includes(compr)
-      );
-      if (unsupportedComprs.length > 0) {
-        throw new AskExpertsError(
-          `Unsupported compression method(s): ${unsupportedComprs.join(", ")}`
-        );
-      }
-    }
-
-    const comprs = params.comprs || supportedComprs;
+    // Set stream flag to true by default
+    const streamSupported = params.stream !== undefined ? params.stream : true;
     const methods = params.methods || [METHOD_LIGHTNING];
     const relays =
       params.relays || this.discoveryRelays || DEFAULT_DISCOVERY_RELAYS;
@@ -214,7 +214,7 @@ export class AskExpertsClient {
     const tags: string[][] = [
       ...params.hashtags.map((tag) => ["t", tag]),
       ...formats.map((format) => ["f", format]),
-      ...comprs.map((compr) => ["c", compr]),
+      ...(streamSupported ? [["s", "true"]] : []),
       ...methods.map((method) => ["m", method]),
     ];
 
@@ -305,13 +305,11 @@ export class AskExpertsClient {
           );
           const bidFormats = formatTags.map((tag) => tag[1]) as PromptFormat[];
 
-          // Extract compression methods from the tags
-          const comprTags = bidPayloadEvent.tags.filter(
-            (tag) => tag[0] === "c"
+          // Check if streaming is supported
+          const streamTag = bidPayloadEvent.tags.find(
+            (tag) => tag[0] === "s" && tag[1] === "true"
           );
-          const bidComprs = comprTags.map(
-            (tag) => tag[1]
-          ) as CompressionMethod[];
+          const bidStreamSupported = !!streamTag;
 
           // Extract payment methods from the tags
           const methodTags = bidPayloadEvent.tags.filter(
@@ -327,7 +325,7 @@ export class AskExpertsClient {
             offer: bidPayloadEvent.content,
             relays: bidRelays,
             formats: bidFormats,
-            compressions: bidComprs,
+            stream: bidStreamSupported,
             methods: bidMethods,
             event,
             payloadEvent: bidPayloadEvent,
@@ -410,11 +408,11 @@ export class AskExpertsClient {
         const formatTags = event.tags.filter((tag) => tag[0] === "f");
         const expertFormats = formatTags.map((tag) => tag[1]) as PromptFormat[];
 
-        // Extract compression methods from the tags
-        const comprTags = event.tags.filter((tag) => tag[0] === "c");
-        const expertComprs = comprTags.map(
-          (tag) => tag[1]
-        ) as CompressionMethod[];
+        // Check if streaming is supported
+        const streamTag = event.tags.find(
+          (tag) => tag[0] === "s" && tag[1] === "true"
+        );
+        const expertStreamSupported = !!streamTag;
 
         // Extract payment methods from the tags
         const methodTags = event.tags.filter((tag) => tag[0] === "m");
@@ -437,7 +435,7 @@ export class AskExpertsClient {
           description: event.content,
           relays: expertRelays,
           formats: expertFormats,
-          compressions: expertComprs,
+          stream: expertStreamSupported,
           methods: expertMethods,
           hashtags: expertHashtags,
           event,
@@ -466,63 +464,163 @@ export class AskExpertsClient {
    * @returns Promise resolving to a tuple of [Prompt, promptPrivkey, publishedRelays]
    * @private
    */
+  /**
+   * Helper function to calculate the size of content in bytes
+   *
+   * @param content - The content to measure
+   * @returns Size in bytes
+   */
+  private getContentSizeBytes(content: any): number {
+    if (content instanceof Uint8Array) {
+      return content.length;
+    } else if (typeof content === "string") {
+      return new TextEncoder().encode(content).length;
+    } else {
+      // For objects or other types, stringify then encode
+      return new TextEncoder().encode(JSON.stringify(content)).length;
+    }
+  }
+
+  /**
+   * Sends a prompt to an expert
+   *
+   * @param expertPubkey - Expert's public key
+   * @param expertRelays - Expert's relays
+   * @param content - Content of the prompt
+   * @param format - Format of the prompt
+   * @param compr - Compression method to use
+   * @param promptPrivkey - Private key for the prompt
+   * @returns Promise resolving to a Prompt object
+   * @private
+   */
   private async sendPrompt(
     expertPubkey: string,
     expertRelays: string[],
     content: any,
     format: PromptFormat,
-    compr: CompressionMethod,
-    compression: Compression,
+    useStreaming: boolean,
     promptPrivkey: Uint8Array
   ): Promise<Prompt> {
     // Create the prompt payload
-    const promptPayload = {
+    const promptPayload: any = {
       format,
-      content,
     };
 
-    // Convert to JSON string
-    const promptPayloadStr = JSON.stringify(promptPayload);
+    // Check if we should use streaming based on the useStreaming flag
+    // The content size check is now done in askExpert
+    const shouldUseStreaming = useStreaming;
 
-    // Compress the payload
-    const compressedPayload = await compression.compress(
-      promptPayloadStr,
-      compr
-    );
+    let promptEvent;
 
-    // Encrypt the payload
-    // If compressedPayload is a Uint8Array, convert it to string for encryption
-    const dataToEncrypt = typeof compressedPayload === 'string'
-      ? compressedPayload
-      : new TextDecoder().decode(compressedPayload);
-      
-    const encryptedContent = encrypt(
-      dataToEncrypt,
-      expertPubkey,
-      promptPrivkey
-    );
+    if (shouldUseStreaming) {
+      // Create stream metadata
+      const { privateKey: streamPrivkey, publicKey: streamPubkey } =
+        generateRandomKeyPair();
 
-    // Create and sign the prompt event
-    const promptEvent = createEvent(
-      EVENT_KIND_PROMPT,
-      encryptedContent,
-      [
-        ["p", expertPubkey],
-        ["c", compr],
-      ],
-      promptPrivkey
-    );
+      // Generate a new key pair for encryption
+      const { privateKey: streamEncryptionPrivkey } = generateRandomKeyPair();
 
-    // Publish the prompt event to the expert's relays
-    const publishedRelays = await publishToRelays(
-      promptEvent,
-      expertRelays,
-      this.pool,
-      5000
-    );
+      // Binary?
+      const binary = content instanceof Uint8Array;
 
-    if (publishedRelays.length === 0) {
-      throw new RelayError("Failed to publish prompt event to any relay");
+      // Create stream metadata
+      const streamMetadata = {
+        streamId: streamPubkey,
+        relays: expertRelays,
+        encryption: "nip44",
+        compression: COMPRESSION_GZIP,
+        binary,
+        key: Buffer.from(streamEncryptionPrivkey).toString("hex"),
+        version: "1",
+      };
+
+      // Create stream writer
+      const streamWriter = await this.streamFactory.createWriter(
+        streamMetadata,
+        this.pool,
+        streamPrivkey
+      );
+
+      // Create stream metadata event
+      const streamMetadataEvent = createStreamMetadataEvent(
+        streamMetadata,
+        streamPrivkey
+      );
+
+      // Encrypt the stream metadata event
+      const encryptedStreamMetadata = encrypt(
+        JSON.stringify(streamMetadataEvent),
+        expertPubkey,
+        promptPrivkey
+      );
+
+      // Create prompt event with stream tag
+      promptEvent = createEvent(
+        EVENT_KIND_PROMPT,
+        "", // Empty content when using stream
+        [
+          ["p", expertPubkey],
+          ["stream", encryptedStreamMetadata],
+          ["s", "true"], // Signal that client supports streaming replies
+        ],
+        promptPrivkey
+      );
+
+      // Publish the prompt event
+      const publishedRelays = await publishToRelays(
+        promptEvent,
+        expertRelays,
+        this.pool,
+        5000
+      );
+
+      if (publishedRelays.length === 0) {
+        throw new RelayError("Failed to publish prompt event to any relay");
+      }
+
+      let payload: string | Uint8Array;
+      if (binary) payload = content;
+      else if (typeof content === "string") payload = content;
+      else payload = JSON.stringify(content);
+
+      // Write content to stream
+      await streamWriter.write(payload, true);
+    } else {
+      // We'll send content embedded in the prompt event
+      promptPayload.content = content;
+
+      // Convert to JSON string
+      const promptPayloadStr = JSON.stringify(promptPayload);
+
+      // Use regular encryption for smaller content
+      const encryptedContent = encrypt(
+        promptPayloadStr,
+        expertPubkey,
+        promptPrivkey
+      );
+
+      // Create and sign the prompt event
+      promptEvent = createEvent(
+        EVENT_KIND_PROMPT,
+        encryptedContent,
+        [
+          ["p", expertPubkey],
+          ["s", "true"], // Signal that client supports streaming replies
+        ],
+        promptPrivkey
+      );
+
+      // Publish the prompt event
+      const publishedRelays = await publishToRelays(
+        promptEvent,
+        expertRelays,
+        this.pool,
+        5000
+      );
+
+      if (publishedRelays.length === 0) {
+        throw new RelayError("Failed to publish prompt event to any relay");
+      }
     }
 
     // Create the Prompt object
@@ -531,8 +629,9 @@ export class AskExpertsClient {
       expertPubkey,
       format,
       content,
+      stream: true, // Set the stream flag in the Prompt object
       event: promptEvent,
-      context: {}, // Add empty context object to satisfy the type
+      context: undefined,
     };
 
     return prompt;
@@ -737,27 +836,14 @@ export class AskExpertsClient {
     promptId: string,
     expertPubkey: string,
     promptPrivkey: Uint8Array,
-    publishedRelays: string[],
-    compression: Compression
+    publishedRelays: string[]
   ): Replies {
     // Get a reference to the replyPayloadSchema
     const replyPayloadSchema = this.replyPayloadSchema;
-    // Create a filter for reply events
-    const replyFilter = {
-      kinds: [EVENT_KIND_REPLY],
-      "#e": [promptId],
-      authors: [expertPubkey],
-    };
-
-    // Create an event stream for replies
-    const replyStream = createEventStream(
-      replyFilter,
-      publishedRelays,
-      this.pool,
-      {
-        timeout: DEFAULT_REPLY_TIMEOUT * 2,
-      }
-    );
+    // Get a reference to the streamFactory
+    const streamFactory = this.streamFactory;
+    // Get a reference to the pool
+    const pool = this.pool;
 
     // Create the Replies object
     const replies: Replies = {
@@ -766,62 +852,91 @@ export class AskExpertsClient {
 
       // Implement AsyncIterable interface
       [Symbol.asyncIterator]: async function* () {
-        for await (const event of replyStream) {
-          try {
-            // No need to validate events from relay - they're already validated
+        try {
+          // Create a filter for the single reply event
+          const replyFilter = {
+            kinds: [EVENT_KIND_REPLY],
+            "#e": [promptId],
+            authors: [expertPubkey],
+          };
 
-            // Get the compression method from the c tag
-            const cTag = event.tags.find((tag) => tag[0] === "c");
-            const replyCompr =
-              (cTag?.[1] as CompressionMethod) || COMPRESSION_NONE;
+          // Wait for the single reply event
+          const event = await waitForEvent(
+            replyFilter,
+            publishedRelays,
+            pool,
+            DEFAULT_REPLY_TIMEOUT
+          );
 
-            // Decrypt the reply payload
-            const decryptedReply = decrypt(
-              event.content,
-              expertPubkey,
-              promptPrivkey
-            );
+          if (!event) {
+            throw new TimeoutError("Timeout waiting for reply event");
+          }
 
-            // Decompress the payload using the compression instance from the Replies object (this)
-            // Since decompress now accepts string input, we can pass decryptedReply directly
-            const replyPayloadData = await compression.decompress(
-              decryptedReply,
-              replyCompr,
-              false // non-binary mode
-            );
+          // Check if this is a streamed reply
+          const streamTag = event.tags.find((tag) => tag[0] === "stream");
 
+          if (streamTag) {
+            // Handle streamed reply
             try {
-              // Parse and validate the reply payload using Zod
-              // Convert to string if it's a Uint8Array
-              const replyPayloadStr = typeof replyPayloadData === 'string'
-                ? replyPayloadData
-                : new TextDecoder().decode(replyPayloadData);
-                
-              const rawPayload = JSON.parse(replyPayloadStr);
-              const replyPayload = replyPayloadSchema.parse(rawPayload);
+              // Decrypt the stream metadata
+              const decryptedStreamTag = decrypt(
+                streamTag[1],
+                expertPubkey,
+                promptPrivkey
+              );
 
-              // Check if there's an error in the reply payload
-              if (replyPayload.error) {
+              // Parse the stream metadata event
+              const streamMetadataEvent = JSON.parse(
+                decryptedStreamTag
+              ) as NostrEvent;
+
+              // Parse the stream metadata
+              const streamMetadata =
+                parseStreamMetadataEvent(streamMetadataEvent);
+
+              // Create stream reader
+              const streamReader = await streamFactory.createReader(
+                streamMetadata,
+                pool
+              );
+
+              // According to NIP-174, chunks are just raw data
+              // Process each chunk individually and return one reply per chunk
+              try {
+                // Process each chunk from the stream as it arrives
+                for await (const chunk of streamReader) {
+                  // Create a Reply object for each chunk
+                  // The chunk itself is the content
+                  const reply: Reply = {
+                    pubkey: expertPubkey,
+                    promptId,
+                    done: false, // Only the last chunk will have done=true
+                    content: chunk,
+                    event,
+                  };
+
+                  // Yield the reply for each chunk
+                  yield reply;
+                }
+
+                // After all chunks are processed, yield a final reply with done=true
+                // This signals that the stream is complete
+                const finalReply: Reply = {
+                  pubkey: expertPubkey,
+                  promptId,
+                  done: true,
+                  content: "",
+                  event,
+                };
+
+                yield finalReply;
+              } catch (error) {
+                // If the stream reader throws, create an error reply
                 throw new ExpertError(
-                  `Expert reply error: ${replyPayload.error}`
+                  `Error reading stream: ${
+                    error instanceof Error ? error.message : String(error)
+                  }`
                 );
-              }
-
-              // Create the Reply object
-              const reply: Reply = {
-                pubkey: expertPubkey,
-                promptId,
-                done: !!replyPayload.done,
-                content: replyPayload.content,
-                event,
-              };
-
-              // Yield the reply
-              yield reply;
-
-              // If this is the last reply, break the loop
-              if (reply.done) {
-                break;
               }
             } catch (error) {
               if (error instanceof z.ZodError) {
@@ -831,11 +946,41 @@ export class AskExpertsClient {
               }
               throw error;
             }
+          } else {
+            // Handle regular reply
+            // Decrypt the reply payload
+            const decryptedReply = decrypt(
+              event.content,
+              expertPubkey,
+              promptPrivkey
+            );
 
-            // The reply is already yielded in the try block
-          } catch (error) {
-            debugError("Error processing reply event:", error);
+            // Parse directly (no compression in new spec)
+            const rawPayload = JSON.parse(decryptedReply);
+            const replyPayload = replyPayloadSchema.parse(rawPayload);
+
+            // Check if there's an error in the reply payload
+            if (replyPayload.error) {
+              throw new ExpertError(
+                `Expert reply error: ${replyPayload.error}`
+              );
+            }
+
+            // Create the Reply object
+            const reply: Reply = {
+              pubkey: expertPubkey,
+              promptId,
+              done: !!replyPayload.done,
+              content: replyPayload.content,
+              event,
+            };
+
+            // Yield the reply
+            yield reply;
           }
+        } catch (error) {
+          debugError("Error processing reply event:", error);
+          throw error;
         }
       },
     };
@@ -887,18 +1032,12 @@ export class AskExpertsClient {
 
     const supportedFormats =
       params.bid?.formats || params.expert?.formats || [];
-    const supportedComprs =
-      params.bid?.compressions || params.expert?.compressions || [];
+    const streamSupported =
+      params.bid?.stream || params.expert?.stream || false;
 
-    // Determine format and compression
+    // Determine format and streaming
     // Assume the first supported format, fallback to text
     const format = params.format || supportedFormats[0] || FORMAT_TEXT;
-    // Prefer gzip, assume first supported compr, fallback to none
-    const compr =
-      params.compr ||
-      (supportedComprs.includes(COMPRESSION_GZIP)
-        ? COMPRESSION_GZIP
-        : supportedComprs[0] || COMPRESSION_NONE);
 
     // Check if format is supported
     if (supportedFormats.length > 0 && !supportedFormats.includes(format)) {
@@ -907,15 +1046,34 @@ export class AskExpertsClient {
       );
     }
 
-    // Check if compression is supported
-    if (supportedComprs.length > 0 && !supportedComprs.includes(compr)) {
+    // Check its size
+    const contentSize = this.getContentSizeBytes(params.content);
+
+    // Size threshold for streaming (48KB)
+    const SIZE_THRESHOLD = 48 * 1024;
+
+    // Determine if we need to use streaming based on content size and user preference
+    // If content is large, use streaming regardless of params.stream
+    // If params.stream is explicitly set, respect that setting
+    const needsStreaming = contentSize > SIZE_THRESHOLD;
+    const useStreaming =
+      params.stream !== undefined
+        ? params.stream
+        : needsStreaming || streamSupported;
+
+    // Check if streaming is supported when needed
+    if (needsStreaming && !streamSupported) {
       throw new AskExpertsError(
-        `Compression ${compr} is not supported by the expert`
+        `Content size (${Math.round(
+          contentSize / 1024
+        )}KB) exceeds the limit (48KB) but streaming is not supported by the expert`
       );
     }
 
-    // Use the compression instance from params or the default one
-    const compressionInstance = params.compression || this.compression;
+    // Check if streaming is requested but not supported
+    if (useStreaming && !streamSupported) {
+      throw new AskExpertsError(`Streaming is not supported by the expert`);
+    }
 
     // Generate a random key pair for the prompt
     const { privateKey: promptPrivkey } = generateRandomKeyPair();
@@ -926,8 +1084,7 @@ export class AskExpertsClient {
       expertRelays,
       params.content,
       format,
-      compr,
-      compressionInstance,
+      useStreaming,
       promptPrivkey
     );
 
@@ -985,8 +1142,7 @@ export class AskExpertsClient {
       prompt.id,
       expertPubkey,
       promptPrivkey,
-      expertRelays,
-      compressionInstance
+      expertRelays
     );
   }
 
