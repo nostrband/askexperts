@@ -5,9 +5,6 @@
 // Export types
 export * from './types.js';
 
-// Export interfaces
-export { StreamWriterInterface, StreamFactory } from './interfaces.js';
-
 // Export StreamWriter
 export { StreamWriter } from './StreamWriter.js';
 
@@ -16,6 +13,8 @@ export { StreamReader, StreamReaderError } from './StreamReader.js';
 
 // Export StreamFactory
 export { DefaultStreamFactory, getStreamFactory } from './DefaultStreamFactory.js';
+// Export DefaultStreamFactory as StreamFactory for runtime compatibility
+export { DefaultStreamFactory as StreamFactory } from './DefaultStreamFactory.js';
 
 // Export Compression
 export {

@@ -183,9 +183,6 @@ export interface AskExpertParams {
   /** Format of the prompt (must be supported by expert/bid) */
   format?: PromptFormat;
   
-  /** Whether to use streaming (must be supported by expert/bid) */
-  stream?: boolean;
-  
   /** Callback function called when a quote is received (optional if provided in constructor) */
   onQuote?: OnQuoteCallback;
   

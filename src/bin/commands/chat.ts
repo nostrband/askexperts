@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { AskExpertsClient } from "../../client/AskExpertsClient.js";
-import { FORMAT_OPENAI } from "../../common/constants.js";
+import { FORMAT_OPENAI, FORMAT_TEXT } from "../../common/constants.js";
 import { LightningPaymentManager } from "../../payments/LightningPaymentManager.js";
 import {
   debugMCP,
@@ -202,12 +202,16 @@ export async function executeChatCommand(
           `Sending message with history (${messageHistory.length} messages) to expert ${expertPubkey}`
         );
 
+        // Data format to use
+        const format = expert.formats.includes(FORMAT_OPENAI)
+          ? FORMAT_OPENAI
+          : FORMAT_TEXT;
+
         // Ask the expert using OpenAI format
         const replies = await client.askExpert({
           expert,
           content: openaiRequest,
-          format: FORMAT_OPENAI,
-          stream: true,
+          format,
         });
 
         // Process the replies
@@ -225,13 +229,12 @@ export async function executeChatCommand(
 
             // OpenAI format response
             let chunk = "";
-            if (options.stream) {
-              for (const c of reply.content) {
-                chunk +=
-                  c.choices[0]?.[options.stream ? "delta" : "message"].content;
-              }
+            if (format === FORMAT_OPENAI) {
+              chunk =
+                reply.content.choices[0]?.[options.stream ? "delta" : "message"]
+                  .content;
             } else {
-              chunk = reply.content.choices[0]?.message.content;
+              chunk = reply.content;
             }
             expertReply += chunk;
             console.log(chunk);
@@ -254,7 +257,7 @@ export async function executeChatCommand(
           });
       } catch (error) {
         debugError(
-          "Error sending message:",
+          "Error in chat:",
           error instanceof Error ? error.message : String(error)
         );
         console.error(

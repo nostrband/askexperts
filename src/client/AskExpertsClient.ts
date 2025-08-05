@@ -970,7 +970,7 @@ export class AskExpertsClient implements AskExpertsClientInterface {
             const reply: Reply = {
               pubkey: expertPubkey,
               promptId,
-              done: !!replyPayload.done,
+              done: true, // single reply
               content: replyPayload.content,
               event,
             };
@@ -1052,14 +1052,8 @@ export class AskExpertsClient implements AskExpertsClientInterface {
     // Size threshold for streaming (48KB)
     const SIZE_THRESHOLD = 48 * 1024;
 
-    // Determine if we need to use streaming based on content size and user preference
-    // If content is large, use streaming regardless of params.stream
-    // If params.stream is explicitly set, respect that setting
+    // Determine if we need to use streaming based on content size
     const needsStreaming = contentSize > SIZE_THRESHOLD;
-    const useStreaming =
-      params.stream !== undefined
-        ? params.stream
-        : needsStreaming || streamSupported;
 
     // Check if streaming is supported when needed
     if (needsStreaming && !streamSupported) {
@@ -1071,7 +1065,7 @@ export class AskExpertsClient implements AskExpertsClientInterface {
     }
 
     // Check if streaming is requested but not supported
-    if (useStreaming && !streamSupported) {
+    if (needsStreaming && !streamSupported) {
       throw new AskExpertsError(`Streaming is not supported by the expert`);
     }
 
@@ -1084,7 +1078,7 @@ export class AskExpertsClient implements AskExpertsClientInterface {
       expertRelays,
       params.content,
       format,
-      useStreaming,
+      needsStreaming,
       promptPrivkey
     );
 

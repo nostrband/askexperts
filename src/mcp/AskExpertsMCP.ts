@@ -495,7 +495,6 @@ export class AskExpertsMCP extends McpServer {
         bid,
         content: question,
         format: FORMAT_TEXT,
-        stream: bid.stream,
         onQuote: async (quote, prompt) => {
           // Call our handleQuote method with the max amount
           const amount = await this.handleQuote(quote, prompt, max_amount_sats);

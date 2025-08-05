@@ -20,11 +20,12 @@ import {
 } from "../src/common/constants.js";
 import {
   DEFAULT_DISCOVERY_RELAYS,
-  DEFAULT_PROPMT_RELAYS,
+  DEFAULT_PROMPT_RELAYS,
 } from "../src/common/constants.js";
 import { createWallet } from "nwc-enclaved-utils";
 import { nwc } from "@getalby/sdk";
 import dotenv from "dotenv";
+import { enableAllDebug } from "../src/common/debug.js";
 
 // Load environment variables from .env file
 dotenv.config();
@@ -33,6 +34,9 @@ dotenv.config();
  * Run the example expert
  */
 async function runExampleExpert() {
+
+  enableAllDebug();
+
   console.log("Starting example expert...");
 
   // Generate a keypair for the expert
@@ -59,7 +63,7 @@ async function runExampleExpert() {
   const expert = new AskExpertsServerBase({
     privkey: privateKey,
     discoveryRelays: DEFAULT_DISCOVERY_RELAYS,
-    promptRelays: DEFAULT_PROPMT_RELAYS,
+    promptRelays: DEFAULT_PROMPT_RELAYS,
     hashtags: ["ai", "help", "question", "test"],
     formats: [FORMAT_TEXT, FORMAT_OPENAI],
     paymentMethods: [METHOD_LIGHTNING],
@@ -239,9 +243,9 @@ async function runExampleExpert() {
   console.log("Expert started and listening for asks and prompts");
 
   // Keep the process running
-  process.on("SIGINT", () => {
+  process.on("SIGINT", async () => {
     console.log("Shutting down expert...");
-    expert[Symbol.dispose]();
+    await expert[Symbol.asyncDispose]();
     process.exit(0);
   });
 

@@ -239,6 +239,11 @@ ${lastMessage.content}
       // Create ChatCompletionCreateParams
       context.content = await this.createChatCompletionCreateParams(prompt);
 
+      // Client doesn't support streaming but requests it att app layer
+      if (!prompt.stream && context.content.stream) {
+        throw new Error("Streaming requested without client side support");
+      }
+
       // Use the OpenAI interface to estimate the price
       const priceEstimate = await this.openai.getQuote(
         this.model,

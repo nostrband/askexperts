@@ -20,7 +20,6 @@ async function testAskExpertsClient() {
       summary: 'What is the meaning of life?',
       hashtags: ['philosophy', 'life', 'test'],
       formats: ['text'],
-      stream: true,
       methods: ['lightning'],
     });
 
@@ -128,7 +127,6 @@ async function testAskExpertsClient() {
         expert,
         content: 'What is the meaning of life? I have been pondering this question for a while.',
         format: 'text',
-        stream: true,
         onQuote,
         onPay,
       });

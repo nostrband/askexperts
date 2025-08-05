@@ -35,7 +35,7 @@ export const DEFAULT_DISCOVERY_RELAYS = [
   "wss://relay2.askexperts.io",
 ];
 
-export const DEFAULT_PROPMT_RELAYS = DEFAULT_DISCOVERY_RELAYS;
+export const DEFAULT_PROMPT_RELAYS = DEFAULT_DISCOVERY_RELAYS;
 
 // Default timeout values (in milliseconds)
 export const DEFAULT_DISCOVERY_TIMEOUT = 10000;
