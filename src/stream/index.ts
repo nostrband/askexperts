@@ -26,3 +26,9 @@ export {
   ENCRYPTION_NONE,
   ENCRYPTION_NIP44
 } from './encryption.js';
+
+// Export Metadata functions
+export {
+  createStreamMetadataEvent,
+  parseStreamMetadataEvent
+} from './metadata.js';

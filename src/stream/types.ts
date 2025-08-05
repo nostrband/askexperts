@@ -4,6 +4,12 @@
 
 import { Event } from 'nostr-tools';
 
+/**
+ * Event kinds for NIP-173 (Streaming Over Nostr)
+ */
+export const STREAM_METADATA_KIND = 173;
+export const STREAM_CHUNK_KIND = 20173;
+
 
 /**
  * Supported compression formats for NIP-173 streams
@@ -35,6 +41,9 @@ export interface StreamError {
 export interface StreamMetadata {
   /** Stream ID (sender_pubkey) */
   streamId: string;
+  
+  /** Protocol version (must be "1") */
+  version?: string;
   
   /** Encryption scheme used for this stream */
   encryption: EncryptionMethod;

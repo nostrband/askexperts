@@ -1,9 +1,10 @@
 import { Command } from "commander";
-import { SimplePool, getPublicKey } from "nostr-tools";
+import { SimplePool, getPublicKey, Event } from "nostr-tools";
 import { StreamMetadata, StreamWriterConfig } from "../../../stream/types.js";
 import { StreamWriter } from "../../../stream/StreamWriter.js";
 import { debugError, debugStream, enableAllDebug } from "../../../common/debug.js";
 import { StreamCommandOptions, commaSeparatedList } from "./index.js";
+import { parseStreamMetadataEvent } from "../../../stream/metadata.js";
 
 /**
  * A simple async queue that processes tasks sequentially
@@ -63,25 +64,19 @@ export async function executeStreamSendCommand(options: StreamCommandOptions): P
   try {
     // Require metadata option
     if (!options.metadata) {
-      throw new Error("Missing --metadata option. Stream metadata is required.");
+      throw new Error("Missing --metadata option. Stream metadata event is required.");
     }
     
-    // Parse metadata
-    let metadata: StreamMetadata;
+    // Parse metadata event
+    let metadataEvent: Event;
     try {
-      metadata = JSON.parse(options.metadata);
+      metadataEvent = JSON.parse(options.metadata);
     } catch (err) {
-      throw new Error(`Invalid metadata JSON: ${err instanceof Error ? err.message : String(err)}`);
+      throw new Error(`Invalid metadata event JSON: ${err instanceof Error ? err.message : String(err)}`);
     }
     
-    // Validate required fields
-    if (!metadata.streamId) {
-      throw new Error("Missing streamId in metadata");
-    }
-    
-    if (!metadata.relays || metadata.relays.length === 0) {
-      throw new Error("Missing relays in metadata");
-    }
+    // Parse and validate the metadata event
+    const metadata = parseStreamMetadataEvent(metadataEvent);
     
     // Get sender private key from options
     if (!options.privateKey) {

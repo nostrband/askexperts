@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { SimplePool } from "nostr-tools";
+import { SimplePool, Event } from "nostr-tools";
 import { StreamMetadata } from "../../../stream/types.js";
 import { StreamReader } from "../../../stream/StreamReader.js";
 import {
@@ -8,6 +8,7 @@ import {
   enableAllDebug,
 } from "../../../common/debug.js";
 import { StreamCommandOptions } from "./index.js";
+import { parseStreamMetadataEvent } from "../../../stream/metadata.js";
 
 /**
  * Execute the stream receive command
@@ -42,26 +43,20 @@ export async function executeStreamReceiveCommand(
       });
     }
 
-    // Parse metadata
-    let metadata: StreamMetadata;
+    // Parse metadata event
+    let metadataEvent: Event;
     try {
-      metadata = JSON.parse(metadataJson);
+      metadataEvent = JSON.parse(metadataJson);
     } catch (err) {
       throw new Error(
-        `Invalid metadata JSON: ${
+        `Invalid metadata event JSON: ${
           err instanceof Error ? err.message : String(err)
         }`
       );
     }
 
-    // Validate required fields
-    if (!metadata.streamId) {
-      throw new Error("Missing streamId in metadata");
-    }
-
-    if (!metadata.relays || metadata.relays.length === 0) {
-      throw new Error("Missing relays in metadata");
-    }
+    // Parse and validate the metadata event
+    const metadata = parseStreamMetadataEvent(metadataEvent);
 
     // Create a SimplePool for relay communication
     const pool = new SimplePool();

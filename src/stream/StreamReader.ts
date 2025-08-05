@@ -11,6 +11,7 @@ import {
   StreamReaderConfig,
   StreamStatus,
   StreamError as StreamErrorType,
+  STREAM_CHUNK_KIND
 } from "./types.js";
 import { debugStream, debugError } from "../common/debug.js";
 
@@ -90,6 +91,11 @@ export class StreamReader implements AsyncIterable<string | Uint8Array> {
       throw new Error("At least one relay is required");
     }
 
+    // Validate version
+    if (metadata.version !== undefined && metadata.version !== "1") {
+      throw new Error(`Unsupported protocol version: ${metadata.version}. Only version "1" is supported.`);
+    }
+
     if (metadata.encryption === "") {
       throw new Error("Unspecified encryption");
     }
@@ -117,7 +123,7 @@ export class StreamReader implements AsyncIterable<string | Uint8Array> {
 
     // Create filter for the stream chunks
     const filter: Filter = {
-      kinds: [20173],
+      kinds: [STREAM_CHUNK_KIND],
       authors: [this.metadata.streamId],
     };
 

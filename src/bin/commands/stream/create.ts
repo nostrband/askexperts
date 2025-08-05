@@ -4,6 +4,7 @@ import { StreamMetadata } from "../../../stream/types.js";
 import { debugError, enableAllDebug } from "../../../common/debug.js";
 import { COMPRESSION_NONE } from "../../../stream/compression.js";
 import { ENCRYPTION_NONE, ENCRYPTION_NIP44 } from "../../../stream/encryption.js";
+import { createStreamMetadataEvent } from "../../../stream/metadata.js";
 import { StreamCommandOptions, commaSeparatedList } from "./index.js";
 
 /**
@@ -35,23 +36,30 @@ export async function executeStreamCreateCommand(options: StreamCommandOptions):
     // Parse binary option
     const binary = options.binary || false;
     
-    // Create stream metadata
+    // Create stream metadata object
     const metadata: StreamMetadata = {
       streamId: senderPubkey,
+      version: "1",
       encryption: encryption,
       compression: compression,
       binary: binary,
       relays: relays,
     };
     
-    // If encryption is enabled, generate a key
+    // If encryption is enabled, add the key
     if (encryption === ENCRYPTION_NIP44) {
       metadata.key = Buffer.from(senderPrivkey).toString('hex');
     }
     
-    // Print stream metadata
-    console.log("Stream Metadata:");
-    console.log(JSON.stringify(metadata));
+    // Create and sign the stream metadata event (kind: 173)
+    const metadataEvent = createStreamMetadataEvent(metadata, senderPrivkey);
+    
+    // Add the event to the metadata object
+    metadata.event = metadataEvent;
+    
+    // Print stream metadata event
+    console.log("Stream Metadata Event (kind: 173):");
+    console.log(JSON.stringify(metadataEvent));
     
     // Print private key (for debugging/reference)
     console.log("\nPrivate Key (for sender):");

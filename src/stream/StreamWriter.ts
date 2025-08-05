@@ -12,7 +12,7 @@ import {
 import { Encryption, getEncryption } from "./encryption.js";
 import { publishToRelays } from "../common/relay.js";
 import { createEvent } from "../common/crypto.js";
-import { StreamMetadata, StreamWriterConfig, StreamStatus } from "./types.js";
+import { StreamMetadata, StreamWriterConfig, StreamStatus, STREAM_CHUNK_KIND } from "./types.js";
 import { debugStream, debugError, debugCompression } from "../common/debug.js";
 
 /**
@@ -75,6 +75,11 @@ export class StreamWriter {
 
     if (!metadata.relays || metadata.relays.length === 0) {
       throw new Error("At least one relay is required");
+    }
+
+    // Validate version
+    if (metadata.version !== undefined && metadata.version !== "1") {
+      throw new Error(`Unsupported protocol version: ${metadata.version}. Only version "1" is supported.`);
     }
 
     // Validate encryption requirements
@@ -495,7 +500,7 @@ export class StreamWriter {
     }
 
     // Create and sign the event
-    const event = createEvent(20173, content, tags, this.senderPrivkey);
+    const event = createEvent(STREAM_CHUNK_KIND, content, tags, this.senderPrivkey);
 
     // Store this event ID for the next chunk
     this.lastChunkId = event.id;
