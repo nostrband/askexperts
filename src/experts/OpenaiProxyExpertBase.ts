@@ -270,64 +270,31 @@ ${lastMessage.content}
     format: PromptFormat
   ): ExpertReplies {
     // Create an async generator function
-    const generator = (async function* (this: OpenaiProxyExpertBase) {
-      // NOTE: sending each word as a separate nostr event creates
-      // 5x overhead (vs inference on gpt-4.1), so we're batching
-      // to make it go away
-      const batch = [];
-      let lastSendTime = Date.now();
-      const BATCH_INTERVAL_MS = 3000; // 3 seconds
-      const MAX_BATCH_LENGTH = 50000; // <64Kb
-
+    const generator = async function* (this: OpenaiProxyExpertBase) {
       for await (const chunk of stream) {
-        batch.push(chunk);
-        // Dumb estimate instead of JSON.stringify
-        const length = batch.reduce(
-          (c, d) => c + 100 + (d.choices[0]?.delta?.content?.length || 0),
-          0
-        );
-        const done = chunk.choices[0]?.finish_reason !== null;
-        const currentTime = Date.now();
-        const timeElapsed = currentTime - lastSendTime;
-
-        // Send batch if 3 seconds have passed or if this is the last chunk
-        if (
-          (timeElapsed >= BATCH_INTERVAL_MS && batch.length > 0) ||
-          length > MAX_BATCH_LENGTH ||
-          done
-        ) {
-          switch (format) {
-            case FORMAT_OPENAI:
-              // Return the full API response
-              yield {
-                content: batch.slice(), // Create a copy of the batch
-                done: done,
-              };
-              break;
-            case FORMAT_TEXT:
-              // Return the text output only
-              yield {
-                content: batch
-                  .map((b) => b.choices[0]?.delta.content)
-                  .filter((s) => !!s)
-                  .join(),
-                done: done,
-              };
-              break;
-            default:
-              throw new Error("Unsupported format");
-          }
-
-          batch.length = 0;
-          lastSendTime = currentTime;
+        switch (format) {
+          case FORMAT_OPENAI:
+            // Return the full API response
+            yield {
+              content: chunk,
+            };
+            break;
+          case FORMAT_TEXT:
+            // Return the text output only
+            yield {
+              content: chunk,
+            };
+            break;
+          default:
+            throw new Error("Unsupported format");
         }
       }
-    }).bind(this)();
+    }.bind(this)();
 
     // Add the binary property to the generator
     const expertReplies = generator as unknown as ExpertReplies;
     expertReplies.binary = false;
-    
+
     return expertReplies;
   }
 
@@ -385,13 +352,11 @@ ${lastMessage.content}
                 // Return the full API response
                 return {
                   content: completion,
-                  done: true,
                 };
               case FORMAT_TEXT:
                 // Return the output only
                 return {
                   content: output,
-                  done: true,
                 };
               default:
                 throw new Error("Unsupported format");

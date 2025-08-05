@@ -53,8 +53,6 @@ export type OnPromptCallback = (prompt: Prompt) => Promise<ExpertQuote>;
 export interface ExpertReply {
   /** Reply content */
   content: any;
-  /** Whether this is the last reply */
-  done?: boolean;
 }
 
 /**

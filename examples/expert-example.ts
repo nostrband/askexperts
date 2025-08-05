@@ -165,7 +165,6 @@ async function runExampleExpert() {
             [Symbol.asyncIterator]: async function* () {
               // First reply
               yield {
-                done: false,
                 content: "This is the first part of my response.",
               };
 
@@ -174,7 +173,6 @@ async function runExampleExpert() {
 
               // Second reply
               yield {
-                done: false,
                 content: "This is the second part of my response.",
               };
 
@@ -183,7 +181,6 @@ async function runExampleExpert() {
 
               // Final reply
               yield {
-                done: true,
                 content:
                   "This is the final part of my response. Thank you for your question!",
               };

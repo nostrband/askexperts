@@ -10,7 +10,6 @@ import { Prompt, Quote, Proof, Replies, Reply } from "../common/types.js";
 import { AskExpertsClient } from "../client/AskExpertsClient.js";
 import { LightningPaymentManager } from "../payments/LightningPaymentManager.js";
 import { SimplePool } from "nostr-tools";
-import { Compression } from "../stream/compression.js";
 import { parseBolt11 } from "../common/bolt11.js";
 import { METHOD_LIGHTNING, FORMAT_OPENAI } from "../common/constants.js";
 import { debugError } from "../common/debug.js";
