@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![npm version](https://img.shields.io/npm/v/askexperts.svg)](https://www.npmjs.com/package/askexperts)
 
-A JavaScript/TypeScript SDK for the AskExperts protocol (NIP-174), enabling discovery of AI experts, asking them questions privately, and paying for answers using the Lightning Network.
+A JavaScript/TypeScript SDK implementing the AskExperts protocol (NIP-174) and Streaming Over Nostr protocol (NIP-173), enabling discovery of AI experts, asking them questions privately, paying for answers using the Lightning Network, and streaming large or dynamic payloads over Nostr.
 
 ## Table of Contents
 
@@ -25,16 +25,25 @@ A JavaScript/TypeScript SDK for the AskExperts protocol (NIP-174), enabling disc
 
 ## Overview
 
-AskExperts SDK implements the [NIP-174](https://github.com/nostrband/askexperts/blob/main/NIP-174.md) protocol, which allows:
+AskExperts SDK implements the following protocols:
 
-- **Discovery**: Find experts by publishing anonymized question summaries with hashtags
-- **Prompting**: Send encrypted questions to experts and receive answers
-- **Payments**: Pay experts for their answers using Lightning Network
+- [NIP-174](https://github.com/nostrband/askexperts/blob/main/NIP-174.md) (Ask Experts), which allows:
+  - **Discovery**: Find experts by publishing anonymized question summaries with hashtags
+  - **Prompting**: Send encrypted questions to experts and receive answers
+  - **Payments**: Pay experts for their answers using Lightning Network
+
+- [NIP-173](https://github.com/nostrband/askexperts/blob/main/NIP-173.md) (Streaming Over Nostr), which enables:
+  - **Streaming**: Send and receive large or dynamic payloads over Nostr using ephemeral events
+  - **Encryption**: Optional encryption using NIP-44
+  - **Compression**: Optional compression using gzip
 
 The SDK includes:
 - Client implementation for browser and Node.js environments
 - Server implementation for experts to receive and answer questions
-- MCP (Model Context Protocol) server for integration with AI assistants
+- MCP (Model Context Protocol) servers for integration with AI assistants
+- Document store for managing and searching documents
+- Wallet management for Lightning Network payments
+- Streaming utilities for handling large payloads
 
 ## Installation
 
@@ -49,8 +58,8 @@ yarn add askexperts
 ## Client Usage
 
 ```javascript
-import { AskExpertsClient, FORMAT_TEXT, COMPRESSION_PLAIN } from 'askexperts/client';
-import { LightningPaymentManager } from 'askexperts/lightning';
+import { AskExpertsClient, FORMAT_TEXT } from 'askexperts/client';
+import { LightningPaymentManager } from 'askexperts/payments';
 
 // Create a payment manager (optional, for handling Lightning payments)
 const paymentManager = new LightningPaymentManager('your_nwc_connection_string');
@@ -74,16 +83,18 @@ const client = new AskExpertsClient({
       };
     }
     throw new Error('No valid invoice found');
-  }
+  },
+  // Optional discovery relays
+  discoveryRelays: ['wss://relay1.example.com', 'wss://relay2.example.com']
 });
 
-// Find experts
+// Find experts (with streaming support enabled by default)
 const bids = await client.findExperts({
   summary: "How to implement a Lightning Network wallet?",
   hashtags: ["bitcoin", "lightning", "javascript"],
   formats: [FORMAT_TEXT],
-  comprs: [COMPRESSION_PLAIN],
-  methods: ["lightning"]
+  methods: ["lightning"],
+  stream: true // Enable streaming support (default is true)
 });
 
 // Fetch expert profiles
@@ -95,11 +106,10 @@ const experts = await client.fetchExperts({
 const replies = await client.askExpert({
   expert: experts[0],
   content: "I need help implementing a Lightning Network wallet in JavaScript. What libraries should I use?",
-  format: FORMAT_TEXT,
-  compr: COMPRESSION_PLAIN
+  format: FORMAT_TEXT
 });
 
-// Process replies
+// Process replies (supports both regular and streamed responses)
 for await (const reply of replies) {
   console.log(`Reply: ${reply.content}`);
   
@@ -107,26 +117,36 @@ for await (const reply of replies) {
     console.log("This is the final reply");
   }
 }
+
 ```
 
 ## Expert Server Usage
 
 ```typescript
-import { AskExpertsServer } from 'askexperts/expert';
+import { AskExpertsServer } from 'askexperts/server';
+import { ExpertPaymentManager } from 'askexperts/payments';
+import { SimplePool } from 'nostr-tools';
 import { generateSecretKey, getPublicKey } from 'nostr-tools';
-import { FORMAT_TEXT, COMPRESSION_PLAIN, METHOD_LIGHTNING } from 'askexperts/common/constants';
+import { FORMAT_TEXT, FORMAT_OPENAI, METHOD_LIGHTNING } from 'askexperts/common/constants';
 
 // Generate a keypair for the expert
 const privateKey = generateSecretKey();
 const publicKey = getPublicKey(privateKey);
 
+// Create a payment manager for handling Lightning payments
+const paymentManager = new LightningPaymentManager('expert-nwc-string');
+
+// Create a SimplePool instance for relay operations
+const pool = new SimplePool();
+
 // Create an expert server
 const expert = new AskExpertsServer({
   privkey: privateKey,
-  discoveryRelays: ['wss://relay1.askexperts.io'],
-  promptRelays: ['wss://relay1.askexperts.io'],
+  paymentManager, // Required for payment handling
+  pool, // Required for relay operations
   hashtags: ['ai', 'help', 'javascript'],
-  formats: [FORMAT_TEXT],
+  nickname: "JavaScript Expert", // Optional
+  description: "I can help with JavaScript questions", // Optional
   
   // Handle asks
   onAsk: async (ask) => {
@@ -134,50 +154,54 @@ const expert = new AskExpertsServer({
     
     // Return a bid if you want to answer this question
     return {
-      offer: "I can help with your JavaScript question!"
+      offer: "I can help with your JavaScript question!",
+      formats: [FORMAT_TEXT], // Optional: override supported formats for this bid
+      stream: true, // Optional: signal streaming support for this bid
+      methods: [METHOD_LIGHTNING] // Optional: override payment methods for this bid
     };
   },
   
-  // Handle prompts
-  onPrompt: async (prompt) => {
-    console.log(`Received prompt: ${JSON.stringify(prompt.content)}`);
+  // Handle prompt pricing
+  onPromptPrice: async (prompt) => {
+    console.log(`Determining price for prompt: ${prompt.id}`);
     
-    // Create a Lightning invoice
-    const invoice = await createLightningInvoice(100); // 100 sats
-    
-    // Return a quote
+    // Return price information
     return {
-      invoices: [
-        {
-          method: METHOD_LIGHTNING,
-          unit: 'sat',
-          amount: 100,
-          invoice: invoice
-        }
-      ]
+      amountSats: 100, // 100 satoshis
+      description: "JavaScript help" // Description for the invoice
     };
   },
   
-  // Handle proofs and execute prompts
-  onProof: async (prompt, expertQuote, proof) => {
-    console.log(`Received proof for prompt: ${prompt.id}`);
+  // Handle paid prompts
+  onPromptPaid: async (prompt, quote) => {
+    console.log(`Processing paid prompt: ${prompt.id}`);
     
-    // Verify the payment
-    const isValid = await verifyPayment(proof.preimage, expertQuote.invoices[0].invoice);
-    
-    if (!isValid) {
-      throw new Error('Invalid payment proof');
+    // For small responses, return a single reply
+    if (prompt.format === FORMAT_TEXT) {
+      return {
+        content: "This is my response to your JavaScript question."
+      };
     }
     
-    // Create an ExpertReply object
+    // For streaming responses (e.g., token-by-token for LLM output)
+    // Return an async iterable
     return {
-      content: 'This is my response.'
+      [Symbol.asyncIterator]: async function* () {
+        // Yield multiple chunks
+        yield { content: "This is " };
+        yield { content: "a streamed " };
+        yield { content: "response." };
+      },
+      binary: false // Set to true for binary data
     };
   }
 });
 
 // Start the expert
 await expert.start();
+
+// When done
+await expert[Symbol.asyncDispose]();
 ```
 
 ## MCP Servers and Proxy
@@ -186,36 +210,92 @@ The AskExperts SDK includes MCP (Model Context Protocol) servers and an OpenAI-c
 
 ### Standard MCP Server
 
-The standard MCP server provides direct access to the AskExperts protocol.
+The standard MCP server provides direct access to the AskExperts protocol through the Model Context Protocol (MCP). It exposes tools for finding experts, asking questions, and receiving answers.
 
 #### Running the Standard MCP Server
 
 You can run the standard MCP server using the provided CLI:
 
 ```bash
-# Run the MCP server
-npx askexperts mcp --nwc=your_nwc_connection_string
+# Run the MCP server with a wallet
+npx askexperts mcp --wallet=my_wallet_name
 
-# Or with environment variables
-export NWC_STRING=your_nwc_connection_string
-export DISCOVERY_RELAYS=wss://relay1.example.com,wss://relay2.example.com
-npx askexperts mcp
+# Or with a specific wallet and relays
+npx askexperts mcp --wallet=my_wallet_name --relays=wss://relay1.example.com,wss://relay2.example.com
+
+# Enable debug logging
+npx askexperts mcp --debug
 ```
+
+#### Standard MCP Server Tools
+
+The standard MCP server provides the following tools:
+
+1. **find_experts**: Find experts on a subject by providing a summary and hashtags
+   ```json
+   {
+     "summary": "How to implement a Lightning Network wallet?",
+     "hashtags": ["bitcoin", "lightning", "javascript"]
+   }
+   ```
+
+2. **ask_experts**: Ask multiple experts a question and receive their answers
+   ```json
+   {
+     "question": "I need help implementing a Lightning Network wallet in JavaScript. What libraries should I use?",
+     "bids": [
+       {
+         "id": "bid_id"
+       }
+     ],
+     "max_amount_sats": 10000
+   }
+   ```
+
+3. **ask_expert**: Ask a single expert a question and receive their answer
+   ```json
+   {
+     "question": "I need help implementing a Lightning Network wallet in JavaScript. What libraries should I use?",
+     "expert_pubkey": "expert_pubkey",
+     "max_amount_sats": 10000
+   }
+   ```
 
 ### Smart MCP Server
 
 The Smart MCP server enhances the standard server with LLM capabilities, providing an even simpler interface by handling expert discovery internally. It uses OpenAI to:
 
 1. Convert detailed questions into anonymized summaries and hashtags
-2. Evaluate expert bids (coming soon)
-3. Provide a single tool interface for asking questions
+2. Generate relevant hashtags for expert discovery
+3. Find and select appropriate experts
+4. Send your question to selected experts
+5. Collect and return expert responses
 
 #### Running the Smart MCP Server
 
 ```bash
-# Run the Smart MCP server
-npx askexperts smart --nwc=your_nwc_connection_string --openai-api-key=your_openai_api_key --openai-base-url=https://api.openai.com/v1
+# Run the Smart MCP server with a wallet
+npx askexperts smart --wallet=my_wallet_name --openai-api-key=your_openai_api_key --openai-base-url=https://api.openai.com/v1
+
+# Or with specific relays
+npx askexperts smart --wallet=my_wallet_name --openai-api-key=your_openai_api_key --openai-base-url=https://api.openai.com/v1 --relays=wss://relay1.example.com,wss://relay2.example.com
+
+# Enable debug logging
+npx askexperts smart --debug
 ```
+
+#### Smart MCP Server Tools
+
+The Smart MCP server provides a simplified API with LLM-powered capabilities:
+
+1. **ask_experts**: Ask a question to experts with automatic expert discovery
+   ```json
+   {
+     "question": "I need help implementing a Lightning Network wallet in JavaScript. What libraries should I use?",
+     "max_amount_sats": 10000,
+     "requirements": "Expert should have experience with JavaScript and Lightning Network"
+   }
+   ```
 
 ### MCP Server over HTTP
 
@@ -229,10 +309,16 @@ npx askexperts http --port=3001 --type=mcp
 
 # Run the HTTP server with smart MCP
 npx askexperts http --port=3001 --type=smart --openai-api-key=your_openai_api_key --openai-base-url=https://api.openai.com/v1
+
+# With specific relays and base path
+npx askexperts http --port=3001 --type=mcp --relays=wss://relay1.example.com,wss://relay2.example.com --base-path=/api
+
+# Enable debug logging
+npx askexperts http --debug
 ```
 
 The HTTP server supports the following options:
-- `--port`: Port number to listen on
+- `--port`: Port number to listen on (required)
 - `--base-path`: Base path for the API (default: "/")
 - `--type`: Server type, either "mcp" or "smart" (default: "mcp")
 - `--openai-api-key`: OpenAI API key (required for smart MCP)
@@ -250,10 +336,16 @@ The OpenAI API Proxy provides an OpenAI-compatible interface to the AskExperts p
 ```bash
 # Run the OpenAI API Proxy
 npx askexperts proxy --port=3002
+
+# With specific base path and relays
+npx askexperts proxy --port=3002 --base-path=/v1 --relays=wss://relay1.example.com,wss://relay2.example.com
+
+# Enable debug logging
+npx askexperts proxy --debug
 ```
 
 The OpenAI API Proxy supports the following options:
-- `--port`: Port number to listen on
+- `--port`: Port number to listen on (required)
 - `--base-path`: Base path for the API (default: "/")
 - `--relays`: Comma-separated list of discovery relays
 
@@ -267,12 +359,13 @@ The proxy implements the OpenAI Chat Completions API, with a few key differences
    - If the invoice amount exceeds this limit, the request will be rejected
 2. The `Authorization: Bearer <nwcString>` header should contain your NWC connection string for payments
 3. The proxy handles all the NIP-174 protocol details, including payments
+4. The proxy supports both streaming and non-streaming responses
 
 The proxy exposes the following endpoints:
 - `GET /health`: Health check endpoint
 - `POST /chat/completions`: OpenAI Chat Completions API endpoint
 
-Example using fetch:
+Example using fetch with streaming:
 
 ```javascript
 const response = await fetch('http://localhost:3002/chat/completions', {
@@ -282,18 +375,35 @@ const response = await fetch('http://localhost:3002/chat/completions', {
     'Authorization': `Bearer ${NWC_STRING}`
   },
   body: JSON.stringify({
-    model: 'expert_pubkey_here', // The expert's pubkey, can also use 'expert_pubkey_here?max_amount_sats=1000'
+    model: 'expert_pubkey_here?max_amount_sats=1000',
     messages: [
       {
         role: 'user',
         content: 'Hello! Can you tell me about Bitcoin?'
       }
-    ]
+    ],
+    stream: true
   })
 });
 
-const data = await response.json();
-console.log(data.choices[0].message.content);
+// Process the stream
+const reader = response.body.getReader();
+const decoder = new TextDecoder();
+
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+  
+  const chunk = decoder.decode(value);
+  // Process each SSE chunk
+  const lines = chunk.split('\n\n');
+  for (const line of lines) {
+    if (line.startsWith('data: ') && line !== 'data: [DONE]') {
+      const data = JSON.parse(line.substring(6));
+      console.log(data.choices[0].delta.content || '');
+    }
+  }
+}
 ```
 
 Example using the OpenAI Node.js client:
@@ -306,8 +416,9 @@ const openai = new OpenAI({
   baseURL: 'http://localhost:3002/'
 });
 
+// Non-streaming request
 const response = await openai.chat.completions.create({
-  model: 'expert_pubkey_here', // The expert's pubkey, can also use 'expert_pubkey_here?max_amount_sats=1000'
+  model: 'expert_pubkey_here?max_amount_sats=1000',
   messages: [
     {
       role: 'user',
@@ -317,9 +428,207 @@ const response = await openai.chat.completions.create({
 });
 
 console.log(response.choices[0].message.content);
+
+// Streaming request
+const stream = await openai.chat.completions.create({
+  model: 'expert_pubkey_here?max_amount_sats=1000',
+  messages: [
+    {
+      role: 'user',
+      content: 'Hello! Can you tell me about Bitcoin?'
+    }
+  ],
+  stream: true
+});
+
+for await (const chunk of stream) {
+  process.stdout.write(chunk.choices[0]?.delta?.content || '');
+}
 ```
 
 A complete example is available in the `examples/openai-proxy-client.js` file.
+
+## CLI Commands
+
+The AskExperts SDK provides a comprehensive command-line interface (CLI) for various operations. Here's an overview of the available commands:
+
+### MCP Servers
+
+- **mcp**: Run a standard MCP server
+  ```bash
+  npx askexperts mcp --wallet=my_wallet_name --relays=wss://relay1.example.com
+  ```
+
+- **smart**: Run a Smart MCP server with LLM capabilities
+  ```bash
+  npx askexperts smart --wallet=my_wallet_name --openai-api-key=your_key
+  ```
+
+- **http**: Run an HTTP server for MCP
+  ```bash
+  npx askexperts http --port=3001 --type=mcp
+  ```
+
+- **proxy**: Run an OpenAI API proxy for NIP-174
+  ```bash
+  npx askexperts proxy --port=3002
+  ```
+
+### Client Operations
+
+- **client**: Ask experts a question using the AskExpertsSmartClient
+  ```bash
+  npx askexperts client "How to implement a Lightning wallet?" --wallet=my_wallet --max-amount=1000
+  ```
+
+- **chat**: Start an interactive chat with a specific expert
+  ```bash
+  npx askexperts chat npub1expert... --wallet=my_wallet --max-amount=1000 --stream
+  ```
+
+### Expert Management
+
+- **expert**: Commands for managing experts
+  - **create**: Create a new expert
+    ```bash
+    npx askexperts expert create --name="My Expert" --description="Expert description"
+    ```
+  - **update**: Update an existing expert
+    ```bash
+    npx askexperts expert update expert_id --name="New Name"
+    ```
+  - **delete**: Delete an expert
+    ```bash
+    npx askexperts expert delete expert_id
+    ```
+  - **run**: Run a specific expert
+    ```bash
+    npx askexperts expert run expert_id
+    ```
+  - **all**: Run all experts
+    ```bash
+    npx askexperts expert all
+    ```
+  - **ls**: List all experts
+    ```bash
+    npx askexperts expert ls
+    ```
+  - **openrouter**: Create an OpenRouter expert
+    ```bash
+    npx askexperts expert openrouter --api-key=your_key --model=model_name
+    ```
+
+### Document Store
+
+- **docstore**: Manage document stores
+  - **create**: Create a new document store
+    ```bash
+    npx askexperts docstore create --name="My Store"
+    ```
+  - **ls**: List document stores
+    ```bash
+    npx askexperts docstore ls
+    ```
+  - **remove**: Remove a document store
+    ```bash
+    npx askexperts docstore remove store_id
+    ```
+  - **count**: Count documents in a store
+    ```bash
+    npx askexperts docstore count --docstore=store_id
+    ```
+  - **add**: Add a document to a store
+    ```bash
+    npx askexperts docstore add --docstore=store_id --file=path/to/file.txt
+    ```
+  - **delete**: Delete a document from a store
+    ```bash
+    npx askexperts docstore delete --docstore=store_id --id=doc_id
+    ```
+  - **get**: Get a document from a store
+    ```bash
+    npx askexperts docstore get --docstore=store_id --id=doc_id
+    ```
+  - **list**: List documents in a store
+    ```bash
+    npx askexperts docstore list --docstore=store_id
+    ```
+  - **search**: Search documents in a store
+    ```bash
+    npx askexperts docstore search --docstore=store_id "search query"
+    ```
+  - **import**: Import documents into a store
+    ```bash
+    npx askexperts docstore import directory --docstore=store_id --dir=path/to/dir
+    ```
+
+### Wallet Management
+
+- **wallet**: Manage Lightning wallets
+  - **add**: Add an existing wallet
+    ```bash
+    npx askexperts wallet add --name=my_wallet --nwc=your_nwc_string
+    ```
+  - **create**: Create a new wallet
+    ```bash
+    npx askexperts wallet create --name=my_wallet
+    ```
+  - **update**: Update a wallet
+    ```bash
+    npx askexperts wallet update my_wallet --nwc=new_nwc_string
+    ```
+  - **delete**: Delete a wallet
+    ```bash
+    npx askexperts wallet delete my_wallet
+    ```
+  - **list**: List all wallets
+    ```bash
+    npx askexperts wallet list
+    ```
+  - **balance**: Check wallet balance
+    ```bash
+    npx askexperts wallet balance my_wallet
+    ```
+  - **pay**: Pay a Lightning invoice
+    ```bash
+    npx askexperts wallet pay my_wallet lnbc...
+    ```
+  - **invoice**: Create a Lightning invoice
+    ```bash
+    npx askexperts wallet invoice my_wallet 1000 "Payment description"
+    ```
+  - **history**: View transaction history
+    ```bash
+    npx askexperts wallet history my_wallet
+    ```
+
+### Streaming
+
+- **stream**: Stream data over Nostr
+  - **create**: Create a stream
+    ```bash
+    npx askexperts stream create --relays=wss://relay1.example.com
+    ```
+  - **send**: Send data over a stream
+    ```bash
+    npx askexperts stream send --relays=wss://relay1.example.com --file=path/to/file.txt
+    ```
+  - **receive**: Receive data from a stream
+    ```bash
+    npx askexperts stream receive stream_id --relays=wss://relay1.example.com
+    ```
+
+### Environment Management
+
+- **env**: Manage environment variables
+  - **show**: Display all environment variables
+    ```bash
+    npx askexperts env show
+    ```
+  - **migrate**: Migrate .env file from current directory to app directory
+    ```bash
+    npx askexperts env migrate
+    ```
 
 ### Configuration
 
@@ -333,6 +642,12 @@ DISCOVERY_RELAYS=wss://relay1.example.com,wss://relay2.example.com
 # OpenAI configuration (required for Smart MCP server)
 OPENAI_API_KEY=your_openai_api_key_here
 OPENAI_BASE_URL=https://api.openai.com/v1
+
+# Document store configuration
+DOCSTORE_PATH=/path/to/docstore.db
+
+# Wallet configuration
+DEFAULT_WALLET=my_wallet_name
 ```
 
 ### MCP Server APIs
@@ -463,6 +778,139 @@ npm test
 
 # Run the example expert
 npm run expert
+```
+
+## Examples
+
+The AskExperts SDK includes several examples to help you get started:
+
+### Browser Client
+
+The `examples/browser-client.html` file demonstrates how to use the AskExperts client in a browser environment.
+
+```html
+<!-- Include the example in your HTML file -->
+<script src="../dist/browser/askexperts.js"></script>
+<script>
+  // Use the AskExperts client
+  const client = new askexperts.AskExpertsClient({
+    discoveryRelays: ['wss://relay.example.com']
+  });
+  
+  // Find experts and ask questions
+  // ...
+</script>
+```
+
+### Expert Server
+
+The `examples/expert-example.ts` file shows how to create and run an expert server.
+
+```typescript
+import { AskExpertsServer } from 'askexperts/server';
+
+// Create and configure an expert server
+const expert = new AskExpertsServer({
+  // Configuration options
+});
+
+// Start the expert server
+await expert.start();
+```
+
+### MCP Server
+
+The `examples/mcp-example.ts` file demonstrates how to use the MCP server.
+
+```typescript
+import { AskExpertsMCP } from 'askexperts/mcp';
+
+// Create and configure an MCP server
+const mcp = new AskExpertsMCP({
+  // Configuration options
+});
+
+// Start the MCP server
+await mcp.start();
+```
+
+### OpenAI Proxy Client
+
+The `examples/openai-proxy-client.js` file shows how to use the OpenAI API proxy with both the OpenAI client library and direct fetch requests.
+
+```javascript
+import OpenAI from 'openai';
+
+// Using the OpenAI client library
+const openai = new OpenAI({
+  apiKey: 'your_nwc_connection_string',
+  baseURL: 'http://localhost:3002/'
+});
+
+// Make requests to the proxy
+const response = await openai.chat.completions.create({
+  model: 'expert_pubkey_here?max_amount_sats=1000',
+  messages: [
+    {
+      role: 'user',
+      content: 'Hello! Can you tell me about Bitcoin?'
+    }
+  ]
+});
+```
+
+### Remote Client
+
+The `examples/remote-client.js` file demonstrates how to use the AskExperts client with remote relays.
+
+```javascript
+import { AskExpertsClient } from 'askexperts/client';
+
+// Create a client with remote relays
+const client = new AskExpertsClient({
+  discoveryRelays: ['wss://relay.example.com']
+});
+
+// Find experts and ask questions
+// ...
+```
+
+### RAG Example
+
+The `examples/rag-example.ts` file shows how to implement Retrieval-Augmented Generation (RAG) using the document store.
+
+```typescript
+import { DocStore } from 'askexperts/docstore';
+
+// Create a document store
+const docstore = new DocStore({
+  // Configuration options
+});
+
+// Add documents to the store
+await docstore.addDocument({
+  content: 'Document content',
+  metadata: { title: 'Document title' }
+});
+
+// Search documents
+const results = await docstore.search('search query');
+```
+
+### Payment Server
+
+The `examples/payment-server-example.ts` file demonstrates how to implement a payment server for handling Lightning Network payments.
+
+```typescript
+import { ExpertPaymentManager } from 'askexperts/payments';
+
+// Create a payment manager
+const paymentManager = new ExpertPaymentManager({
+  // Configuration options
+});
+
+// Generate invoices and verify payments
+// ...
 ```
 
 ## License
