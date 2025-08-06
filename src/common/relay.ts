@@ -3,7 +3,7 @@
  */
 
 import { SimplePool, Event, Filter } from "nostr-tools";
-import { debugRelay, debugError } from "./debug.js";
+import { debugError } from "./debug.js";
 
 // Define a type for subscription that has a close method
 interface Sub {

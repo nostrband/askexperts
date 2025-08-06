@@ -5,6 +5,7 @@ import { registerUpdateCommand } from "./update.js";
 import { registerDeleteCommand } from "./delete.js";
 import { registerRunCommand } from "./run.js";
 import { registerAllCommand } from "./all.js";
+import { registerLsCommand } from "./ls.js";
 
 /**
  * Register the expert command group with the CLI
@@ -24,4 +25,5 @@ export function registerExpertCommand(program: Command): void {
   registerDeleteCommand(expertCommand);
   registerRunCommand(expertCommand);
   registerAllCommand(expertCommand);
+  registerLsCommand(expertCommand);
 }

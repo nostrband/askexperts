@@ -20,6 +20,7 @@ import {
   DEFAULT_DISCOVERY_RELAYS,
   FORMAT_TEXT,
   FORMAT_OPENAI,
+  SEARCH_RELAYS,
 } from "../common/constants.js";
 
 import {
@@ -441,7 +442,7 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
     // Publish the expert profile to discovery relays
     const publishedRelays = await publishToRelays(
       expertProfileEvent,
-      this.#discoveryRelays,
+      [...this.#discoveryRelays, ...SEARCH_RELAYS],
       this.pool
     );
 

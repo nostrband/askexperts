@@ -12,8 +12,6 @@ import {
   verifyEvent,
   validateEvent,
 } from 'nostr-tools';
-import { bytesToHex } from 'nostr-tools/utils';
-import { randomBytes } from '@noble/hashes/utils';
 
 /**
  * Generates a random key pair

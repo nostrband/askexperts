@@ -7,6 +7,7 @@ import { Event, SimplePool } from "nostr-tools";
 import { z } from "zod";
 import { debugError } from "../common/debug.js";
 import { parseBolt11 } from "../common/bolt11.js";
+import { parseExpertProfile } from "../experts/utils/Nostr.js";
 
 import {
   AskExpertsError,
@@ -356,6 +357,7 @@ export class AskExpertsClient implements AskExpertsClientInterface {
     return bids;
   }
 
+
   /**
    * Fetches expert profiles from relays
    *
@@ -392,83 +394,21 @@ export class AskExpertsClient implements AskExpertsClientInterface {
     const seenPubkeys = new Set<string>();
 
     for (const event of events) {
-      try {
-        // No need to validate events from relay - they're already validated
+      // Only take the newest event for each pubkey
+      if (seenPubkeys.has(event.pubkey)) {
+        continue;
+      }
 
-        // Only take the newest event for each pubkey
-        if (seenPubkeys.has(event.pubkey)) {
-          continue;
-        }
-
-        // Extract relay URLs from the tags
-        const relayTags = event.tags.filter((tag) => tag[0] === "relay");
-        const expertRelays = relayTags.map((tag) => tag[1]);
-
-        if (expertRelays.length === 0) {
-          debugError("Expert profile event missing relay tags:", event);
-          continue;
-        }
-
-        // Extract formats from the tags
-        const formatTags = event.tags.filter((tag) => tag[0] === "f");
-        const expertFormats = formatTags.map((tag) => tag[1]) as PromptFormat[];
-
-        // Check if streaming is supported
-        const streamTag = event.tags.find(
-          (tag) => tag[0] === "s" && tag[1] === "true"
-        );
-        const expertStreamSupported = !!streamTag;
-
-        // Extract payment methods from the tags
-        const methodTags = event.tags.filter((tag) => tag[0] === "m");
-        const expertMethods = methodTags.map(
-          (tag) => tag[1]
-        ) as PaymentMethod[];
-
-        // Extract hashtags from the tags
-        const hashtagTags = event.tags.filter((tag) => tag[0] === "t");
-        const expertHashtags = hashtagTags.map((tag) => tag[1]);
-
-        // Extract name from the tags
-        const nameTag = event.tags.find((tag) => tag[0] === "name");
-        const name = nameTag ? nameTag[1] : undefined;
-
-        // Create an Expert object
-        const expert: Expert = {
-          pubkey: event.pubkey,
-          name,
-          description: event.content,
-          relays: expertRelays,
-          formats: expertFormats,
-          stream: expertStreamSupported,
-          methods: expertMethods,
-          hashtags: expertHashtags,
-          event,
-        };
-
-        // Add the expert to the array
+      const expert = parseExpertProfile(event);
+      if (expert) {
         experts.push(expert);
         seenPubkeys.add(event.pubkey);
-      } catch (error) {
-        debugError("Error processing expert profile event:", error);
       }
     }
 
     return experts;
   }
 
-  /**
-   * Sends a prompt to an expert
-   *
-   * @param expertPubkey - Expert's public key
-   * @param expertRelays - Expert's relays
-   * @param content - Content of the prompt
-   * @param format - Format of the prompt
-   * @param compr - Compression method to use
-   * @param compression - Compression instance
-   * @returns Promise resolving to a tuple of [Prompt, promptPrivkey, publishedRelays]
-   * @private
-   */
   /**
    * Helper function to calculate the size of content in bytes
    *
@@ -1111,6 +1051,7 @@ export class AskExpertsClient implements AskExpertsClientInterface {
       expertRelays
     );
 
+    // Call the onQuote callback
     // Call the onQuote callback to determine if we should proceed with payment
     let proof: Proof;
 

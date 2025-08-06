@@ -1,6 +1,68 @@
 import { SimplePool, Event, Filter } from "nostr-tools";
 import { fetchFromRelays } from "../../common/relay.js";
 import { debugError, debugExpert } from "../../common/debug.js";
+import { Expert, PromptFormat, PaymentMethod } from "../../common/types.js";
+
+/**
+ * Parse an expert profile event into an Expert object
+ *
+ * @param event - The expert profile event to parse
+ * @returns Expert object or null if invalid
+ */
+export function parseExpertProfile(event: Event): Expert | null {
+  try {
+    // Extract relay URLs from the tags
+    const relayTags = event.tags.filter((tag) => tag[0] === "relay");
+    const expertRelays = relayTags.map((tag) => tag[1]);
+
+    if (expertRelays.length === 0) {
+      debugError("Expert profile event missing relay tags:", event);
+      return null;
+    }
+
+    // Extract formats from the tags
+    const formatTags = event.tags.filter((tag) => tag[0] === "f");
+    const expertFormats = formatTags.map((tag) => tag[1]) as PromptFormat[];
+
+    // Check if streaming is supported
+    const streamTag = event.tags.find(
+      (tag) => tag[0] === "s" && tag[1] === "true"
+    );
+    const expertStreamSupported = !!streamTag;
+
+    // Extract payment methods from the tags
+    const methodTags = event.tags.filter((tag) => tag[0] === "m");
+    const expertMethods = methodTags.map(
+      (tag) => tag[1]
+    ) as PaymentMethod[];
+
+    // Extract hashtags from the tags
+    const hashtagTags = event.tags.filter((tag) => tag[0] === "t");
+    const expertHashtags = hashtagTags.map((tag) => tag[1]);
+
+    // Extract name from the tags
+    const nameTag = event.tags.find((tag) => tag[0] === "name");
+    const name = nameTag ? nameTag[1] : undefined;
+
+    // Create an Expert object
+    const expert: Expert = {
+      pubkey: event.pubkey,
+      name,
+      description: event.content,
+      relays: expertRelays,
+      formats: expertFormats,
+      stream: expertStreamSupported,
+      methods: expertMethods,
+      hashtags: expertHashtags,
+      event,
+    };
+
+    return expert;
+  } catch (error) {
+    debugError("Error processing expert profile event:", error);
+    return null;
+  }
+}
 
 /**
  * Interface for a post with optional reply context

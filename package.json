@@ -1,6 +1,6 @@
 {
   "name": "askexperts",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "description": "AskExperts SDK: build and use AI experts - ask them questions and pay with bitcoin on an open protocol",
   "main": "dist/index.js",
   "type": "module",
@@ -70,6 +70,7 @@
     "@xenova/transformers": "^2.17.2",
     "bolt11": "^1.4.1",
     "chromadb": "^3.0.9",
+    "cli-table3": "^0.6.5",
     "commander": "^14.0.0",
     "cors": "^2.8.5",
     "debug": "^4.4.1",

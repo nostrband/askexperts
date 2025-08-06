@@ -37,6 +37,8 @@ export const DEFAULT_DISCOVERY_RELAYS = [
 
 export const DEFAULT_PROMPT_RELAYS = DEFAULT_DISCOVERY_RELAYS;
 
+export const SEARCH_RELAYS = ["wss://relay.nostr.band/all"];
+
 // Default timeout values (in milliseconds)
 export const DEFAULT_DISCOVERY_TIMEOUT = 10000;
 export const DEFAULT_FETCH_EXPERTS_TIMEOUT = 5000;
