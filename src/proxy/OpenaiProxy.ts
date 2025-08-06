@@ -2,17 +2,24 @@ import express, { Request, Response } from "express";
 import cors from "cors";
 import * as http from "http";
 import { z } from "zod";
-import { AskExpertsClient } from "../client/AskExpertsClient.js";
 import { LightningPaymentManager } from "../payments/LightningPaymentManager.js";
 import { FORMAT_OPENAI } from "../common/constants.js";
 import { Proof, Quote, Prompt } from "../common/types.js";
 import { debugClient, debugError } from "../common/debug.js";
+import { OpenaiAskExperts } from "../openai/OpenaiAskExperts.js";
+import { SimplePool } from "nostr-tools";
+import { ChatCompletionCreateParams } from "openai/resources";
 
 /**
  * OpenAI Chat Completions API request schema
  */
 const OpenAIChatCompletionsRequestSchema = z.object({
-  model: z.string().min(1).describe("Expert's pubkey, optionally followed by ?max_amount_sats=N to limit payment amount"),
+  model: z
+    .string()
+    .min(1)
+    .describe(
+      "Expert's pubkey, optionally followed by ?max_amount_sats=N to limit payment amount"
+    ),
   messages: z
     .array(
       z.object({
@@ -77,11 +84,12 @@ type OpenAIChatCompletionsResponse = z.infer<
  */
 export class OpenaiProxy {
   private app: express.Application;
-  private client: AskExpertsClient;
   private port: number;
   private basePath: string;
   private stopped = true;
   private server?: http.Server;
+  private discoveryRelays?: string[];
+  private pool = new SimplePool();
 
   /**
    * Creates a new OpenAIProxy instance
@@ -97,11 +105,7 @@ export class OpenaiProxy {
         ? basePath
         : `/${basePath}`
       : "/";
-
-    // Create the AskExpertsClient
-    this.client = new AskExpertsClient({
-      discoveryRelays,
-    });
+    this.discoveryRelays = discoveryRelays;
 
     // Create the Express app
     this.app = express();
@@ -183,16 +187,16 @@ export class OpenaiProxy {
       // Extract the expert pubkey and query parameters from the model field
       let expertPubkey = requestBody.model;
       let maxAmountSats: number | undefined;
-      
+
       // Check if the model field contains query parameters
-      const queryParamIndex = expertPubkey.indexOf('?');
+      const queryParamIndex = expertPubkey.indexOf("?");
       if (queryParamIndex !== -1) {
         const queryString = expertPubkey.substring(queryParamIndex + 1);
         expertPubkey = expertPubkey.substring(0, queryParamIndex);
-        
+
         // Parse query parameters
         const params = new URLSearchParams(queryString);
-        const maxAmountParam = params.get('max_amount_sats');
+        const maxAmountParam = params.get("max_amount_sats");
         if (maxAmountParam) {
           maxAmountSats = parseInt(maxAmountParam, 10);
           if (isNaN(maxAmountSats)) {
@@ -204,99 +208,32 @@ export class OpenaiProxy {
       // Create a LightningPaymentManager for this request
       const paymentManager = new LightningPaymentManager(nwcString);
 
-      try {
-        // Fetch the expert profile
-        const experts = await this.client.fetchExperts({
-          pubkeys: [expertPubkey],
-        });
+      // Create the client
+      const client = new OpenaiAskExperts(paymentManager, {
+        pool: this.pool,
+        discoveryRelays: this.discoveryRelays,
+      });
 
-        if (experts.length === 0) {
-          res
-            .status(404)
-            .json({ error: `Expert with pubkey ${expertPubkey} not found` });
+      try {
+        const { quoteId, amountSats } = await client.getQuote(
+          expertPubkey,
+          requestBody as ChatCompletionCreateParams
+        );
+
+        if (maxAmountSats && amountSats > maxAmountSats) {
+          res.status(402).json({
+            error: "Payment failed",
+            message: "Quoted price too high",
+          });
           return;
         }
 
-        const expert = experts[0];
-
-        // Create onQuote and onPay callbacks
-        const onQuote = async (
-          quote: Quote,
-          prompt: Prompt
-        ): Promise<boolean> => {
-          // If maxAmountSats is specified, check if the invoice amount is acceptable
-          if (maxAmountSats !== undefined) {
-            const lightningInvoice = quote.invoices.find(
-              (inv) => inv.method === "lightning"
-            );
-            if (lightningInvoice && lightningInvoice.amount) {
-              return lightningInvoice.amount <= maxAmountSats;
-            }
-          }
-          
-          // Otherwise, always accept the quote
-          // clients should only use this proxy for experts they trust
-          return true;
-        };
-
-        const onPay = async (quote: Quote, prompt: Prompt): Promise<Proof> => {
-          // Find a lightning invoice
-          const lightningInvoice = quote.invoices.find(
-            (inv) => inv.method === "lightning"
-          );
-          if (!lightningInvoice || !lightningInvoice.invoice) {
-            throw new Error("No lightning invoice found in quote");
-          }
-
-          // Pay the invoice
-          const preimage = await paymentManager.payInvoice(
-            lightningInvoice.invoice
-          );
-
-          // Return the proof
-          return {
-            method: "lightning",
-            preimage,
-          };
-        };
-
-        // Ask the expert
-        const replies = await this.client.askExpert({
-          expert,
-          content: requestBody,
-          format: FORMAT_OPENAI,
-          onQuote,
-          onPay,
-        });
+        const reply = await client.execute(quoteId);
 
         // Check if streaming is requested
         if (!requestBody.stream) {
-          // For non-streaming requests, we expect a single response
-          let expertResponse: OpenAIChatCompletionsResponse | undefined;
-
-          for await (const reply of replies) {
-            // Only one reply expected
-            if (!reply.done) throw new Error("Unexpected streamed replies");
-
-            // Try to validate the response against the schema
-            const parseResult = OpenAIChatCompletionsResponseSchema.safeParse(
-              reply.content
-            );
-            if (parseResult.success) {
-              expertResponse = parseResult.data;
-            } else {
-              const errorMessage = parseResult.error.errors
-                .map((err) => `${err.path.join(".")}: ${err.message}`)
-                .join(", ");
-              throw new Error(errorMessage);
-            }
-
-            break; // We have a response, no need to process more
-          }
-          if (!expertResponse) throw new Error("Unexpected absent response");
-
           // Send the response
-          res.status(200).json(expertResponse);
+          res.status(200).json(reply);
         } else {
           // Streaming is not implemented yet
           res.status(400).json({
@@ -306,6 +243,7 @@ export class OpenaiProxy {
       } finally {
         // Clean up resources
         paymentManager[Symbol.dispose]();
+        client[Symbol.dispose]();
       }
     } catch (error) {
       debugError("Error handling chat completions request:", error);
@@ -361,9 +299,6 @@ export class OpenaiProxy {
         closePromise,
         new Promise((ok) => setTimeout(ok, 5000)),
       ]);
-
-      // Cleanup
-      this.client[Symbol.dispose]();
 
       debugError("Server stopped");
       resolve();
