@@ -13,6 +13,26 @@ import { StreamMetadata, StreamReaderConfig, StreamWriterConfig } from "./types.
  * Uses the built-in StreamReader and StreamWriter classes
  */
 export class DefaultStreamFactory implements StreamFactory {
+
+  #readerConfig?: StreamReaderConfig;
+  #writerConfig?: StreamWriterConfig;
+
+  get readerConfig() {
+    return this.#readerConfig;
+  }
+
+  set readerConfig(c: StreamReaderConfig | undefined) {
+    this.#readerConfig = c;
+  }
+
+  get writerConfig() {
+    return this.#writerConfig;
+  }
+
+  set writerConfig(c: StreamWriterConfig | undefined) {
+    this.#writerConfig = c;
+  }
+
   /**
    * Creates a StreamReader for reading from a stream
    *
@@ -26,7 +46,7 @@ export class DefaultStreamFactory implements StreamFactory {
     pool: SimplePool,
     config?: StreamReaderConfig
   ): Promise<AsyncIterable<string | Uint8Array>> {
-    return new StreamReader(metadata, pool, config);
+    return new StreamReader(metadata, pool, config || this.#readerConfig);
   }
 
   /**
@@ -44,14 +64,14 @@ export class DefaultStreamFactory implements StreamFactory {
     senderPrivkey: Uint8Array,
     config?: StreamWriterConfig
   ): Promise<StreamWriterInterface> {
-    return new StreamWriter(metadata, pool, senderPrivkey, config);
+    return new StreamWriter(metadata, pool, senderPrivkey, config || this.#writerConfig);
   }
 }
 
 /**
  * Singleton instance of DefaultStreamFactory
  */
-let defaultStreamFactory: DefaultStreamFactory | null = null;
+let defaultStreamFactory: StreamFactory | null = null;
 
 /**
  * Gets the default StreamFactory instance

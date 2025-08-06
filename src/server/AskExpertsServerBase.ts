@@ -19,6 +19,7 @@ import {
   METHOD_LIGHTNING,
   DEFAULT_DISCOVERY_RELAYS,
   FORMAT_TEXT,
+  FORMAT_OPENAI,
 } from "../common/constants.js";
 
 import {
@@ -694,7 +695,7 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
       const streamTag = promptEvent.tags.find(
         (tag) => tag.length > 1 && tag[0] === "stream"
       );
-      
+
       // Check if client supports streaming replies
       const clientSupportsStreaming = !!promptEvent.tags.find(
         (tag) => tag.length > 1 && tag[0] === "s" && tag[1] === "true"
@@ -763,8 +764,14 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
             }
           }
 
-          // Set the content in the prompt
-          prompt.content = content;
+          if (prompt.format === FORMAT_OPENAI) {
+            // Sanity check
+            if (content instanceof Uint8Array)
+              throw new Error("Format openai expects string, not bytes");
+            prompt.content = JSON.parse(content);
+          } else {
+            prompt.content = content;
+          }
         } catch (error) {
           debugError("Error processing streamed prompt:", error);
           throw error;
@@ -990,7 +997,9 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
 
           // Check if streaming is needed but client doesn't support it
           if (useStreaming && !prompt.stream) {
-            throw new Error("Streaming is required for this response, but client doesn't support it");
+            throw new Error(
+              "Streaming is required for this response, but client doesn't support it"
+            );
           }
 
           // Always send 1 reply event
@@ -1192,11 +1201,12 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
           if (content instanceof Uint8Array) {
             if (!binary) throw new Error("Non-bytes reply for binary stream");
           } else if (typeof content !== "string") {
-            content = JSON.stringify(content);
+            // JSONL format
+            content = JSON.stringify(content) + "\n";
           }
 
           // Write content directly to stream without creating a payload structure
-          await streamWriter.write(expertReply.content, binary);
+          await streamWriter.write(content, binary);
         }
 
         // Close the stream

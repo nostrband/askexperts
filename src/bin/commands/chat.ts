@@ -228,22 +228,23 @@ export async function executeChatCommand(
             debugClient(`Received final reply from expert ${expertPubkey}`);
 
             // OpenAI format response
-            let chunk = "";
-            if (format === FORMAT_OPENAI) {
-              chunk =
-                reply.content.choices[0]?.[options.stream ? "delta" : "message"]
-                  .content;
-            } else {
-              chunk = reply.content;
+            if (reply.content) {
+              let chunk = "";
+              if (format === FORMAT_OPENAI) {
+                chunk =
+                  reply.content.choices[0]?.[
+                    options.stream ? "delta" : "message"
+                  ].content;
+              } else {
+                chunk = reply.content;
+              }
+              expertReply += chunk;
+              console.log(chunk);
             }
-            expertReply += chunk;
-            console.log(chunk);
           } else {
             debugClient(`Received chunk from expert ${expertPubkey}`);
-            let chunk = "";
-            for (const c of reply.content) {
-              chunk += c.choices[0]?.delta.content;
-            }
+            if (!reply.content) continue;
+            const chunk = reply.content.choices[0]?.delta.content;
             expertReply += chunk;
             process.stdout.write(chunk);
           }

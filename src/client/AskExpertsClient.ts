@@ -32,6 +32,7 @@ import {
   DEFAULT_FETCH_EXPERTS_TIMEOUT,
   DEFAULT_QUOTE_TIMEOUT,
   DEFAULT_REPLY_TIMEOUT,
+  FORMAT_OPENAI,
 } from "../common/constants.js";
 
 import {
@@ -501,16 +502,60 @@ export class AskExpertsClient implements AskExpertsClientInterface {
     useStreaming: boolean,
     promptPrivkey: Uint8Array
   ): Promise<Prompt> {
+    // Check if we should use streaming based on the useStreaming flag
+    // The content size check is now done in askExpert
+    const shouldUseStreaming = useStreaming;
+
     // Create the prompt payload
     const promptPayload: any = {
       format,
     };
 
-    // Check if we should use streaming based on the useStreaming flag
-    // The content size check is now done in askExpert
-    const shouldUseStreaming = useStreaming;
+    if (!shouldUseStreaming) {
+      // We'll send content embedded in the prompt event
+      promptPayload.content = content;
+    }
+
+    // Convert to JSON string
+    const promptPayloadStr = JSON.stringify(promptPayload);
+
+    // Prompt event payload
+    const encryptedContent = encrypt(
+      promptPayloadStr,
+      expertPubkey,
+      promptPrivkey
+    );
 
     let promptEvent;
+    const publishPrompt = async (encryptedStreamMetadata?: string) => {
+      // Create prompt event with stream tag
+      const promptEvent = createEvent(
+        EVENT_KIND_PROMPT,
+        encryptedContent,
+        [
+          ["p", expertPubkey],
+          ["s", "true"], // Signal that client supports streaming replies
+          ...(encryptedStreamMetadata
+            ? [["stream", encryptedStreamMetadata]]
+            : []),
+        ],
+        promptPrivkey
+      );
+
+      // Publish the prompt event
+      const publishedRelays = await publishToRelays(
+        promptEvent,
+        expertRelays,
+        this.pool,
+        5000
+      );
+
+      if (publishedRelays.length === 0) {
+        throw new RelayError("Failed to publish prompt event to any relay");
+      }
+
+      return promptEvent;
+    };
 
     if (shouldUseStreaming) {
       // Create stream metadata
@@ -555,29 +600,12 @@ export class AskExpertsClient implements AskExpertsClientInterface {
       );
 
       // Create prompt event with stream tag
-      promptEvent = createEvent(
-        EVENT_KIND_PROMPT,
-        "", // Empty content when using stream
-        [
-          ["p", expertPubkey],
-          ["stream", encryptedStreamMetadata],
-          ["s", "true"], // Signal that client supports streaming replies
-        ],
-        promptPrivkey
-      );
+      promptEvent = await publishPrompt(encryptedStreamMetadata);
 
-      // Publish the prompt event
-      const publishedRelays = await publishToRelays(
-        promptEvent,
-        expertRelays,
-        this.pool,
-        5000
-      );
-
-      if (publishedRelays.length === 0) {
-        throw new RelayError("Failed to publish prompt event to any relay");
-      }
-
+      // Prepare payload, this should actually go along with 'format':
+      // - text => string
+      // - openai => json
+      // - other... how to know?
       let payload: string | Uint8Array;
       if (binary) payload = content;
       else if (typeof content === "string") payload = content;
@@ -586,41 +614,8 @@ export class AskExpertsClient implements AskExpertsClientInterface {
       // Write content to stream
       await streamWriter.write(payload, true);
     } else {
-      // We'll send content embedded in the prompt event
-      promptPayload.content = content;
-
-      // Convert to JSON string
-      const promptPayloadStr = JSON.stringify(promptPayload);
-
-      // Use regular encryption for smaller content
-      const encryptedContent = encrypt(
-        promptPayloadStr,
-        expertPubkey,
-        promptPrivkey
-      );
-
-      // Create and sign the prompt event
-      promptEvent = createEvent(
-        EVENT_KIND_PROMPT,
-        encryptedContent,
-        [
-          ["p", expertPubkey],
-          ["s", "true"], // Signal that client supports streaming replies
-        ],
-        promptPrivkey
-      );
-
-      // Publish the prompt event
-      const publishedRelays = await publishToRelays(
-        promptEvent,
-        expertRelays,
-        this.pool,
-        5000
-      );
-
-      if (publishedRelays.length === 0) {
-        throw new RelayError("Failed to publish prompt event to any relay");
-      }
+      // Create prompt event without stream
+      promptEvent = await publishPrompt();
     }
 
     // Create the Prompt object
@@ -824,7 +819,7 @@ export class AskExpertsClient implements AskExpertsClientInterface {
   /**
    * Creates a Replies object that handles reply events
    *
-   * @param promptId - Prompt event ID
+   * @param prompt - Prompt
    * @param expertPubkey - Expert's public key
    * @param promptPrivkey - Private key used for the prompt
    * @param publishedRelays - Relays where the prompt was published
@@ -833,7 +828,7 @@ export class AskExpertsClient implements AskExpertsClientInterface {
    * @private
    */
   private createRepliesHandler(
-    promptId: string,
+    prompt: Prompt,
     expertPubkey: string,
     promptPrivkey: Uint8Array,
     publishedRelays: string[]
@@ -847,7 +842,7 @@ export class AskExpertsClient implements AskExpertsClientInterface {
 
     // Create the Replies object
     const replies: Replies = {
-      promptId,
+      promptId: prompt.id,
       expertPubkey,
 
       // Implement AsyncIterable interface
@@ -856,7 +851,7 @@ export class AskExpertsClient implements AskExpertsClientInterface {
           // Create a filter for the single reply event
           const replyFilter = {
             kinds: [EVENT_KIND_REPLY],
-            "#e": [promptId],
+            "#e": [prompt.id],
             authors: [expertPubkey],
           };
 
@@ -905,25 +900,47 @@ export class AskExpertsClient implements AskExpertsClientInterface {
               try {
                 // Process each chunk from the stream as it arrives
                 for await (const chunk of streamReader) {
-                  // Create a Reply object for each chunk
-                  // The chunk itself is the content
-                  const reply: Reply = {
-                    pubkey: expertPubkey,
-                    promptId,
-                    done: false, // Only the last chunk will have done=true
-                    content: chunk,
-                    event,
-                  };
+                  if (prompt.format === FORMAT_OPENAI) {
+                    if (typeof chunk !== "string")
+                      throw new Error(
+                        "String reply expected for OpenAI format"
+                      );
+                    // Parse the content from JSONL format
+                    for (const line of chunk.split("\n")) {
+                      if (!line.trim()) continue;
 
-                  // Yield the reply for each chunk
-                  yield reply;
+                      const reply: Reply = {
+                        pubkey: expertPubkey,
+                        promptId: prompt.id,
+                        done: false,
+                        content: JSON.parse(line),
+                        event,
+                      };
+
+                      // Yield the reply for each chunk
+                      yield reply;
+                    }
+                  } else {
+                    // Create a Reply object for each chunk
+                    // The chunk itself is the content
+                    const reply: Reply = {
+                      pubkey: expertPubkey,
+                      promptId: prompt.id,
+                      done: false,
+                      content: chunk,
+                      event,
+                    };
+
+                    // Yield the reply for each chunk
+                    yield reply;
+                  }
                 }
 
                 // After all chunks are processed, yield a final reply with done=true
                 // This signals that the stream is complete
                 const finalReply: Reply = {
                   pubkey: expertPubkey,
-                  promptId,
+                  promptId: prompt.id,
                   done: true,
                   content: "",
                   event,
@@ -969,7 +986,7 @@ export class AskExpertsClient implements AskExpertsClientInterface {
             // Create the Reply object
             const reply: Reply = {
               pubkey: expertPubkey,
-              promptId,
+              promptId: prompt.id,
               done: true, // single reply
               content: replyPayload.content,
               event,
@@ -1133,7 +1150,7 @@ export class AskExpertsClient implements AskExpertsClientInterface {
 
     // Create and return the Replies object
     return this.createRepliesHandler(
-      prompt.id,
+      prompt,
       expertPubkey,
       promptPrivkey,
       expertRelays

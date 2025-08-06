@@ -16,6 +16,7 @@ import {
 } from "openai/resources";
 import { ChatCompletionChunk } from "openai/resources/chat/completions";
 import { OpenaiInterface } from "../openai/index.js";
+import { DefaultStreamFactory } from "../stream/DefaultStreamFactory.js";
 
 interface PromptContext {
   content?: ChatCompletionCreateParams;
@@ -73,6 +74,15 @@ export class OpenaiProxyExpertBase {
 
     // Use provided server
     this.server = options.server;
+
+    // Custom stream factory to make real-time delta streaming
+    // work as we need it to
+    const streamFactory = new DefaultStreamFactory();
+    streamFactory.writerConfig = {
+      minChunkInterval: 1000, // Send a delta every second
+      minChunkSize: 1024,     // Send if >1KB of deltas
+    }
+    this.server.streamFactory = streamFactory;
   }
 
   /**
@@ -296,11 +306,7 @@ ${lastMessage.content}
       }
     }.bind(this)();
 
-    // Add the binary property to the generator
-    const expertReplies = generator as unknown as ExpertReplies;
-    expertReplies.binary = false;
-
-    return expertReplies;
+    return generator;
   }
 
   /**

@@ -182,7 +182,7 @@ export class OpenaiAskExperts implements OpenaiInterface {
     "shisa-ai/shisa-v2-llama3.3-70b:free":
       "be70337ce51317ff66489c6bd049a7a9074c015ef03c72c81beb01b3dcfebded",
     "openai/gpt-4.1":
-      "6321d9eec6337b3b6e415f6187814ca7231aa50c9240c02a592875e70ee84309",
+      "b2279cf62acb9faafd8083a9e36ee8d4e44fd8b8dc6da8e63e9a14bfcda86ae7", //"6321d9eec6337b3b6e415f6187814ca7231aa50c9240c02a592875e70ee84309",
     "openai/gpt-4.1-mini":
       "a8c86b04f11324bfbca9b0b4088c47ed69f0c794b903ffd5e0cd7afffd3d8380",
     "openai/gpt-4.1-nano":
@@ -884,15 +884,7 @@ export class OpenaiAskExperts implements OpenaiInterface {
     replies: Replies
   ): AsyncIterable<ChatCompletionChunk> {
     for await (const reply of replies) {
-      // The content should be an array of ChatCompletionChunk objects
-      if (Array.isArray(reply.content)) {
-        for (const chunk of reply.content) {
-          yield chunk as ChatCompletionChunk;
-        }
-      } else {
-        // If it's not an array, yield it directly
-        yield reply.content as ChatCompletionChunk;
-      }
+      yield reply.content as ChatCompletionChunk;
     }
   }
 
@@ -912,12 +904,14 @@ export class OpenaiAskExperts implements OpenaiInterface {
     for await (const reply of replies) {
       allReplies.push(reply);
     }
-    if (allReplies.length !== 1 || !allReplies[0].done) {
-      throw new Error("No reply found in the responses");
-    }
 
-    // The content should be a ChatCompletion object
-    return allReplies[0].content as ChatCompletion;
+    if (allReplies.length === 1 && typeof allReplies[0].content !== "string") {
+      // The content should be a ChatCompletion object
+      return allReplies[0].content as ChatCompletion;
+    } else {
+      const content = allReplies.map((r) => r.content as string).join("");
+      return JSON.parse(content) as ChatCompletion;
+    }
   }
 
   /**
