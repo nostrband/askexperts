@@ -106,11 +106,14 @@ export async function executeChatCommand(
         debugClient(`Paying ${lightningInvoice.amount} sats...`);
 
         // Pay the invoice
+        const start = Date.now();
         const preimage = await paymentManager.payInvoice(
           lightningInvoice.invoice
         );
         console.log(
-          `Paid ${lightningInvoice.amount} sats to ${expert?.name || "expert"}.`
+          `Paid ${lightningInvoice.amount} sats to ${
+            expert?.name || "expert"
+          } in ${Date.now() - start} ms.`
         );
 
         // Return the proof
@@ -228,8 +231,8 @@ export async function executeChatCommand(
             debugClient(`Received final reply from expert ${expertPubkey}`);
 
             // OpenAI format response
+            let chunk = "";
             if (reply.content) {
-              let chunk = "";
               if (format === FORMAT_OPENAI) {
                 chunk =
                   reply.content.choices[0]?.[
@@ -239,8 +242,8 @@ export async function executeChatCommand(
                 chunk = reply.content;
               }
               expertReply += chunk;
-              console.log(chunk);
             }
+            console.log(chunk);
           } else {
             debugClient(`Received chunk from expert ${expertPubkey}`);
             if (!reply.content) continue;

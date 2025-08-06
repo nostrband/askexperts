@@ -1206,7 +1206,7 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
           }
 
           // Write content directly to stream without creating a payload structure
-          await streamWriter.write(content, binary);
+          await streamWriter.write(content, false);
         }
 
         // Close the stream

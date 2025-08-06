@@ -182,7 +182,7 @@ export class OpenaiAskExperts implements OpenaiInterface {
     "shisa-ai/shisa-v2-llama3.3-70b:free":
       "be70337ce51317ff66489c6bd049a7a9074c015ef03c72c81beb01b3dcfebded",
     "openai/gpt-4.1":
-      "b2279cf62acb9faafd8083a9e36ee8d4e44fd8b8dc6da8e63e9a14bfcda86ae7", //"6321d9eec6337b3b6e415f6187814ca7231aa50c9240c02a592875e70ee84309",
+      "6321d9eec6337b3b6e415f6187814ca7231aa50c9240c02a592875e70ee84309",
     "openai/gpt-4.1-mini":
       "a8c86b04f11324bfbca9b0b4088c47ed69f0c794b903ffd5e0cd7afffd3d8380",
     "openai/gpt-4.1-nano":

@@ -1128,7 +1128,8 @@ export class AskExpertsClient implements AskExpertsClientInterface {
       // If either callback throws an error, create a proof with an error message
       // to inform the expert that payment failed
       await this.sendErrorProof(
-        error instanceof Error ? error.message : "Payment failed",
+        // NOTE: Do not expose wallet errors, this might reveal private info
+        "Payment failed",
         expertPubkey,
         prompt.id,
         promptPrivkey,
