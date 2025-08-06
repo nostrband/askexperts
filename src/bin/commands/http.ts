@@ -1,6 +1,12 @@
 import { AskExpertsHttp } from "../../mcp/index.js";
-import { debugMCP, debugError, enableAllDebug, enableErrorDebug } from "../../common/debug.js";
+import {
+  debugMCP,
+  debugError,
+  enableAllDebug,
+  enableErrorDebug,
+} from "../../common/debug.js";
 import { Command } from "commander";
+import { getWalletByNameOrDefault } from "./wallet/utils.js";
 
 /**
  * Options for the HTTP server command
@@ -26,24 +32,30 @@ export async function startHttpServer(
   const type = options.type || "mcp";
 
   // Try to get OpenAI API key from options or environment variables
-  const openaiApiKey = options.openaiApiKey || process.env.OPENAI_API_KEY;
+  let openaiApiKey = options.openaiApiKey || process.env.OPENAI_API_KEY;
   // Try to get OpenAI base URL from options or environment variables
-  const openaiBaseUrl = options.openaiBaseUrl || process.env.OPENAI_BASE_URL;
+  let openaiBaseUrl = options.openaiBaseUrl || process.env.OPENAI_BASE_URL;
 
   // If type is "smart", validate OpenAI API key and base URL
   if (type === "smart") {
-    // Validate OpenAI API key
-    if (!openaiApiKey) {
-      throw new Error(
-        "OpenAI API key is required for smart MCP. Use --openai-api-key option or set OPENAI_API_KEY environment variable."
-      );
-    }
-
-    // Validate OpenAI base URL
     if (!openaiBaseUrl) {
-      throw new Error(
-        "OpenAI base URL is required for smart MCP. Use --openai-base-url option or set OPENAI_BASE_URL environment variable."
-      );
+      // Override with a fake url that will trigger the use
+      // of AE protocol to talk to our expert-based LLM
+      openaiBaseUrl = "https://askexperts.io";
+    } else {
+      // Validate OpenAI API key
+      if (!openaiApiKey) {
+        throw new Error(
+          "OpenAI API key is required for smart MCP. Use --openai-api-key option or set OPENAI_API_KEY environment variable."
+        );
+      }
+
+      // Validate OpenAI base URL
+      if (!openaiBaseUrl) {
+        throw new Error(
+          "OpenAI base URL is required for smart MCP. Use --openai-base-url option or set OPENAI_BASE_URL environment variable."
+        );
+      }
     }
   }
 
@@ -113,7 +125,11 @@ export function registerHttpCommand(program: Command): void {
   program
     .command("http")
     .description("Launch an HTTP MCP server")
-    .requiredOption("-p, --port <number>", "Port to listen on (default: 3000)", parseInt)
+    .requiredOption(
+      "-p, --port <number>",
+      "Port to listen on (default: 3000)",
+      parseInt
+    )
     .option(
       "-r, --relays <items>",
       "Comma-separated list of discovery relays",
@@ -132,11 +148,11 @@ export function registerHttpCommand(program: Command): void {
     )
     .option(
       "-k, --openai-api-key <string>",
-      "OpenAI API key (required for 'smart' type)"
+      "OpenAI API key (required if -u is set)"
     )
     .option(
       "-u, --openai-base-url <string>",
-      "OpenAI base URL (required for 'smart' type)"
+      "OpenAI base URL (custom URL for 'smart' type)"
     )
     .option("-d, --debug", "Enable debug logging")
     .action(async (options) => {

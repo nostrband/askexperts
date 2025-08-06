@@ -48,10 +48,6 @@ export class AskExpertsSmartClient {
       throw new Error("NWC connection string is required");
     }
 
-    if (!openaiApiKey) {
-      throw new Error("OpenAI API key is required");
-    }
-
     if (!openaiBaseUrl) {
       throw new Error("OpenAI base URL is required");
     }
@@ -68,6 +64,7 @@ export class AskExpertsSmartClient {
     this.openai = createOpenAI({
       apiKey: openaiApiKey,
       baseURL: openaiBaseUrl,
+      paymentManager: this.paymentManager
     });
   }
 
