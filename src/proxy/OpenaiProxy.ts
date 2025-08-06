@@ -112,7 +112,7 @@ export class OpenaiProxy {
 
     // Configure middleware
     this.app.use(cors());
-    this.app.use(express.json());
+    this.app.use(express.json({ limit: '1mb' }));
 
     // Set up routes
     this.setupRoutes();
@@ -232,13 +232,52 @@ export class OpenaiProxy {
 
         // Check if streaming is requested
         if (!requestBody.stream) {
-          // Send the response
+          // Send the response as JSON
           res.status(200).json(reply);
         } else {
-          // Streaming is not implemented yet
-          res.status(400).json({
-            error: "Streaming is not supported yet",
-          });
+          // Handle streaming response
+          // Set appropriate headers for streaming
+          res.setHeader('Content-Type', 'text/event-stream');
+          res.setHeader('Transfer-Encoding', 'chunked');
+          res.setHeader('Connection', 'keep-alive');
+          res.setHeader('Cache-Control', 'no-cache');
+          
+          // Send each chunk as it arrives
+          try {
+            // reply is an AsyncIterable<ChatCompletionChunk> when streaming is true
+            const streamingReply = reply as AsyncIterable<any>;
+            
+            for await (const chunk of streamingReply) {
+              if (!chunk) continue;
+
+              // Each chunk needs to be formatted according to SSE protocol
+              // Format: data: {JSON_DATA}\n\n
+              const chunkStr = `data: ${JSON.stringify(chunk)}\n\n`;
+              
+              // Write the chunk to the response
+              res.write(chunkStr);
+              
+              // Ensure the chunk is sent immediately
+              // The flush method might not be available on all Response objects
+              // Use as any to bypass TypeScript error
+              if ((res as any).flush) {
+                (res as any).flush();
+              }
+            }
+            
+            // End the stream with a "data: [DONE]" message
+            res.write('data: [DONE]\n\n');
+            res.end();
+          } catch (error) {
+            debugError("Error streaming response:", error);
+            // If we encounter an error during streaming, try to end the response
+            // if it hasn't been ended already
+            try {
+              res.end();
+            } catch (e) {
+              // Ignore errors when ending an already-ended response
+            }
+          }
         }
       } finally {
         // Clean up resources

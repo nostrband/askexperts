@@ -81,6 +81,11 @@ import {
  */
 import { AskExpertsClientInterface } from "./AskExpertsClientInterface.js";
 
+interface PromptPayload {
+  format: PromptFormat;
+  payload?: any;
+}
+
 export class AskExpertsClient implements AskExpertsClientInterface {
   /**
    * Zod schema for quote payload
@@ -108,12 +113,11 @@ export class AskExpertsClient implements AskExpertsClientInterface {
    */
   private replyPayloadSchema = z
     .object({
-      content: z.any().optional(),
-      done: z.boolean().optional().default(false),
+      payload: z.any().optional(),
       error: z.string().optional(),
     })
-    .refine((data) => !(data.error && data.content), {
-      message: "Reply payload cannot have both error and content fields",
+    .refine((data) => !(data.error && data.payload), {
+      message: "Reply payload cannot have both error and payload fields",
     });
   /**
    * Default onQuote callback
@@ -507,13 +511,13 @@ export class AskExpertsClient implements AskExpertsClientInterface {
     const shouldUseStreaming = useStreaming;
 
     // Create the prompt payload
-    const promptPayload: any = {
+    const promptPayload: PromptPayload = {
       format,
     };
 
     if (!shouldUseStreaming) {
       // We'll send content embedded in the prompt event
-      promptPayload.content = content;
+      promptPayload.payload = content;
     }
 
     // Convert to JSON string
@@ -988,7 +992,7 @@ export class AskExpertsClient implements AskExpertsClientInterface {
               pubkey: expertPubkey,
               promptId: prompt.id,
               done: true, // single reply
-              content: replyPayload.content,
+              content: replyPayload.payload,
               event,
             };
 

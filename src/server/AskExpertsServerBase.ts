@@ -67,7 +67,7 @@ const PROFILE_REPUBLISH_INTERVAL = 12 * 60 * 60 * 1000; // 12 hours
  */
 const promptPayloadSchema = z.object({
   format: z.string(),
-  content: z.any(),
+  payload: z.any(),
 });
 
 /**
@@ -78,6 +78,11 @@ const proofPayloadSchema = z.object({
   preimage: z.string().optional(),
   error: z.string().optional(),
 });
+
+interface ReplyPayload {
+  error?: string;
+  payload?: any;
+}
 
 /**
  * Expert class for NIP-174 protocol
@@ -778,7 +783,7 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
         }
       } else if (promptPayload) {
         // No stream, use content from promptPayload
-        prompt.content = promptPayload.content;
+        prompt.content = promptPayload.payload;
       } else {
         throw new Error("No prompt content available");
       }
@@ -1047,8 +1052,8 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
       let encryptedContent = "";
       if (content || error) {
         // Create the reply payload
-        const replyPayload = {
-          content,
+        const replyPayload: ReplyPayload = {
+          payload: content,
           error,
         };
 
