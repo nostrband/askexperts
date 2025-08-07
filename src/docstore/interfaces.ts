@@ -39,17 +39,9 @@ export interface Subscription {
 
 /**
  * DocStoreClient interface for interacting with document stores
+ * All methods are async to support both local and remote implementations
  */
 export interface DocStoreClient {
-  /**
-   * Subscribe to documents in a docstore
-   * @param docstore_id - ID of the docstore to subscribe to
-   * @param type - Type of documents to filter by
-   * @param since - Start timestamp for filtering documents
-   * @param until - End timestamp for filtering documents
-   * @param onDoc - Async callback function to handle each document
-   * @returns Subscription object to manage the subscription
-   */
   /**
    * Subscribe to documents in a docstore
    * @param options - Subscription options
@@ -68,29 +60,30 @@ export interface DocStoreClient {
       until?: number;
     },
     onDoc: (doc?: Doc) => Promise<void>
-  ): Subscription;
+  ): Promise<Subscription>;
   
   /**
    * Upsert a document in the store
    * @param doc - Document to upsert
+   * @returns Promise that resolves when the operation is complete
    */
-  upsert(doc: Doc): void;
+  upsert(doc: Doc): Promise<void>;
   
   /**
    * Get a document by ID
    * @param docstore_id - ID of the docstore containing the document
    * @param doc_id - ID of the document to get
-   * @returns The document if found, null otherwise
+   * @returns Promise that resolves with the document if found, null otherwise
    */
-  get(docstore_id: string, doc_id: string): Doc | null;
+  get(docstore_id: string, doc_id: string): Promise<Doc | null>;
   
   /**
    * Delete a document from the store
    * @param docstore_id - ID of the docstore containing the document
    * @param doc_id - ID of the document to delete
-   * @returns true if document existed and was deleted, false otherwise
+   * @returns Promise that resolves with true if document existed and was deleted, false otherwise
    */
-  delete(docstore_id: string, doc_id: string): boolean;
+  delete(docstore_id: string, doc_id: string): Promise<boolean>;
   
   /**
    * Create a new docstore if one with the given name doesn't exist
@@ -98,39 +91,50 @@ export interface DocStoreClient {
    * @param model - Name of the embeddings model
    * @param vector_size - Size of embedding vectors
    * @param options - Options for the model, defaults to empty string
-   * @returns ID of the created or existing docstore
+   * @returns Promise that resolves with the ID of the created or existing docstore
    */
-  createDocstore(name: string, model?: string, vector_size?: number, options?: string): string;
+  createDocstore(name: string, model?: string, vector_size?: number, options?: string): Promise<string>;
   
   /**
    * Get a docstore by ID
    * @param id - ID of the docstore to get
-   * @returns The docstore if found, null otherwise
+   * @returns Promise that resolves with the docstore if found, undefined otherwise
    */
   getDocstore(id: string): Promise<DocStore | undefined>;
   
   /**
    * List all docstores
-   * @returns Array of docstore objects
+   * @returns Promise that resolves with an array of docstore objects
    */
-  listDocstores(): DocStore[];
+  listDocstores(): Promise<DocStore[]>;
   
   /**
    * Delete a docstore and all its documents
    * @param id - ID of the docstore to delete
-   * @returns true if docstore existed and was deleted, false otherwise
+   * @returns Promise that resolves with true if docstore existed and was deleted, false otherwise
    */
-  deleteDocstore(id: string): boolean;
+  deleteDocstore(id: string): Promise<boolean>;
   
   /**
    * Count documents in a docstore
    * @param docstore_id - ID of the docstore to count documents for
-   * @returns Number of documents in the docstore
+   * @returns Promise that resolves with the number of documents in the docstore
    */
-  countDocs(docstore_id: string): number;
+  countDocs(docstore_id: string): Promise<number>;
   
   /**
    * Symbol.dispose method for releasing resources
    */
   [Symbol.dispose](): void;
+}
+
+/**
+ * Message types for WebSocket communication
+ */
+export enum MessageType {
+  REQUEST = 'request',
+  RESPONSE = 'response',
+  SUBSCRIPTION = 'subscription',
+  DOCUMENT = 'document',
+  END = 'end'
 }

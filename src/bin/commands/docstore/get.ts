@@ -24,7 +24,7 @@ export async function getDoc(
     const docstore = await getDocstore(docstoreClient, options.docstore);
 
     // Use the get method to retrieve the document
-    const foundDoc = docstoreClient.get(docstore.id, id);
+    const foundDoc = await docstoreClient.get(docstore.id, id);
 
     if (foundDoc) {
       console.log(`Document ID: ${foundDoc.id}`);

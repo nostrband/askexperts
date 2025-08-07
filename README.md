@@ -574,9 +574,9 @@ The AskExperts SDK provides a comprehensive command-line interface (CLI) for var
     ```bash
     npx askexperts docstore search --docstore=store_id "search query"
     ```
-  - **import**: Import documents into a store
+  - **import**: Import nostr posts into a store
     ```bash
-    npx askexperts docstore import directory --docstore=store_id --dir=path/to/dir
+    npx askexperts docstore import nostr <pubkey> --docstore=store_id --kinds=1,30023 -r wss://relay.nostr.band -l 100
     ```
 
 ### Wallet Management

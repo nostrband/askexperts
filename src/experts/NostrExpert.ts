@@ -119,8 +119,8 @@ export class NostrExpert {
       );
 
       // Sync from docstore to RAG
-      await new Promise<void>((resolve) => {
-        this.docstoreToRag.sync({
+      await new Promise<void>(async (resolve) => {
+        const syncController = await this.docstoreToRag.sync({
           docstore_id: this.docstoreId,
           collection_name: collectionName,
           onDoc: async (doc: Doc) => {

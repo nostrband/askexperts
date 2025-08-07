@@ -161,6 +161,9 @@ export async function runAllExperts(options: AllExpertsCommandOptions): Promise<
         });
 
         debugExpert(`Started expert ${expert.nickname} (${expert.pubkey}) of type ${expert.type}`);
+
+        // Pause a bit to avoid overloading relays
+        await new Promise(ok => setTimeout(ok, 300));
       } catch (error) {
         debugError(`Error starting expert ${expert.nickname} (${expert.pubkey}):`, error);
       }

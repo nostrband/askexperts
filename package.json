@@ -83,10 +83,12 @@
     "openai": "^5.8.3",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3",
+    "ws": "^8.18.3",
     "zod": "^3.25.67"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
-    "@types/express": "^5.0.3"
+    "@types/express": "^5.0.3",
+    "@types/ws": "^8.18.1"
   }
 }

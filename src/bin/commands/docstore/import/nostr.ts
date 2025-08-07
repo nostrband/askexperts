@@ -124,7 +124,7 @@ export async function importNostr(
         };
 
         // Add to docstore
-        docstoreClient.upsert(doc);
+        await docstoreClient.upsert(doc);
         successCount++;
 
         // Log progress

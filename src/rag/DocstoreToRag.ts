@@ -100,7 +100,7 @@ export class DocstoreToRag {
    * @param options - Options for syncing
    * @returns Subscription with a stop method
    */
-  sync(options: SyncOptions): { stop: () => void } {
+  async sync(options: SyncOptions): Promise<{ stop: () => void }> {
     const { docstore_id, collection_name, type, onDoc, onEof, onDocMeta } =
       options;
 
@@ -109,7 +109,7 @@ export class DocstoreToRag {
     const BATCH_SIZE = 100;
 
     // Subscribe to the docstore
-    const subscription = this.docStoreClient.subscribe(
+    const subscription = await this.docStoreClient.subscribe(
       { docstore_id, type },
       async (doc?: Doc) => {
         // If doc is undefined, it signals EOF

@@ -77,7 +77,7 @@ export class DocStoreSQLite implements DocStoreClient {
    * @param onDoc - Callback function to handle each document
    * @returns Subscription object to manage the subscription
    */
-  subscribe(
+  async subscribe(
     options: {
       docstore_id: string;
       type?: string;
@@ -85,7 +85,7 @@ export class DocStoreSQLite implements DocStoreClient {
       until?: number;
     },
     onDoc: (doc?: Doc) => Promise<void>
-  ): Subscription {
+  ): Promise<Subscription> {
     let isActive = true;
     let pauseTimeout: any;
     let lastAid = 0; // Use aid for pagination instead of id
@@ -197,13 +197,16 @@ export class DocStoreSQLite implements DocStoreClient {
       }
     });
 
-    // Return subscription object with close method
-    return {
+    // Create subscription object with close method
+    const subscription = {
       close: () => {
         isActive = false;
         if (pauseTimeout) clearTimeout(pauseTimeout);
       },
     };
+    
+    // Return Promise that resolves with the subscription
+    return Promise.resolve(subscription);
   }
 
   /**
@@ -333,7 +336,7 @@ export class DocStoreSQLite implements DocStoreClient {
     return Promise.resolve(this.getDocstoreSync(id));
   }
 
-  upsert(doc: Doc): void {
+  async upsert(doc: Doc): Promise<void> {
     debugDocstore(`Upserting document: ${doc.id} in docstore: ${doc.docstore_id}, type: ${doc.type}`);
     
     // Get the docstore to check vector_size
@@ -368,6 +371,8 @@ export class DocStoreSQLite implements DocStoreClient {
       doc.data,
       embeddingsBlob
     );
+    
+    return Promise.resolve();
   }
 
   /**
@@ -376,7 +381,7 @@ export class DocStoreSQLite implements DocStoreClient {
    * @param doc_id - ID of the document to get
    * @returns The document if found, null otherwise
    */
-  get(docstore_id: string, doc_id: string): Doc | null {
+  async get(docstore_id: string, doc_id: string): Promise<Doc | null> {
     const stmt = this.db.prepare(
       "SELECT * FROM docs WHERE docstore_id = ? AND id = ?"
     );
@@ -384,7 +389,7 @@ export class DocStoreSQLite implements DocStoreClient {
     const row = stmt.get(docstore_id, doc_id);
 
     if (!row) {
-      return null;
+      return Promise.resolve(null);
     }
 
     // Convert embeddings from BLOB to Float32Array[]
@@ -394,7 +399,7 @@ export class DocStoreSQLite implements DocStoreClient {
     }
 
     // Convert row to Doc interface
-    return {
+    const doc = {
       id: row.id?.toString() || "",
       docstore_id: row.docstore_id?.toString() || "",
       timestamp: Number(row.timestamp || 0),
@@ -403,6 +408,8 @@ export class DocStoreSQLite implements DocStoreClient {
       data: row.data?.toString() || "",
       embeddings: embeddingsArray,
     };
+    
+    return Promise.resolve(doc);
   }
 
   /**
@@ -411,7 +418,7 @@ export class DocStoreSQLite implements DocStoreClient {
    * @param doc_id - ID of the document to delete
    * @returns true if document existed and was deleted, false otherwise
    */
-  delete(docstore_id: string, doc_id: string): boolean {
+  async delete(docstore_id: string, doc_id: string): Promise<boolean> {
     const stmt = this.db.prepare(
       "DELETE FROM docs WHERE docstore_id = ? AND id = ?"
     );
@@ -419,23 +426,18 @@ export class DocStoreSQLite implements DocStoreClient {
     const result = stmt.run(docstore_id, doc_id);
 
     // Return true if a row was affected (document was deleted)
-    return result.changes > 0;
+    return Promise.resolve(result.changes > 0);
   }
 
-  /**
-   * Create a new docstore if one with the given name doesn't exist
-   * @param name - Name of the docstore to create
-   * @returns ID of the created or existing docstore
-   */
   /**
    * Create a new docstore if one with the given name doesn't exist
    * @param name - Name of the docstore to create
    * @param model - Name of the embeddings model
    * @param vector_size - Size of embedding vectors
    * @param options - Options for the model, defaults to empty string
-   * @returns ID of the created or existing docstore
+   * @returns Promise that resolves with the ID of the created or existing docstore
    */
-  createDocstore(name: string, model: string = "", vector_size: number = 0, options: string = ""): string {
+  async createDocstore(name: string, model: string = "", vector_size: number = 0, options: string = ""): Promise<string> {
     debugDocstore(`Creating docstore with name: ${name}, model: ${model}, vector_size: ${vector_size}`);
     // Check if docstore with this name already exists
     const existingDocstore = this.db
@@ -444,7 +446,7 @@ export class DocStoreSQLite implements DocStoreClient {
 
     if (existingDocstore && existingDocstore.id !== null) {
       debugDocstore(`Docstore with name ${name} already exists with ID: ${existingDocstore.id}`);
-      return existingDocstore.id.toString();
+      return Promise.resolve(existingDocstore.id.toString());
     }
 
     // Create new docstore with UUID
@@ -457,18 +459,18 @@ export class DocStoreSQLite implements DocStoreClient {
 
     stmt.run(id, name, timestamp, model, vector_size, options);
     debugDocstore(`Created new docstore with name: ${name}, ID: ${id}, model: ${model}, vector_size: ${vector_size}`);
-    return id;
+    return Promise.resolve(id);
   }
 
   /**
    * List all docstores
-   * @returns Array of docstore objects
+   * @returns Promise that resolves with an array of docstore objects
    */
-  listDocstores(): DocStore[] {
+  async listDocstores(): Promise<DocStore[]> {
     const stmt = this.db.prepare("SELECT * FROM docstores ORDER BY id ASC");
     const rows = stmt.all();
 
-    return rows.map(
+    const docstores = rows.map(
       (row: Record<string, any>): DocStore => ({
         id: String(row.id || ""),
         name: String(row.name || ""),
@@ -478,14 +480,16 @@ export class DocStoreSQLite implements DocStoreClient {
         options: String(row.options || ""),
       })
     );
+    
+    return Promise.resolve(docstores);
   }
 
   /**
    * Delete a docstore and all its documents
    * @param id - ID of the docstore to delete
-   * @returns true if docstore existed and was deleted, false otherwise
+   * @returns Promise that resolves with true if docstore existed and was deleted, false otherwise
    */
-  deleteDocstore(id: string): boolean {
+  async deleteDocstore(id: string): Promise<boolean> {
     // Use a transaction to ensure atomicity
     this.db.exec("BEGIN TRANSACTION");
 
@@ -505,26 +509,26 @@ export class DocStoreSQLite implements DocStoreClient {
       this.db.exec("COMMIT");
 
       // Return true if a docstore was deleted
-      return result.changes > 0;
+      return Promise.resolve(result.changes > 0);
     } catch (error) {
       this.db.exec("ROLLBACK");
       debugError("Error deleting docstore:", error);
-      return false;
+      return Promise.resolve(false);
     }
   }
 
   /**
    * Count documents in a docstore
    * @param docstore_id - ID of the docstore to count documents for
-   * @returns Number of documents in the docstore
+   * @returns Promise that resolves with the number of documents in the docstore
    */
-  countDocs(docstore_id: string): number {
+  async countDocs(docstore_id: string): Promise<number> {
     const stmt = this.db.prepare(
       "SELECT COUNT(*) as count FROM docs WHERE docstore_id = ?"
     );
 
     const result = stmt.get(docstore_id);
-    return result && typeof result.count === "number" ? result.count : 0;
+    return Promise.resolve(result && typeof result.count === "number" ? result.count : 0);
   }
 
   /**
