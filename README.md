@@ -15,7 +15,15 @@ Wallet 'main' created successfully with ID 1
 NWC connection string: nostr+walletconnect://c99a1f0b7390a3db4b09c47f08d4541de1aa9b60ba7a37396554101b7004fb96?relay=...............
 ```
 
-Or, if you already have one (i.e. Alby Hub) - connect it:
+Topup your wallet with some sats, as LLM access (paid with sats) is needed when expert is launched. Create invoice and pay it:
+```bash
+bash$ npx askexperts wallet invoice 1000 --desc topup
+...
+Invoice: lnbc10u1p5fga5lpp5h9440kpfs0km...
+...
+```
+
+Or, if you already have a wallet (i.e. Alby Hub) - connect it:
 ```bash
 bash$ npx askexperts wallet add main -n "nostr+walletconnect://c99a1f0b7390a3db4b09c47f08d4541de1aa9b60ba7a37396554101b7004fb96?relay=..."
 Wallet 'main' added successfully with ID 1
