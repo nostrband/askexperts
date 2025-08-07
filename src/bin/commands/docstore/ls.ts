@@ -17,7 +17,7 @@ export async function listDocstores(options: DocstoreCommandOptions): Promise<vo
     }
     
     const docstoreClient = new DocStoreSQLite(docstorePath);
-    const docstores = docstoreClient.listDocstores();
+    const docstores = await docstoreClient.listDocstores();
 
     if (docstores.length === 0) {
       console.log("No docstores found");

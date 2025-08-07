@@ -22,7 +22,7 @@ export async function deleteDoc(
     
     const docstoreClient = new DocStoreSQLite(docstorePath);
     const docstore = await getDocstore(docstoreClient, options.docstore);
-    const result = docstoreClient.delete(docstore.id, id);
+    const result = await docstoreClient.delete(docstore.id, id);
 
     if (result) {
       console.log(`Document with ID '${id}' deleted successfully`);

@@ -57,7 +57,7 @@ export async function getDocstore(
     if (!docstore) throw new Error("Docstore not found");
   }
 
-  const docstores = client.listDocstores();
+  const docstores = await client.listDocstores();
   if (docstores.length === 0) {
     debugError("No docstores found");
     throw new Error("No docstores found");
@@ -66,7 +66,7 @@ export async function getDocstore(
   if (docstores.length > 1 && !client) {
     debugError("Multiple docstores found but no docstore ID specified");
     throw new Error("Multiple docstores found. Please specify a docstore ID with -s option.");
-  } 
+  }
   
   // Use the only docstore
   debugDocstore(`Using default docstore: ${docstores[0].id}`);

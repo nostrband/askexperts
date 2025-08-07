@@ -39,8 +39,8 @@ export async function searchDocs(
     let batch: RagDocument[] = [];
     
     // Subscribe to all documents
-    await new Promise<void>((resolve) => {
-      const subscription = docstoreClient.subscribe(
+    await new Promise<void>(async (resolve) => {
+      const subscription = await docstoreClient.subscribe(
         { docstore_id: docstore.id },
         async (doc) => {
           try {
@@ -54,7 +54,7 @@ export async function searchDocs(
               }
               
               debugDocstore(`Indexed ${count} documents`);
-              subscription.close();
+              await subscription.close();
               resolve();
               return;
             }
@@ -90,7 +90,7 @@ export async function searchDocs(
             count++;
           } catch (error) {
             debugError(`Error processing document: ${error}`);
-            subscription.close();
+            await subscription.close();
             resolve();
           }
         }
@@ -121,17 +121,21 @@ export async function searchDocs(
       console.error("No matching documents found");
     } else {
       debugDocstore(`Found ${results.length} matching documents:`);
-      results.forEach((result, index) => {
+      
+      // Use for...of instead of forEach to allow await
+      for (const [index, result] of results.entries()) {
         console.log(`\n--- Result ${index + 1} (distance: ${(result.distance).toFixed(4)}) ---`);
         console.log(`Document ID: ${result.metadata.docId}`);
-        const doc = docstoreClient.get(docstore.id, result.metadata.docId);
-        if (doc!.type) {
-          console.log(`Type: ${doc!.type}`);
+        const doc = await docstoreClient.get(docstore.id, result.metadata.docId);
+        if (doc && doc.type) {
+          console.log(`Type: ${doc.type}`);
         }
-        console.log(`Updated at: ${new Date(doc!.timestamp * 1000).toISOString()}`);
-        console.log("Content:");
-        console.log(doc!.data);
-      });
+        if (doc) {
+          console.log(`Updated at: ${new Date(doc.timestamp * 1000).toISOString()}`);
+          console.log("Content:");
+          console.log(doc.data);
+        }
+      }
     }
     
     docstoreClient[Symbol.dispose]();

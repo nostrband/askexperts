@@ -31,7 +31,7 @@ export async function createDocstore(
     const model = embeddings.getModelName();
 
     const docstore = new DocStoreSQLite(docstorePath);
-    const docstoreId = docstore.createDocstore(
+    const docstoreId = await docstore.createDocstore(
       name,
       model,
       vectorSize,

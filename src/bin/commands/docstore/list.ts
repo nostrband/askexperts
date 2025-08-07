@@ -31,8 +31,8 @@ export async function listDocs(
     let count = 0;
 
     // Subscribe to all documents without type, since, and until filters
-    await new Promise<void>((resolve) => {
-      const subscription = docstoreClient.subscribe(
+    await new Promise<void>(async (resolve) => {
+      const subscription = await docstoreClient.subscribe(
         { docstore_id: docstore.id },
         async (doc) => {
           // If doc is undefined, it signals EOF
@@ -40,7 +40,7 @@ export async function listDocs(
             console.log(
               `Fetched all ${count} documents from docstore '${docstore.name}'`
             );
-            subscription.close();
+            await subscription.close();
             docstoreClient[Symbol.dispose]();
             resolve();
             return;

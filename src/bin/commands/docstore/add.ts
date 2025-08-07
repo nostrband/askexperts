@@ -50,7 +50,7 @@ export async function addDoc(
     const timestamp = Math.floor(Date.now() / 1000);
 
     // Get the docstore to check if it has model and vector_size set
-    const docstores = docstoreClient.listDocstores();
+    const docstores = await docstoreClient.listDocstores();
     const targetDocstore = docstores.find(ds => ds.id === docstore.id);
     
     if (!targetDocstore) {
@@ -97,7 +97,7 @@ export async function addDoc(
       embeddings: float32Embeddings,
     };
 
-    docstoreClient.upsert(doc);
+    await docstoreClient.upsert(doc);
     console.log(`Document added with ID: ${docId}`);
 
     docstoreClient[Symbol.dispose]();

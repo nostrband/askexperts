@@ -24,7 +24,7 @@ export async function removeDocstore(
     const docstoreClient = new DocStoreSQLite(docstorePath);
 
     // Check if docstore exists
-    const docstores = docstoreClient.listDocstores();
+    const docstores = await docstoreClient.listDocstores();
     const targetDocstore = docstores.find((ds) => ds.id.toString() === id);
 
     if (!targetDocstore) {
@@ -56,7 +56,7 @@ export async function removeDocstore(
       }
     }
 
-    const result = docstoreClient.deleteDocstore(id);
+    const result = await docstoreClient.deleteDocstore(id);
 
     if (result) {
       console.log(
