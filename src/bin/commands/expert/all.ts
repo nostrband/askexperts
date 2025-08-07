@@ -25,6 +25,7 @@ import {
 interface AllExpertsCommandOptions {
   debug?: boolean;
   interval?: number;
+  startDelay?: number;
 }
 
 /**
@@ -48,6 +49,9 @@ export async function runAllExperts(options: AllExpertsCommandOptions): Promise<
 
   // Check interval in milliseconds (default: 30 seconds)
   const checkInterval = options.interval || 30000;
+  
+  // Expert start delay in milliseconds (default: 1000ms)
+  const startDelay = options.startDelay || 1000;
 
   try {
     debugExpert("Initializing shared resources...");
@@ -163,7 +167,7 @@ export async function runAllExperts(options: AllExpertsCommandOptions): Promise<
         debugExpert(`Started expert ${expert.nickname} (${expert.pubkey}) of type ${expert.type}`);
 
         // Pause a bit to avoid overloading relays
-        await new Promise(ok => setTimeout(ok, 300));
+        await new Promise(ok => setTimeout(ok, startDelay));
       } catch (error) {
         debugError(`Error starting expert ${expert.nickname} (${expert.pubkey}):`, error);
       }
@@ -261,7 +265,21 @@ export function registerAllCommand(program: Command): void {
     .description("Run all enabled experts from the database")
     .option("-d, --debug", "Enable debug logging")
     .option("-i, --interval <ms>", "Check interval in milliseconds (default: 30000)", parseInt)
-    .action(async (options: AllExpertsCommandOptions) => {
+    .option("-s, --start-delay <ms>", "Delay between starting experts in milliseconds (default: 1000)", parseInt)
+    .action(async (cmdOptions) => {
+      // Convert command options to AllExpertsCommandOptions
+      const options: AllExpertsCommandOptions = {
+        debug: cmdOptions.debug,
+        interval: cmdOptions.interval,
+        startDelay: cmdOptions.startDelay
+      };
+      
+      try {
+        await runAllExperts(options);
+      } catch (error) {
+        debugError("Error running all experts:", error);
+        process.exit(1);
+      }
       try {
         await runAllExperts(options);
       } catch (error) {
