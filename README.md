@@ -44,7 +44,7 @@ Vector size: 384
 
 Next, import your Nostr posts into your doc store:
 ```bash
-bash$ npx askexperts docstore import nostr <your pubkey> -k1 -l 10000 -d
+bash$ npx askexperts docstore import nostr <your pubkey> -k 0,1 -l 10000 -d
   ...
   askexperts:docstore Fetched 321 events. Preparing embeddings... +20s
   askexperts:docstore Upserting document: 24858b9226aa310e615aa72bbbb402525fe24c9d5d1f3010d3015d367ec64dcd in docstore: 2dc955b4-dc38-4c74-af2a-706f50712426, type: nostr:kind:1 +247ms

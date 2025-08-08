@@ -758,7 +758,7 @@ export class OpenaiAskExperts implements OpenaiInterface {
               // Attach a rejection handler to the repliesPromise to clean up activeQuotes
               // if the promise is rejected and createChatCompletion is never called
               repliesPromise.catch((error) => {
-                debugError("repliesPromise rejected:", error);
+                debugError("repliesPromise deleted active quote", quoteId);
                 this.activeQuotes.delete(quoteId);
               });
 
@@ -771,6 +771,10 @@ export class OpenaiAskExperts implements OpenaiInterface {
               // Return the payment promise
               return paymentPromise;
             },
+          });
+          repliesPromise.catch((error) => {
+            debugError("repliesPromise rejected:", error);
+            reject(error);
           });
         } catch (error) {
           debugError("Error estimating price:", error);

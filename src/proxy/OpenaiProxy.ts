@@ -286,9 +286,10 @@ export class OpenaiProxy {
       }
     } catch (error) {
       debugError("Error handling chat completions request:", error);
+      const message = error instanceof Error ? error.message : String(error);
       res.status(500).json({
-        error: "Internal server error",
-        message: error instanceof Error ? error.message : String(error),
+        error: message,
+        message: message,
       });
     }
   }
