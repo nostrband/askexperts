@@ -85,7 +85,7 @@ async function executeStreamSendCommand(options: StreamSendOptions): Promise<voi
     
     // If encryption is enabled, generate a key
     if (encryption === ENCRYPTION_NIP44) {
-      metadata.key = Buffer.from(senderPrivkey).toString('hex');
+      metadata.receiver_privkey = Buffer.from(senderPrivkey).toString('hex');
     }
     
     // Parse chunk size and interval options

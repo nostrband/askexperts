@@ -2,7 +2,7 @@
  * StreamReader implementation for NIP-173 (Streaming Over Nostr)
  */
 
-import { SimplePool, Event, Filter } from "nostr-tools";
+import { SimplePool, Event, Filter, getPublicKey } from "nostr-tools";
 import { Compression, getCompression } from "./compression.js";
 import { Encryption, getEncryption } from "./encryption.js";
 import { subscribeToRelays } from "../common/relay.js";
@@ -105,10 +105,26 @@ export class StreamReader implements AsyncIterable<string | Uint8Array> {
     }
 
     // Validate encryption requirements
-    if (metadata.encryption !== "none" && !metadata.key) {
-      throw new Error(
-        "Recipient private key (key) is required for NIP-44 decryption"
-      );
+    if (metadata.encryption !== "none") {
+      if (!metadata.receiver_privkey) {
+        throw new Error(
+          "Recipient private key (receiver_privkey) is required for decryption"
+        );
+      }
+      
+      if (!metadata.receiver_pubkey) {
+        throw new Error(
+          "Recipient public key (receiver_pubkey) is required for decryption"
+        );
+      }
+      
+      // Validate that the receiver_pubkey matches the public key derived from receiver_privkey
+      const derivedPubkey = getPublicKey(Buffer.from(metadata.receiver_privkey, "hex"));
+      if (derivedPubkey !== metadata.receiver_pubkey) {
+        throw new Error(
+          "Recipient public key (receiver_pubkey) does not match the key derived from receiver_privkey"
+        );
+      }
     }
   }
 
@@ -322,7 +338,7 @@ export class StreamReader implements AsyncIterable<string | Uint8Array> {
       if (encType !== "none") {
         try {
           // Convert hex key to Uint8Array
-          const recipientPrivkey = Buffer.from(this.metadata.key!, "hex");
+          const recipientPrivkey = Buffer.from(this.metadata.receiver_privkey!, "hex");
 
           // Decrypt using the encryption interface
           decryptedData = await this.encryption.decrypt(

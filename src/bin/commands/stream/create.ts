@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import { generateRandomKeyPair } from "../../../common/crypto.js";
+import { getPublicKey } from "nostr-tools";
 import { StreamMetadata } from "../../../stream/types.js";
 import { debugError, enableAllDebug } from "../../../common/debug.js";
 import { COMPRESSION_NONE } from "../../../stream/compression.js";
@@ -46,9 +47,23 @@ export async function executeStreamCreateCommand(options: StreamCommandOptions):
       relays: relays,
     };
     
-    // If encryption is enabled, add the key
+    // Generate receiver key pair if encryption is enabled
+    let receiverPrivkey: string | undefined;
+    
     if (encryption === ENCRYPTION_NIP44) {
-      metadata.key = Buffer.from(senderPrivkey).toString('hex');
+      // For encryption, we need to generate a receiver key pair
+      // In this case, we'll use the same key for simplicity
+      receiverPrivkey = Buffer.from(senderPrivkey).toString('hex');
+      
+      // Derive the public key from the private key
+      const receiverPubkey = getPublicKey(Buffer.from(receiverPrivkey, 'hex'));
+      
+      // Add the receiver public key to metadata
+      metadata.receiver_pubkey = receiverPubkey;
+      
+      // Store the private key for later use, but don't include it in metadata
+      // as it's now sent out-of-band
+      metadata.receiver_privkey = receiverPrivkey;
     }
     
     // Create and sign the stream metadata event (kind: 173)
@@ -61,9 +76,15 @@ export async function executeStreamCreateCommand(options: StreamCommandOptions):
     console.log("Stream Metadata Event (kind: 173):");
     console.log(JSON.stringify(metadataEvent));
     
-    // Print private key (for debugging/reference)
-    console.log("\nPrivate Key (for sender):");
+    // Print private keys (for debugging/reference)
+    console.log("\nSender Private Key:");
     console.log(Buffer.from(senderPrivkey).toString('hex'));
+    
+    // Print receiver private key separately if encryption is used
+    if (encryption !== ENCRYPTION_NONE && receiverPrivkey) {
+      console.log("\nReceiver Private Key (share this out-of-band with the receiver):");
+      console.log(receiverPrivkey);
+    }
     
   } catch (err) {
     debugError("Failed to execute stream create command:", err);

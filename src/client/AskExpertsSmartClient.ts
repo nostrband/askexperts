@@ -1,13 +1,12 @@
-import { AskExpertsClient } from "./AskExpertsClient.js";
+import { AskExpertsPayingClient } from "./AskExpertsPayingClient.js";
 import { LightningPaymentManager } from "../payments/LightningPaymentManager.js";
-import { parseBolt11 } from "../common/bolt11.js";
 import { debugMCP, debugError } from "../common/debug.js";
 import {
   DEFAULT_DISCOVERY_RELAYS,
   FORMAT_TEXT,
   METHOD_LIGHTNING,
 } from "../common/constants.js";
-import { Bid, Proof, Quote, Prompt, Replies } from "../common/types.js";
+import { Bid, Replies, Quote, Prompt } from "../common/types.js";
 import { OpenaiInterface, createOpenAI } from "../openai/index.js";
 
 /**
@@ -26,8 +25,7 @@ export interface ReplyMCP {
  * for clients to interact with the AskExpertsClient with LLM capabilities
  */
 export class AskExpertsSmartClient {
-  private client: AskExpertsClient;
-  private paymentManager: LightningPaymentManager;
+  private client: AskExpertsPayingClient;
   private openai: OpenaiInterface;
 
   /**
@@ -53,10 +51,10 @@ export class AskExpertsSmartClient {
     }
 
     // Create the payment manager
-    this.paymentManager = new LightningPaymentManager(nwcString);
+    const paymentManager = new LightningPaymentManager(nwcString);
 
-    // Create the client with callbacks for quotes and payments
-    this.client = new AskExpertsClient({
+    // Initialize the paying client
+    this.client = new AskExpertsPayingClient(paymentManager, {
       discoveryRelays: discoveryRelays || DEFAULT_DISCOVERY_RELAYS,
     });
 
@@ -64,90 +62,8 @@ export class AskExpertsSmartClient {
     this.openai = createOpenAI({
       apiKey: openaiApiKey,
       baseURL: openaiBaseUrl,
-      paymentManager: this.paymentManager
+      paymentManager
     });
-  }
-
-  /**
-   * Handles quote events from experts
-   *
-   * @param quote - Quote from expert
-   * @param prompt - Prompt sent to expert
-   * @param max_amount_sats - Maximum amount to pay in satoshis
-   * @returns Promise resolving to the invoice amount if it's within max_amount_sats, otherwise 0
-   * @private
-   */
-  private async handleQuote(
-    quote: Quote,
-    prompt: Prompt,
-    max_amount_sats: number
-  ): Promise<number> {
-    // Check if there's a lightning invoice
-    const lightningInvoice = quote.invoices.find(
-      (inv) => inv.method === "lightning"
-    );
-
-    if (!lightningInvoice || !lightningInvoice.invoice) {
-      debugError("No lightning invoice found in quote");
-      return 0;
-    }
-
-    // Parse the invoice to get the amount
-    try {
-      const { amount_sats } = parseBolt11(lightningInvoice.invoice);
-
-      // Check if the amount is within the max amount
-      if (amount_sats <= max_amount_sats) {
-        return amount_sats;
-      } else {
-        debugMCP(
-          `Invoice amount (${amount_sats}) exceeds max amount (${max_amount_sats})`
-        );
-        return 0;
-      }
-    } catch (error) {
-      debugError("Failed to parse invoice:", error);
-      return 0;
-    }
-  }
-
-  /**
-   * Handles payment for quotes
-   *
-   * @param quote - Quote from expert
-   * @param prompt - Prompt sent to expert
-   * @returns Promise resolving to Proof object
-   * @private
-   */
-  private async handlePayment(quote: Quote, prompt: Prompt): Promise<Proof> {
-    // Find the lightning invoice
-    const lightningInvoice = quote.invoices.find(
-      (inv) => inv.method === "lightning"
-    );
-
-    if (!lightningInvoice || !lightningInvoice.invoice) {
-      throw new Error("No lightning invoice found in quote");
-    }
-
-    try {
-      debugMCP(`Paying ${lightningInvoice.amount} sats to ${quote.pubkey}...`);
-      // Pay the invoice using the payment manager
-      const preimage = await this.paymentManager.payInvoice(
-        lightningInvoice.invoice
-      );
-
-      // Return the proof
-      return {
-        method: "lightning",
-        preimage,
-      };
-    } catch (error) {
-      throw new Error(
-        `Payment failed: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
-    }
   }
 
   private async parseQuestion(question: string, requirements?: string) {
@@ -374,7 +290,7 @@ Return nothing else, only bid ids.
       requirements
     );
 
-    // Find experts using the client
+    // Find experts using the paying client
     const bids = await this.client.findExperts({
       summary: publicQuestionSummary,
       hashtags,
@@ -444,37 +360,14 @@ Return nothing else, only bid ids.
       // Track the invoice amount
       let invoice_amount = 0;
 
+      // Set the max amount for this specific request
+      this.client.setMaxAmountSats(max_amount_sats);
+
       // Ask the expert using the client
       const replies: Replies = await this.client.askExpert({
         bid,
         content: question,
         format: FORMAT_TEXT,
-        onQuote: async (quote, prompt) => {
-          // Add context property to prompt if it doesn't exist
-          const promptWithContext = prompt.context
-            ? prompt
-            : { ...prompt, context: {} };
-
-          // Call our handleQuote method with the max amount
-          const amount = await this.handleQuote(
-            quote,
-            promptWithContext,
-            max_amount_sats
-          );
-
-          // Store the amount for later use
-          invoice_amount = amount;
-
-          // Return true if the amount is greater than 0
-          return amount > 0;
-        },
-        onPay: (quote, prompt) => {
-          // Add context property to prompt if it doesn't exist
-          const promptWithContext = prompt.context
-            ? prompt
-            : { ...prompt, context: {} };
-          return this.handlePayment(quote, promptWithContext);
-        },
       });
 
       // Process the replies
@@ -510,10 +403,7 @@ Return nothing else, only bid ids.
    * Disposes of resources when the object is no longer needed
    */
   [Symbol.dispose](): void {
-    // Dispose of the client
+    // Dispose of the paying client
     this.client[Symbol.dispose]();
-
-    // Dispose of the payment manager
-    this.paymentManager[Symbol.dispose]();
   }
 }

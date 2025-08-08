@@ -30,9 +30,9 @@ export function createStreamMetadataEvent(
     tags.push(["relay", relay]);
   }
   
-  // If encryption is enabled, add the key tag
-  if (metadata.encryption !== "none" && metadata.key) {
-    tags.push(["key", metadata.key]);
+  // If encryption is enabled, add the receiver_pubkey tag
+  if (metadata.encryption !== "none" && metadata.receiver_pubkey) {
+    tags.push(["receiver_pubkey", metadata.receiver_pubkey]);
   }
   
   // Create and sign the stream metadata event
@@ -65,7 +65,7 @@ export function parseStreamMetadataEvent(event: Event): StreamMetadata {
   const encryptionTag = event.tags.find((tag: string[]) => tag[0] === "encryption");
   const compressionTag = event.tags.find((tag: string[]) => tag[0] === "compression");
   const binaryTag = event.tags.find((tag: string[]) => tag[0] === "binary");
-  const keyTag = event.tags.find((tag: string[]) => tag[0] === "key");
+  const receiverPubkeyTag = event.tags.find((tag: string[]) => tag[0] === "receiver_pubkey");
   const relayTags = event.tags.filter((tag: string[]) => tag[0] === "relay");
   
   // Validate required tags
@@ -100,9 +100,9 @@ export function parseStreamMetadataEvent(event: Event): StreamMetadata {
     event: event
   };
   
-  // Add key if encryption is used
-  if (encryptionTag[1] !== "none" && keyTag) {
-    metadata.key = keyTag[1];
+  // Add receiver_pubkey if encryption is used
+  if (encryptionTag[1] !== "none" && receiverPubkeyTag) {
+    metadata.receiver_pubkey = receiverPubkeyTag[1];
   }
   
   return metadata;

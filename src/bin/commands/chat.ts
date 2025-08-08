@@ -1,18 +1,15 @@
 import { Command } from "commander";
-import { AskExpertsClient } from "../../client/AskExpertsClient.js";
-import { FORMAT_OPENAI, FORMAT_TEXT } from "../../common/constants.js";
-import { LightningPaymentManager } from "../../payments/LightningPaymentManager.js";
+import { AskExpertsChatClient } from "../../client/AskExpertsChatClient.js";
 import {
-  debugMCP,
   debugError,
-  debugClient,
   enableAllDebug,
   enableErrorDebug,
 } from "../../common/debug.js";
 import * as readline from "readline";
-import { Expert } from "../../common/types.js";
-import { getWalletByNameOrDefault } from "./wallet/utils.js";
-import { COMPRESSION_GZIP } from "../../stream/compression.js";
+import { getDB } from "../../db/utils.js";
+import { DBExpert } from "../../db/interfaces.js";
+import * as fs from "fs";
+import * as path from "path";
 
 /**
  * Options for the chat command
@@ -23,14 +20,7 @@ export interface ChatCommandOptions {
   maxAmount?: string;
   debug?: boolean;
   stream?: boolean;
-}
-
-/**
- * Message in OpenAI chat format
- */
-interface ChatMessage {
-  role: "user" | "assistant";
-  content: string;
+  stdin?: boolean;
 }
 
 /**
@@ -40,118 +30,43 @@ interface ChatMessage {
  * @param options Command line options
  */
 export async function executeChatCommand(
-  expertPubkey: string,
+  expertIdentifier: string,
   options: ChatCommandOptions
 ): Promise<void> {
-  // Initialize message history for the conversation
-  const messageHistory: ChatMessage[] = [];
-  // Get wallet from database using the provided wallet name or default
-  const wallet = getWalletByNameOrDefault(options.wallet);
-  const nwcString = wallet.nwc;
-
-  // Try to get discovery relays from options or environment variables
-  let discoveryRelays: string[] | undefined = options.relays;
-  if (!discoveryRelays && process.env.DISCOVERY_RELAYS) {
-    discoveryRelays = process.env.DISCOVERY_RELAYS.split(",").map((relay) =>
-      relay.trim()
-    );
-  }
-
-  // Parse max amount
-  const maxAmountSats = options.maxAmount
-    ? parseInt(options.maxAmount, 10)
-    : 100;
-  if (isNaN(maxAmountSats) || maxAmountSats <= 0) {
-    throw new Error("Maximum amount must be a positive number.");
-  }
-
   try {
-    // Create the payment manager
-    const paymentManager = new LightningPaymentManager(nwcString);
-    let expert: Expert;
-
-    // Create the client
-    const client = new AskExpertsClient({
-      discoveryRelays,
-      onQuote: async (quote, prompt) => {
-        // Find the lightning invoice
-        const lightningInvoice = quote.invoices.find(
-          (inv) => inv.method === "lightning"
-        );
-        if (!lightningInvoice || !lightningInvoice.invoice) {
-          debugClient("No lightning invoice found in quote");
-          return false;
-        }
-
-        // Check if the amount is within the max amount
-        if (lightningInvoice.amount <= maxAmountSats) {
-          debugClient(`Accepting payment of ${lightningInvoice.amount} sats`);
-          return true;
-        } else {
-          debugClient(
-            `Rejecting payment: amount ${lightningInvoice.amount} exceeds max ${maxAmountSats}`
-          );
-          return false;
-        }
-      },
-      onPay: async (quote, prompt) => {
-        // Find the lightning invoice
-        const lightningInvoice = quote.invoices.find(
-          (inv) => inv.method === "lightning"
-        );
-        if (!lightningInvoice || !lightningInvoice.invoice) {
-          throw new Error("No lightning invoice found in quote");
-        }
-
-        debugClient(`Paying ${lightningInvoice.amount} sats...`);
-
-        // Pay the invoice
-        const start = Date.now();
-        const preimage = await paymentManager.payInvoice(
-          lightningInvoice.invoice
-        );
-        console.log(
-          `Paid ${lightningInvoice.amount} sats to ${
-            expert?.name || "expert"
-          } in ${Date.now() - start} ms.`
-        );
-
-        // Return the proof
-        return {
-          method: "lightning",
-          preimage,
-        };
-      },
-    });
-
-    debugClient(`Starting chat with expert ${expertPubkey}`);
-    debugClient(`Maximum payment per message: ${maxAmountSats} sats`);
-
-    // Fetch the expert's profile once at the beginning
-    debugClient(`Fetching expert profile for ${expertPubkey}...`);
-    const experts = await client.fetchExperts({
-      pubkeys: [expertPubkey],
-    });
-
-    if (experts.length === 0) {
-      throw new Error(
-        `Expert ${expertPubkey} not found. Make sure they have published an expert profile.`
+    // Check if the identifier is a pubkey or a nickname
+    let expertPubkey = expertIdentifier;
+    let foundByNickname = false;
+    
+    // Try to find expert by nickname if it doesn't look like a pubkey
+    if (!expertIdentifier.startsWith('npub') && expertIdentifier.length !== 64) {
+      const db = getDB();
+      const experts = db.listExperts();
+      const expertByNickname = experts.find((expert: DBExpert) =>
+        expert.nickname.toLowerCase() === expertIdentifier.toLowerCase()
       );
+      
+      if (expertByNickname) {
+        expertPubkey = expertByNickname.pubkey;
+        foundByNickname = true;
+        debugError(`Found expert with nickname "${expertIdentifier}", using pubkey: ${expertPubkey}`);
+      } else {
+        // If not found by nickname, assume it's a pubkey
+        debugError(`No expert found with nickname "${expertIdentifier}", assuming it's a pubkey`);
+      }
     }
-
-    expert = experts[0];
-    debugClient(`Found expert: ${expert.description}`);
-
-    // Verify that the expert supports FORMAT_OPENAI
-    if (!expert.formats.includes(FORMAT_OPENAI)) {
-      throw new Error(
-        `Expert ${expertPubkey} doesn't support OpenAI format. Supported formats: ${expert.formats.join(
-          ", "
-        )}`
-      );
+    
+    // Create the chat client
+    const chatClient = new AskExpertsChatClient(expertPubkey, options);
+    
+    // Initialize the client and fetch expert profile
+    const expert = await chatClient.initialize();
+    
+    if (foundByNickname) {
+      console.log(`Expert: ${expert.name} (nickname: ${expertIdentifier})`);
+    } else {
+      console.log(`Expert: ${expert.name}`);
     }
-
-    console.log(`Expert: ${expert.name}`);
     console.log(`Description: ${expert.description}`);
     console.log("-----------------------------------------------------------");
     console.log(
@@ -159,106 +74,26 @@ export async function executeChatCommand(
     );
     console.log("-----------------------------------------------------------");
 
-    // Create readline interface for reading user input
-    const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
-      prompt: "You > ",
-    });
-
-    // Start the prompt
-    rl.prompt();
-
-    // Handle user input
-    rl.on("line", async (line) => {
-      // Check if user wants to exit
-      if (line.trim().toLowerCase() === "exit") {
-        rl.close();
-        return;
-      }
-
-      // Get the user's message
-      const message = line.trim();
+    // Function to process a message and get a response
+    const processMessage = async (message: string): Promise<void> => {
       if (!message) {
-        rl.prompt();
         return;
       }
 
       const start = Date.now();
       try {
-        debugClient(`Sending message to expert ${expertPubkey}...`);
-
-        // Add user message to history
-        messageHistory.push({
-          role: "user",
-          content: message,
-        });
-
-        // Create OpenAI format request with message history
-        const openaiRequest = {
-          model: expertPubkey,
-          messages: messageHistory,
-          stream: !!options.stream,
-        };
-
-        debugClient(
-          `Sending message with history (${messageHistory.length} messages) to expert ${expertPubkey}`
-        );
-
-        // Data format to use
-        const format = expert.formats.includes(FORMAT_OPENAI)
-          ? FORMAT_OPENAI
-          : FORMAT_TEXT;
-
-        // Ask the expert using OpenAI format
-        const replies = await client.askExpert({
-          expert,
-          content: openaiRequest,
-          format,
-        });
-
-        // Process the replies
-        let expertReply: string = "";
-        let first = true;
-
-        // Iterate through the replies
-        for await (const reply of replies) {
-          // console.log("chunk", JSON.stringify(reply.content, null, 2));
-          if (first) process.stdout.write(`${expert.name || "Expert"} > `);
-          first = false;
-
-          if (reply.done) {
-            debugClient(`Received final reply from expert ${expertPubkey}`);
-
-            // OpenAI format response
-            let chunk = "";
-            if (reply.content) {
-              if (format === FORMAT_OPENAI) {
-                chunk =
-                  reply.content.choices[0]?.[
-                    options.stream ? "delta" : "message"
-                  ].content;
-              } else {
-                chunk = reply.content;
-              }
-              expertReply += chunk;
-            }
-            console.log(chunk);
-          } else {
-            debugClient(`Received chunk from expert ${expertPubkey}`);
-            if (!reply.content) continue;
-            const chunk = reply.content.choices[0]?.delta.content;
-            expertReply += chunk;
-            process.stdout.write(chunk);
-          }
+        // Process the message using the chat client
+        const expertReply = await chatClient.processMessage(message);
+        
+        // Display the expert's reply
+        if (options.stream) {
+          // In stream mode, the output is already written to stdout
+          // Just add a newline at the end
+          console.log();
+        } else {
+          // In non-stream mode, write the full reply
+          process.stdout.write(`${expert.name || "Expert"} > ${expertReply}\n`);
         }
-
-        // Add the full expert's response to the message history
-        if (expertReply)
-          messageHistory.push({
-            role: "assistant",
-            content: expertReply,
-          });
       } catch (error) {
         debugError(
           "Error in chat:",
@@ -274,24 +109,140 @@ export async function executeChatCommand(
           Date.now() - start
         } ms)----------------------------`
       );
+    };
+
+    // Check if we should read from stdin
+    if (options.stdin) {
+      // Read the first message from stdin
+      let stdinMessage = '';
+      const stdinChunks: Buffer[] = [];
+      
+      process.stdin.on('data', (chunk) => {
+        stdinChunks.push(chunk);
+      });
+      
+      process.stdin.on('end', async () => {
+        stdinMessage = Buffer.concat(stdinChunks).toString().trim();
+        if (stdinMessage) {
+          await processMessage(stdinMessage);
+          
+          // Dispose of resources and exit
+          chatClient[Symbol.dispose]();
+          process.exit(0);
+        } else {
+          console.error("Error: No message provided via stdin");
+          process.exit(1);
+        }
+      });
+      
+      // Make sure stdin is in flowing mode
+      process.stdin.resume();
+    } else {
+      // Interactive mode with readline
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+        prompt: "You > ",
+      });
+
+      // Start the prompt
       rl.prompt();
-    });
 
-    // Handle readline close
-    rl.on("close", () => {
-      debugClient("Chat session ended");
-      console.log("Chat ended.");
+      // Handle user input
+      rl.on("line", async (line) => {
+        // Check if user wants to exit
+        if (line.trim().toLowerCase() === "exit") {
+          rl.close();
+          return;
+        }
 
-      // Dispose of the client and payment manager resources
-      client[Symbol.dispose]();
-      paymentManager[Symbol.dispose]();
+        // Get the user's message
+        const message = line.trim();
+        if (!message) {
+          rl.prompt();
+          return;
+        }
 
-      process.exit(0);
-    });
+        // Process file attachments
+        const processedMessage = await processFileAttachments(message, rl);
+        
+        await processMessage(processedMessage);
+        rl.prompt();
+      });
+
+      // Handle readline close
+      rl.on("close", () => {
+        console.log("Chat ended.");
+
+        // Dispose of the chat client resources
+        chatClient[Symbol.dispose]();
+
+        process.exit(0);
+      });
+    }
   } catch (error) {
     debugError("Failed to execute chat command:", error);
     throw error;
   }
+}
+
+/**
+ * Process a message to handle file attachments
+ *
+ * @param message The original message
+ * @param rl The readline interface to use for confirmation prompts
+ * @returns The processed message with file contents appended (if any)
+ */
+async function processFileAttachments(message: string, rl: readline.Interface): Promise<string> {
+  // Regular expression to match attach_file: prefix
+  const attachFileRegex = /\battach_file:([^\s]+)\b/g;
+  
+  // Find all file paths in the message
+  const filePaths: string[] = [];
+  let match;
+  while ((match = attachFileRegex.exec(message)) !== null) {
+    filePaths.push(match[1]);
+  }
+  
+  // If no file attachments, return the original message
+  if (filePaths.length === 0) {
+    return message;
+  }
+  
+  // Remove all attach_file: words from the message
+  let processedMessage = message.replace(attachFileRegex, '').trim();
+  
+  // Process each file
+  for (const filePath of filePaths) {
+    try {
+      // Ask for confirmation
+      const answer = await new Promise<string>((resolve) => {
+        rl.question(`Attach file ${filePath}? y/N `, resolve);
+      });
+      
+      // If confirmed, read the file and append to message
+      if (answer.toLowerCase() === 'y') {
+        try {
+          // Resolve the file path (handle relative paths)
+          const resolvedPath = path.resolve(filePath);
+          
+          // Read the file as UTF-8
+          const fileContent = fs.readFileSync(resolvedPath, 'utf8');
+          
+          // Append the file content to the message
+          processedMessage += `\n${fileContent}`;
+          
+          debugError(`Attached file: ${filePath}`);
+        } catch (error) {
+          console.error(`Error reading file ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+    } catch (error) {
+      debugError(`Error processing file ${filePath}:`, error);
+    }
+  }
+  
+  return processedMessage;
 }
 
 /**
@@ -311,8 +262,8 @@ function commaSeparatedList(value: string): string[] {
 export function registerChatCommand(program: Command): void {
   program
     .command("chat")
-    .description("Start a chat with a specific expert")
-    .argument("<expert-pubkey>", "The pubkey of the expert to chat with")
+    .description("Start a chat with a specific expert using pubkey or nickname")
+    .argument("<expert-identifier>", "The pubkey or nickname of the expert to chat with")
     .option(
       "-w, --wallet <name>",
       "Wallet name to use for payments (uses default if not specified)"
@@ -329,11 +280,12 @@ export function registerChatCommand(program: Command): void {
     )
     .option("-d, --debug", "Enable debug logging")
     .option("-s, --stream", "Enable streaming")
-    .action(async (expertPubkey, options) => {
+    .option("--stdin", "Read first message from stdin and exit after reply")
+    .action(async (expertIdentifier, options) => {
       if (options.debug) enableAllDebug();
       else enableErrorDebug();
       try {
-        await executeChatCommand(expertPubkey, options);
+        await executeChatCommand(expertIdentifier, options);
       } catch (error) {
         debugError("Error executing chat command:", error);
         process.exit(1);

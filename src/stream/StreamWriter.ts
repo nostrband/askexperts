@@ -83,10 +83,12 @@ export class StreamWriter {
     }
 
     // Validate encryption requirements
-    if (metadata.encryption === "nip44" && !metadata.key) {
-      throw new Error(
-        "Recipient private key (key) is required for NIP-44 encryption"
-      );
+    if (metadata.encryption === "nip44") {
+      if (!metadata.receiver_pubkey) {
+        throw new Error(
+          "Recipient public key (receiver_pubkey) is required for NIP-44 encryption"
+        );
+      }
     }
   }
 
@@ -435,14 +437,12 @@ export class StreamWriter {
         }
       } else {
         // If encryption is used
-        if (!this.metadata.key) {
-          throw new Error("Missing recipient private key for encryption");
+        if (!this.metadata.receiver_pubkey) {
+          throw new Error("Missing recipient public key for encryption");
         }
-
-        // Derive recipient's public key from the private key in metadata
-        const recipientPubkey = getPublicKey(
-          Buffer.from(this.metadata.key!, "hex")
-        );
+        
+        // Use the receiver_pubkey from metadata
+        const recipientPubkey = this.metadata.receiver_pubkey;
 
         // Encrypt the compressed data using the encryption interface
         eventContent = await this.encryption.encrypt(

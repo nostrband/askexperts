@@ -35,7 +35,7 @@ async function testStringStream() {
       streamId,
       encryption: 'none',
       compression: 'none',
-      key: Buffer.from(recipientPrivkey).toString('hex'), // Recipient's private key in hex format
+      receiver_privkey: Buffer.from(recipientPrivkey).toString('hex'), // Recipient's private key in hex format
       relays,
     };
     
@@ -136,7 +136,7 @@ async function testBinaryStream() {
       encryption: 'none',
       compression: 'none',
       binary: true, // Set binary flag to true
-      key: Buffer.from(recipientPrivkey).toString('hex'),
+      receiver_privkey: Buffer.from(recipientPrivkey).toString('hex'),
       relays,
     };
     
@@ -239,7 +239,7 @@ async function testErrorScenarios() {
       encryption: 'none',
       compression: 'none',
       binary: true, // Binary stream
-      key: Buffer.from(recipientPrivkey).toString('hex'),
+      receiver_privkey: Buffer.from(recipientPrivkey).toString('hex'),
       relays,
     };
     
@@ -293,7 +293,7 @@ async function testErrorScenarios() {
       encryption: 'none',
       compression: 'none',
       binary: false, // String stream (or undefined)
-      key: Buffer.from(generateSecretKey()).toString('hex'), // New key
+      receiver_privkey: Buffer.from(generateSecretKey()).toString('hex'), // New key
       relays,
     };
     

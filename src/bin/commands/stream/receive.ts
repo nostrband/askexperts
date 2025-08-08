@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { SimplePool, Event } from "nostr-tools";
+import { SimplePool, Event, getPublicKey } from "nostr-tools";
 import { StreamMetadata } from "../../../stream/types.js";
 import { StreamReader } from "../../../stream/StreamReader.js";
 import {
@@ -15,8 +15,12 @@ import { parseStreamMetadataEvent } from "../../../stream/metadata.js";
  *
  * @param options Command line options
  */
+interface StreamReceiveCommandOptions extends StreamCommandOptions {
+  receiverPrivkey?: string;
+}
+
 export async function executeStreamReceiveCommand(
-  options: StreamCommandOptions
+  options: StreamReceiveCommandOptions
 ): Promise<void> {
   try {
     let metadataJson: string;
@@ -57,6 +61,21 @@ export async function executeStreamReceiveCommand(
 
     // Parse and validate the metadata event
     const metadata = parseStreamMetadataEvent(metadataEvent);
+    
+    // If encryption is used and receiver_privkey is provided via command line, use it
+    if (metadata.encryption !== "none" && options.receiverPrivkey) {
+      metadata.receiver_privkey = options.receiverPrivkey;
+      
+      // Validate that the provided private key matches the public key in metadata
+      if (metadata.receiver_pubkey) {
+        const derivedPubkey = getPublicKey(Buffer.from(metadata.receiver_privkey, 'hex'));
+        if (derivedPubkey !== metadata.receiver_pubkey) {
+          throw new Error(
+            "Provided receiver private key does not match the public key in metadata"
+          );
+        }
+      }
+    }
 
     // Create a SimplePool for relay communication
     const pool = new SimplePool();
@@ -172,6 +191,10 @@ export function registerReceiveCommand(
       "--max-size <bytes>",
       "Maximum total size of all chunks in bytes",
       "10485760"
+    )
+    .option(
+      "-k, --receiver-privkey <key>",
+      "Receiver private key for decryption (required for encrypted streams, provided out-of-band)"
     )
     .action((options) => {
       if (options.debug) enableAllDebug();

@@ -106,8 +106,10 @@ export async function executeStreamSendCommand(options: StreamCommandOptions): P
     };
     
     // Validate encryption requirements
-    if (metadata.encryption === "nip44" && !metadata.key) {
-      throw new Error("Missing key in metadata for NIP-44 encryption");
+    if (metadata.encryption === "nip44") {
+      if (!metadata.receiver_pubkey) {
+        throw new Error("Missing receiver_pubkey in metadata for NIP-44 encryption");
+      }
     }
     
     debugStream("Stream metadata received. Starting to stream from stdin...");

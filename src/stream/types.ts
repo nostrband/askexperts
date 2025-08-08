@@ -55,11 +55,18 @@ export interface StreamMetadata {
   binary?: boolean;
   
   /**
+   * Public key of the receiver (only when encryption is used)
+   * This is the pubkey for which the sender will encrypt the stream
+   */
+  receiver_pubkey?: string;
+  
+  /**
    * Hex-encoded 32-byte private key for the recipient (only when encryption is used)
+   * This is not part of the protocol but must be supplied by the client code
    * For the sender, this is used to derive the recipient's public key for encryption
    * For the recipient, this is used directly for decryption
    */
-  key?: string;
+  receiver_privkey?: string;
   
   /** Relays where chunk events are published */
   relays: string[];

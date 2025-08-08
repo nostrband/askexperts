@@ -5,8 +5,11 @@
 
 // Export the main client classes
 export { AskExpertsClient } from './AskExpertsClient.js';
+export { AskExpertsPayingClient } from './AskExpertsPayingClient.js';
 export { AskExpertsSmartClient } from './AskExpertsSmartClient.js';
+export { AskExpertsChatClient } from './AskExpertsChatClient.js';
 export type { ReplyMCP } from './AskExpertsSmartClient.js';
+export type { ChatMessage, ChatClientOptions } from './AskExpertsChatClient.js';
 
 // Export types
 export type {
