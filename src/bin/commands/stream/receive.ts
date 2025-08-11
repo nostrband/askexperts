@@ -9,6 +9,7 @@ import {
 } from "../../../common/debug.js";
 import { StreamCommandOptions } from "./index.js";
 import { parseStreamMetadataEvent } from "../../../stream/metadata.js";
+import { hexToBytes } from "nostr-tools/utils";
 
 /**
  * Execute the stream receive command
@@ -64,11 +65,11 @@ export async function executeStreamReceiveCommand(
     
     // If encryption is used and receiver_privkey is provided via command line, use it
     if (metadata.encryption !== "none" && options.receiverPrivkey) {
-      metadata.receiver_privkey = options.receiverPrivkey;
+      metadata.receiver_privkey = hexToBytes(options.receiverPrivkey);
       
       // Validate that the provided private key matches the public key in metadata
       if (metadata.receiver_pubkey) {
-        const derivedPubkey = getPublicKey(Buffer.from(metadata.receiver_privkey, 'hex'));
+        const derivedPubkey = getPublicKey(metadata.receiver_privkey);
         if (derivedPubkey !== metadata.receiver_pubkey) {
           throw new Error(
             "Provided receiver private key does not match the public key in metadata"

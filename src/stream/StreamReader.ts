@@ -119,7 +119,7 @@ export class StreamReader implements AsyncIterable<string | Uint8Array> {
       }
       
       // Validate that the receiver_pubkey matches the public key derived from receiver_privkey
-      const derivedPubkey = getPublicKey(Buffer.from(metadata.receiver_privkey, "hex"));
+      const derivedPubkey = getPublicKey(metadata.receiver_privkey);
       if (derivedPubkey !== metadata.receiver_pubkey) {
         throw new Error(
           "Recipient public key (receiver_pubkey) does not match the key derived from receiver_privkey"
@@ -338,7 +338,7 @@ export class StreamReader implements AsyncIterable<string | Uint8Array> {
       if (encType !== "none") {
         try {
           // Convert hex key to Uint8Array
-          const recipientPrivkey = Buffer.from(this.metadata.receiver_privkey!, "hex");
+          const recipientPrivkey = this.metadata.receiver_privkey!;
 
           // Decrypt using the encryption interface
           decryptedData = await this.encryption.decrypt(

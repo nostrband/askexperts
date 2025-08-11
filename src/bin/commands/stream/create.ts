@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { generateRandomKeyPair } from "../../../common/crypto.js";
-import { getPublicKey } from "nostr-tools";
+import { generateSecretKey, getPublicKey } from "nostr-tools";
 import { StreamMetadata } from "../../../stream/types.js";
 import { debugError, enableAllDebug } from "../../../common/debug.js";
 import { COMPRESSION_NONE } from "../../../stream/compression.js";
@@ -48,15 +48,14 @@ export async function executeStreamCreateCommand(options: StreamCommandOptions):
     };
     
     // Generate receiver key pair if encryption is enabled
-    let receiverPrivkey: string | undefined;
+    let receiverPrivkey: Uint8Array | undefined;
     
     if (encryption === ENCRYPTION_NIP44) {
       // For encryption, we need to generate a receiver key pair
-      // In this case, we'll use the same key for simplicity
-      receiverPrivkey = Buffer.from(senderPrivkey).toString('hex');
+      receiverPrivkey = generateSecretKey();
       
       // Derive the public key from the private key
-      const receiverPubkey = getPublicKey(Buffer.from(receiverPrivkey, 'hex'));
+      const receiverPubkey = getPublicKey(receiverPrivkey);
       
       // Add the receiver public key to metadata
       metadata.receiver_pubkey = receiverPubkey;

@@ -1,10 +1,65 @@
 import { WebSocketServer } from 'ws';
 import WebSocket from 'ws';
 import http from 'http';
-import { Doc, DocStore, Subscription } from './interfaces.js';
+import { Doc, DocStore, Subscription, DocStorePerms, AuthRequest, WebSocketMessage } from './interfaces.js';
 import { MessageType } from './interfaces.js';
 import { DocStoreSQLite } from './DocStoreSQLite.js';
 import { debugDocstore, debugError } from '../common/debug.js';
+import * as nostrTools from 'nostr-tools';
+import { createHash } from 'crypto';
+
+// Helper function to create a digest hash
+function digest(algorithm: string, data: string): string {
+  return createHash(algorithm).update(data).digest('hex');
+}
+
+// Function to parse and validate NIP-98 auth token
+export async function parseAuthToken(origin: string, req: AuthRequest): Promise<string> {
+  try {
+    const { authorization } = req.headers;
+    if (!authorization || typeof authorization !== 'string') return "";
+    if (!authorization.startsWith('Nostr ')) return "";
+    
+    const data = authorization.split(' ')[1].trim();
+    if (!data) return "";
+
+    const json = Buffer.from(data, 'base64').toString('utf-8');
+    const event = JSON.parse(json);
+
+    const now = Math.floor(Date.now() / 1000);
+    if (event.kind !== 27235) return "";
+    if (event.created_at < now - 60 || event.created_at > now + 60) return "";
+
+    const u = event.tags.find((t: string[]) => t.length === 2 && t[0] === 'u')?.[1];
+    const method = event.tags.find((t: string[]) => t.length === 2 && t[0] === 'method')?.[1];
+    const payload = event.tags.find((t: string[]) => t.length === 2 && t[0] === 'payload')?.[1];
+    
+    if (method !== req.method) return "";
+
+    const url = new URL(u);
+    
+    if (
+      url.origin !== origin ||
+      url.pathname + url.search !== req.originalUrl
+    ) return "";
+
+    if (req.rawBody && req.rawBody.length > 0) {
+      const hash = digest('sha256', req.rawBody.toString());
+      if (hash !== payload) return "";
+    } else if (payload) {
+      return "";
+    }
+
+    // Finally after all cheap checks are done, verify the signature
+    if (!nostrTools.verifyEvent(event)) return "";
+
+    // all ok
+    return event.pubkey;
+  } catch (e) {
+    console.log('Auth error:', e);
+    return "";
+  }
+}
 
 /**
  * Extended WebSocket interface with subscriptions property
@@ -15,20 +70,7 @@ interface ExtendedWebSocket {
   send: (data: string) => void;
   close: () => void;
   on: (event: string, listener: (...args: any[]) => void) => void;
-}
-
-/**
- * Interface for WebSocket messages
- */
-export interface WebSocketMessage {
-  id: string;
-  type: MessageType;
-  method: string;
-  params: Record<string, any>;
-  error?: {
-    code: string;
-    message: string;
-  };
+  pubkey?: string; // Added pubkey for authenticated connections
 }
 
 /**
@@ -40,7 +82,9 @@ export enum ErrorCode {
   INVALID_PARAMS = 'invalid_params',
   DOCSTORE_NOT_FOUND = 'docstore_not_found',
   DOCUMENT_NOT_FOUND = 'document_not_found',
-  INTERNAL_ERROR = 'internal_error'
+  INTERNAL_ERROR = 'internal_error',
+  PERMISSION_DENIED = 'permission_denied',
+  UNAUTHORIZED = 'unauthorized'
 }
 
 /**
@@ -52,6 +96,8 @@ export class DocStoreSQLiteServer {
   private docStore: DocStoreSQLite;
   private subscriptions: Map<string, Subscription> = new Map();
   private clients: Set<ExtendedWebSocket> = new Set();
+  private perms?: DocStorePerms; // Optional permissions interface
+  private serverOrigin: string;
 
   /**
    * Creates a new DocStoreSQLiteServer
@@ -59,11 +105,24 @@ export class DocStoreSQLiteServer {
    * @param port - Port to listen on
    * @param host - Host to bind to
    */
-  constructor(dbPath: string, port: number = 8080, host: string = 'localhost') {
+  /**
+   * Creates a new DocStoreSQLiteServer
+   * @param dbPath - Path to the SQLite database file
+   * @param port - Port to listen on
+   * @param host - Host to bind to
+   * @param perms - Optional permissions interface for authentication and authorization
+   */
+  constructor(dbPath: string, port: number = 8080, host: string = 'localhost', perms?: DocStorePerms) {
     debugDocstore(`Initializing DocStoreSQLiteServer with database at: ${dbPath}, listening on ${host}:${port}`);
     
     // Initialize the DocStoreSQLite instance
     this.docStore = new DocStoreSQLite(dbPath);
+    
+    // Store the permissions interface if provided
+    this.perms = perms;
+    
+    // Set server origin for auth token validation
+    this.serverOrigin = `http://${host}:${port}`;
     
     // Create an HTTP server
     this.server = http.createServer((req: http.IncomingMessage, res: http.ServerResponse) => {
@@ -74,11 +133,57 @@ export class DocStoreSQLiteServer {
     // Initialize the WebSocket server with noServer option
     this.wss = new WebSocketServer({ noServer: true });
     
-    // Handle upgrade requests
-    this.server.on('upgrade', (request, socket, head) => {
-      this.wss.handleUpgrade(request, socket, head, (ws) => {
-        this.wss.emit('connection', ws, request);
-      });
+    // Handle upgrade requests with authentication if perms is provided
+    this.server.on('upgrade', async (request, socket, head) => {
+      // If perms is provided, authenticate the request
+      if (this.perms) {
+        try {
+          // Convert the request to AuthRequest
+          const authReq: AuthRequest = {
+            headers: request.headers,
+            method: request.method || 'GET',
+            originalUrl: request.url || '/',
+            // Note: rawBody is not available in upgrade requests
+          };
+          
+          // Parse the auth token
+          const pubkey = await parseAuthToken(this.serverOrigin, authReq);
+          
+          // If pubkey is empty, authentication failed
+          if (!pubkey) {
+            debugError('Authentication failed: Invalid or missing token');
+            socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+            socket.destroy();
+            return;
+          }
+          
+          // Check if the user is allowed
+          const isValidUser = await this.perms.isUser(pubkey);
+          if (!isValidUser) {
+            debugError(`Authentication failed: User ${pubkey} is not allowed`);
+            socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+            socket.destroy();
+            return;
+          }
+          
+          // Authentication successful, proceed with the connection
+          this.wss.handleUpgrade(request, socket, head, (ws: ExtendedWebSocket) => {
+            // Store the pubkey with the WebSocket connection
+            ws.pubkey = pubkey;
+            debugDocstore(`connected user`, pubkey);
+            this.wss.emit('connection', ws, request);
+          });
+        } catch (error) {
+          debugError('Authentication error:', error);
+          socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n');
+          socket.destroy();
+        }
+      } else {
+        // No authentication required, proceed with the connection
+        this.wss.handleUpgrade(request, socket, head, (ws) => {
+          this.wss.emit('connection', ws, request);
+        });
+      }
     });
     
     // Start the HTTP server
@@ -158,6 +263,19 @@ export class DocStoreSQLiteServer {
     // Validate message format
     if (!message.id || !message.type || !message.method) {
       return this.sendErrorResponse(ws, message, ErrorCode.INVALID_REQUEST, 'Missing required fields');
+    }
+    
+    // Check permissions if perms is provided and pubkey is available
+    if (this.perms && ws.pubkey) {
+      try {
+        const isAllowed = await this.perms.isAllowed(ws.pubkey, message);
+        if (!isAllowed) {
+          return this.sendErrorResponse(ws, message, ErrorCode.PERMISSION_DENIED, 'Permission denied for this operation');
+        }
+      } catch (error) {
+        debugError('Permission check error:', error);
+        return this.sendErrorResponse(ws, message, ErrorCode.INTERNAL_ERROR, 'Error checking permissions');
+      }
     }
     
     // Handle message based on type

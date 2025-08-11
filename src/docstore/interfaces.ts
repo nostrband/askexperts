@@ -138,3 +138,51 @@ export enum MessageType {
   DOCUMENT = 'document',
   END = 'end'
 }
+
+/**
+ * Interface for WebSocket messages
+ */
+export interface WebSocketMessage {
+  id: string;
+  type: MessageType;
+  method: string;
+  params: Record<string, any>;
+  error?: {
+    code: string;
+    message: string;
+  };
+}
+
+/**
+ * Interface for DocStore permissions
+ * Used to validate user authentication and permissions
+ */
+export interface DocStorePerms {
+  /**
+   * Check if a pubkey is a valid user
+   * @param pubkey - The public key of the user
+   * @returns Promise that resolves with true if the user is valid, false otherwise
+   */
+  isUser(pubkey: string): Promise<boolean>;
+  
+  /**
+   * Check if a user is allowed to perform an operation
+   * @param pubkey - The public key of the user
+   * @param message - The WebSocket message being processed
+   * @returns Promise that resolves with true if the operation is allowed, false otherwise
+   */
+  isAllowed(pubkey: string, message: WebSocketMessage): Promise<boolean>;
+}
+
+/**
+ * Interface for HTTP requests with authorization headers
+ */
+export interface AuthRequest {
+  headers: {
+    authorization?: string;
+    [key: string]: any;
+  };
+  method: string;
+  originalUrl: string;
+  rawBody?: Buffer;
+}

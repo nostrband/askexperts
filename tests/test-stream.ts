@@ -35,7 +35,7 @@ async function testStringStream() {
       streamId,
       encryption: 'none',
       compression: 'none',
-      receiver_privkey: Buffer.from(recipientPrivkey).toString('hex'), // Recipient's private key in hex format
+      receiver_privkey: recipientPrivkey,
       relays,
     };
     
@@ -136,7 +136,7 @@ async function testBinaryStream() {
       encryption: 'none',
       compression: 'none',
       binary: true, // Set binary flag to true
-      receiver_privkey: Buffer.from(recipientPrivkey).toString('hex'),
+      receiver_privkey: recipientPrivkey,
       relays,
     };
     
@@ -239,7 +239,7 @@ async function testErrorScenarios() {
       encryption: 'none',
       compression: 'none',
       binary: true, // Binary stream
-      receiver_privkey: Buffer.from(recipientPrivkey).toString('hex'),
+      receiver_privkey: recipientPrivkey,
       relays,
     };
     
@@ -288,19 +288,22 @@ async function testErrorScenarios() {
     debugStream('Scenario 2: String stream with binary data');
     
     // Create string stream metadata
+    const streamKey = generateSecretKey();
+    const receiverKey = generateSecretKey();
     const stringMetadata: StreamMetadata = {
-      streamId: getPublicKey(generateSecretKey()), // New stream ID
+      streamId: getPublicKey(streamKey), // New stream ID
       encryption: 'none',
       compression: 'none',
       binary: false, // String stream (or undefined)
-      receiver_privkey: Buffer.from(generateSecretKey()).toString('hex'), // New key
+      receiver_privkey: receiverKey,
+      receiver_pubkey: getPublicKey(receiverKey),
       relays,
     };
     
     const stringWriter = new StreamWriter(
       stringMetadata,
       pool,
-      generateSecretKey(), // New sender key
+      streamKey,
       { minChunkInterval: 10 }
     );
     

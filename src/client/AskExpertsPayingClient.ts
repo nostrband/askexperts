@@ -10,8 +10,9 @@ import { Proof, Quote, Prompt } from "../common/types.js";
  * This class abstracts payment handling logic that was duplicated in AskExpertsSmartClient and AskExpertsChatClient
  */
 export class AskExpertsPayingClient extends AskExpertsClient {
-  protected paymentManager: ExpertPaymentManager;
-  protected maxAmountSats: number = 100; // Default max amount
+  #paymentManager: ExpertPaymentManager;
+  #maxAmountSats: number = 100; // Default max amount
+  #onPaid?: (prompt: Prompt, quote: Quote, proof: Proof) => Promise<void>;
 
   /**
    * Creates a new AskExpertsPayingClient instance
@@ -26,6 +27,7 @@ export class AskExpertsPayingClient extends AskExpertsClient {
     options?: {
       maxAmountSats?: number;
       discoveryRelays?: string[];
+      onPaid?: (prompt: Prompt, quote: Quote, proof: Proof) => Promise<void>;
     }
   ) {
     // Create the client with callbacks for quotes and payments
@@ -39,11 +41,16 @@ export class AskExpertsPayingClient extends AskExpertsClient {
       throw new Error("Payment manager is required");
     }
 
-    this.paymentManager = paymentManager;
+    this.#paymentManager = paymentManager;
 
     // Set max amount if provided
     if (options?.maxAmountSats) {
-      this.maxAmountSats = options.maxAmountSats;
+      this.#maxAmountSats = options.maxAmountSats;
+    }
+
+    // Set onPaid callback if provided
+    if (options?.onPaid) {
+      this.#onPaid = options.onPaid;
     }
   }
 
@@ -52,11 +59,35 @@ export class AskExpertsPayingClient extends AskExpertsClient {
    * 
    * @param maxAmountSats - Maximum amount to pay in satoshis
    */
-  setMaxAmountSats(maxAmountSats: number): void {
-    if (maxAmountSats <= 0) {
+  /**
+   * Gets the maximum amount to pay in satoshis
+   */
+  get maxAmountSats(): number {
+    return this.#maxAmountSats;
+  }
+
+  /**
+   * Sets the maximum amount to pay in satoshis
+   */
+  set maxAmountSats(value: number) {
+    if (value <= 0) {
       throw new Error("Maximum amount must be greater than zero");
     }
-    this.maxAmountSats = maxAmountSats;
+    this.#maxAmountSats = value;
+  }
+
+  /**
+   * Gets the current onPaid callback function
+   */
+  get onPaid(): ((prompt: Prompt, quote: Quote, proof: Proof) => Promise<void>) | undefined {
+    return this.#onPaid;
+  }
+
+  /**
+   * Sets the onPaid callback function
+   */
+  set onPaid(callback: (prompt: Prompt, quote: Quote, proof: Proof) => Promise<void>) {
+    this.#onPaid = callback;
   }
 
   /**
@@ -86,11 +117,11 @@ export class AskExpertsPayingClient extends AskExpertsClient {
       const { amount_sats } = parseBolt11(lightningInvoice.invoice);
 
       // Check if the amount is within the max amount
-      if (amount_sats <= this.maxAmountSats) {
+      if (amount_sats <= this.#maxAmountSats) {
         return true;
       } else {
         debugError(
-          `Invoice amount (${amount_sats}) exceeds max amount (${this.maxAmountSats})`
+          `Invoice amount (${amount_sats}) exceeds max amount (${this.#maxAmountSats})`
         );
         return false;
       }
@@ -120,15 +151,23 @@ export class AskExpertsPayingClient extends AskExpertsClient {
 
     try {
       // Pay the invoice using the payment manager
-      const preimage = await (this.paymentManager as LightningPaymentManager).payInvoice(
+      const preimage = await (this.#paymentManager as LightningPaymentManager).payInvoice(
         lightningInvoice.invoice
       );
 
-      // Return the proof
-      return {
+      // Create the proof object
+      const proof: Proof = {
         method: "lightning",
         preimage,
       };
+
+      // Call the onPaid callback if it exists
+      if (this.#onPaid) {
+        await this.#onPaid(prompt, quote, proof);
+      }
+
+      // Return the proof
+      return proof;
     } catch (error) {
       throw new Error(
         `Payment failed: ${
@@ -146,6 +185,6 @@ export class AskExpertsPayingClient extends AskExpertsClient {
     super[Symbol.dispose]();
 
     // Dispose of the payment manager
-    this.paymentManager[Symbol.dispose]();
+    this.#paymentManager[Symbol.dispose]();
   }
 }

@@ -61,12 +61,12 @@ export interface StreamMetadata {
   receiver_pubkey?: string;
   
   /**
-   * Hex-encoded 32-byte private key for the recipient (only when encryption is used)
+   * Private key for the recipient (only when encryption is used)
    * This is not part of the protocol but must be supplied by the client code
-   * For the sender, this is used to derive the recipient's public key for encryption
-   * For the recipient, this is used directly for decryption
+   * Not used by sender.
+   * For the recipient, this is used for decryption
    */
-  receiver_privkey?: string;
+  receiver_privkey?: Uint8Array;
   
   /** Relays where chunk events are published */
   relays: string[];

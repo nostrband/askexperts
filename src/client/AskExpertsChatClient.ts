@@ -5,9 +5,10 @@
 
 import { AskExpertsPayingClient } from "./AskExpertsPayingClient.js";
 import { LightningPaymentManager } from "../payments/LightningPaymentManager.js";
-import { FORMAT_OPENAI, FORMAT_TEXT } from "../common/constants.js";
+import { FORMAT_OPENAI, FORMAT_TEXT, METHOD_LIGHTNING } from "../common/constants.js";
 import { debugError, debugClient } from "../common/debug.js";
-import { Expert } from "../common/types.js";
+import { Expert, Prompt, Quote, Proof } from "../common/types.js";
+import { parseBolt11 } from "../common/bolt11.js";
 import { getWalletByNameOrDefault } from "../bin/commands/wallet/utils.js";
 
 /**
@@ -75,6 +76,27 @@ export class AskExpertsChatClient {
     this.client = new AskExpertsPayingClient(paymentManager, {
       maxAmountSats: this.maxAmountSats,
       discoveryRelays,
+      onPaid: async (prompt: Prompt, quote: Quote, proof: Proof): Promise<void> => {
+        try {
+          // Find the lightning invoice
+          const lightningInvoice = quote.invoices.find(
+            (inv) => inv.method === METHOD_LIGHTNING
+          );
+          
+          if (lightningInvoice && lightningInvoice.invoice) {
+            // Parse the invoice to get the amount
+            const { amount_sats } = parseBolt11(lightningInvoice.invoice);
+            
+            // Get expert name or use a default
+            const expertName = this.expert?.name || "Expert";
+            
+            // Print payment information to console
+            console.log(`Paid ${amount_sats} sats to ${expertName}`);
+          }
+        } catch (error) {
+          debugError("Error in onPaid callback:", error);
+        }
+      }
     });
   }
 

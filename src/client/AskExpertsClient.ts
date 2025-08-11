@@ -3,7 +3,7 @@
  * Works in both browser and Node.js environments
  */
 
-import { Event, SimplePool } from "nostr-tools";
+import { Event, getPublicKey, SimplePool } from "nostr-tools";
 import { z } from "zod";
 import { debugError } from "../common/debug.js";
 import { parseBolt11 } from "../common/bolt11.js";
@@ -61,6 +61,7 @@ import {
   getStreamFactory,
   createStreamMetadataEvent,
   parseStreamMetadataEvent,
+  StreamMetadata,
 } from "../stream/index.js";
 import { Event as NostrEvent } from "nostr-tools";
 import {
@@ -506,20 +507,17 @@ export class AskExpertsClient implements AskExpertsClientInterface {
       const { privateKey: streamPrivkey, publicKey: streamPubkey } =
         generateRandomKeyPair();
 
-      // Generate a new key pair for encryption
-      const { privateKey: streamEncryptionPrivkey } = generateRandomKeyPair();
-
       // Binary?
       const binary = content instanceof Uint8Array;
 
       // Create stream metadata
-      const streamMetadata = {
+      const streamMetadata: StreamMetadata = {
         streamId: streamPubkey,
         relays: expertRelays,
         encryption: "nip44",
         compression: COMPRESSION_GZIP,
         binary,
-        key: Buffer.from(streamEncryptionPrivkey).toString("hex"),
+        receiver_pubkey: expertPubkey,
         version: "1",
       };
 
@@ -832,6 +830,7 @@ export class AskExpertsClient implements AskExpertsClientInterface {
               // Parse the stream metadata
               const streamMetadata =
                 parseStreamMetadataEvent(streamMetadataEvent);
+              streamMetadata.receiver_privkey = promptPrivkey;
 
               // Create stream reader
               const streamReader = await streamFactory.createReader(

@@ -44,6 +44,7 @@ import {
   getStreamFactory,
   createStreamMetadataEvent,
   parseStreamMetadataEvent,
+  StreamMetadata,
 } from "../stream/index.js";
 import { COMPRESSION_GZIP } from "../stream/compression.js";
 import {
@@ -734,6 +735,7 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
 
           // Parse the stream metadata
           const streamMetadata = parseStreamMetadataEvent(streamMetadataEvent);
+          streamMetadata.receiver_privkey = this.#privkey;
 
           // Create stream reader
           const streamReader = await this.#streamFactory.createReader(
@@ -1142,13 +1144,13 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
           : expertReplies.content instanceof Uint8Array;
 
       // Create stream metadata
-      const streamMetadata = {
+      const streamMetadata: StreamMetadata = {
         streamId: streamPubkey,
         relays: this.#promptRelays,
         encryption: "nip44",
         compression: COMPRESSION_GZIP,
         binary,
-        key: Buffer.from(streamEncryptionPrivkey).toString("hex"),
+        receiver_pubkey: prompt.event.pubkey,
         version: "1",
       };
 

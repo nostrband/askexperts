@@ -599,6 +599,12 @@ export class OpenaiAskExperts implements OpenaiInterface {
       "d06c4f666e70d7e23ed3d1553066244627327961cbe1e5fbedce3627c47915b5",
     "nvidia/llama-3.1-nemotron-ultra-253b-v1":
       "f569aff0ece30801df8e80ce03e8f7b32bec66e215fed07feb9b8dc42c1a4ac4",
+    "openai/gpt-oss-120b":
+      "11a53826781276a79f0a4b0dfa4126b643a459af885eeaec1df023d5e5e12bcf",
+    "openai/gpt-oss-20b":
+      "8b022e7a1cc6b57a86cf8def0274086e1e04600dd687631b1db2cb5e3b6b6bdb",
+    "openai/gpt-oss-20b:free":
+      "ce0b57d3d734f05b86d876f328ce1920a0d4e436e16090d2975a6e956e057aa2",
   };
 
   /**

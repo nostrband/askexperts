@@ -361,7 +361,7 @@ Return nothing else, only bid ids.
       let invoice_amount = 0;
 
       // Set the max amount for this specific request
-      this.client.setMaxAmountSats(max_amount_sats);
+      this.client.maxAmountSats = max_amount_sats;
 
       // Ask the expert using the client
       const replies: Replies = await this.client.askExpert({
