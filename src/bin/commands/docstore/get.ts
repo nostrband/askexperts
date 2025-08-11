@@ -1,6 +1,5 @@
 import { Command } from "commander";
-import { DocStoreSQLite } from "../../../docstore/index.js";
-import { DocstoreCommandOptions, getDocstorePath, getDocstore } from "./index.js";
+import { DocstoreCommandOptions, getDocstore, createDocstoreClient } from "./index.js";
 import { debugError, enableAllDebug } from "../../../common/debug.js";
 
 /**
@@ -12,15 +11,13 @@ export async function getDoc(
   id: string,
   options: DocstoreCommandOptions
 ): Promise<void> {
-  const docstorePath = getDocstorePath();
-
   try {
     // Enable debug output if debug flag is set
     if (options.debug) {
       enableAllDebug();
     }
     
-    const docstoreClient = new DocStoreSQLite(docstorePath);
+    const docstoreClient = await createDocstoreClient(options);
     const docstore = await getDocstore(docstoreClient, options.docstore);
 
     // Use the get method to retrieve the document

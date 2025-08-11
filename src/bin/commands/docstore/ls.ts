@@ -1,8 +1,6 @@
 import { Command } from "commander";
-import { DocStoreSQLite, DocStoreWebSocketClient } from "../../../docstore/index.js";
-import { DocstoreCommandOptions, getDocstorePath } from "./index.js";
+import { DocstoreCommandOptions, createDocstoreClient } from "./index.js";
 import { debugError, enableAllDebug } from "../../../common/debug.js";
-import { RemoteClient } from "../../../remote/index.js";
 
 /**
  * List all docstores
@@ -15,25 +13,10 @@ export async function listDocstores(options: DocstoreCommandOptions): Promise<vo
       enableAllDebug();
     }
     
-    let docstoreClient;
+    // Create docstore client based on options
+    const docstoreClient = await createDocstoreClient(options);
     
-    // Use remote client if remote flag is set
-    if (options.remote) {
-      // Use the provided URL or default to https://docstore.askexperts.io
-      const serverUrl = options.url || "https://docstore.askexperts.io";
-      
-      // Create a RemoteClient to get the private key
-      const remoteClient = new RemoteClient();
-      const privateKey = remoteClient.getPrivateKey();
-      
-      // Create a DocStoreWebSocketClient with the server URL and private key
-      docstoreClient = new DocStoreWebSocketClient(serverUrl, privateKey);
-    } else {
-      // Use local SQLite client
-      const docstorePath = getDocstorePath();
-      docstoreClient = new DocStoreSQLite(docstorePath);
-    }
-    
+    // List docstores
     const docstores = await docstoreClient.listDocstores();
 
     if (docstores.length === 0) {

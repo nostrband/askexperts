@@ -1,6 +1,6 @@
 {
   "name": "askexperts",
-  "version": "0.6.16",
+  "version": "0.6.17",
   "description": "AskExperts SDK: build and use AI experts - ask them questions and pay with bitcoin on an open protocol",
   "main": "dist/index.js",
   "type": "module",
@@ -17,7 +17,7 @@
     "expert": "tsx examples/expert-example.ts",
     "test:exports": "tsx tests/test-exports.ts",
     "prepublishOnly": "npm run build && npm run build:modules",
-    "build:modules": "npm run build:client && npm run build:experts && npm run build:docstore && npm run build:server && npm run build:mcp && npm run build:openai && npm run build:rag && npm run build:proxy && npm run build:payments",
+    "build:modules": "npm run build:client && npm run build:experts && npm run build:docstore && npm run build:server && npm run build:mcp && npm run build:openai && npm run build:rag && npm run build:proxy && npm run build:payments && npm run build:common",
     "build:experts": "mkdir -p dist/experts && cp -r dist/src/experts/* dist/experts/",
     "build:docstore": "mkdir -p dist/docstore && cp -r dist/src/docstore/* dist/docstore/",
     "build:server": "mkdir -p dist/server && cp -r dist/src/server/* dist/server/",
@@ -25,7 +25,8 @@
     "build:openai": "mkdir -p dist/openai && cp -r dist/src/openai/* dist/openai/",
     "build:rag": "mkdir -p dist/rag && cp -r dist/src/rag/* dist/rag/",
     "build:proxy": "mkdir -p dist/proxy && cp -r dist/src/proxy/* dist/proxy/",
-    "build:payments": "mkdir -p dist/payments && cp -r dist/src/payments/* dist/payments/"
+    "build:payments": "mkdir -p dist/payments && cp -r dist/src/payments/* dist/payments/",
+    "build:common": "mkdir -p dist/common && cp -r dist/src/common/* dist/common/"
   },
   "keywords": [
     "mcp",
@@ -40,7 +41,19 @@
   "author": "",
   "license": "MIT",
   "files": [
-    "dist",
+    "dist/index.js",
+    "dist/index.d.ts",
+    "dist/index.js.map",
+    "dist/client",
+    "dist/common",
+    "dist/docstore",
+    "dist/experts",
+    "dist/mcp",
+    "dist/openai",
+    "dist/payments",
+    "dist/proxy",
+    "dist/rag",
+    "dist/server",
     "bin",
     "README.md"
   ],
@@ -73,6 +86,9 @@
     },
     "./payments": {
       "default": "./dist/payments/index.js"
+    },
+    "./common": {
+      "default": "./dist/common/index.js"
     }
   },
   "publishConfig": {

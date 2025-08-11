@@ -1,6 +1,5 @@
 import { Command } from "commander";
-import { DocStoreSQLite } from "../../../docstore/index.js";
-import { DocstoreCommandOptions, getDocstorePath } from "./index.js";
+import { DocstoreCommandOptions, createDocstoreClient } from "./index.js";
 import { debugError, enableAllDebug } from "../../../common/debug.js";
 import { createInterface } from "readline";
 
@@ -13,15 +12,13 @@ export async function removeDocstore(
   id: string,
   options: DocstoreCommandOptions
 ): Promise<void> {
-  const docstorePath = getDocstorePath();
-
   try {
     // Enable debug output if debug flag is set
     if (options.debug) {
       enableAllDebug();
     }
     
-    const docstoreClient = new DocStoreSQLite(docstorePath);
+    const docstoreClient = await createDocstoreClient(options);
 
     // Check if docstore exists
     const docstores = await docstoreClient.listDocstores();

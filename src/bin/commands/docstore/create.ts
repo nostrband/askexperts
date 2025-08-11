@@ -1,6 +1,5 @@
 import { Command } from "commander";
-import { DocStoreSQLite } from "../../../docstore/index.js";
-import { DocstoreCommandOptions, getDocstorePath } from "./index.js";
+import { DocstoreCommandOptions, createDocstoreClient } from "./index.js";
 import { debugError, enableAllDebug } from "../../../common/debug.js";
 import { createRagEmbeddings } from "../../../rag/index.js";
 
@@ -16,8 +15,6 @@ export async function createDocstore(
     model_options?: string;
   }
 ): Promise<void> {
-  const docstorePath = getDocstorePath();
-
   try {
     // Enable debug output if debug flag is set
     if (options.debug) {
@@ -30,7 +27,7 @@ export async function createDocstore(
     const vectorSize = await embeddings.getVectorSize();
     const model = embeddings.getModelName();
 
-    const docstore = new DocStoreSQLite(docstorePath);
+    const docstore = await createDocstoreClient(options);
     const docstoreId = await docstore.createDocstore(
       name,
       model,

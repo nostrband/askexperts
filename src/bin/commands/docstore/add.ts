@@ -1,7 +1,7 @@
 import { Command } from "commander";
-import { DocStoreSQLite, Doc } from "../../../docstore/index.js";
+import { Doc } from "../../../docstore/index.js";
 import { randomUUID } from "crypto";
-import { DocstoreCommandOptions, getDocstorePath, getDocstore } from "./index.js";
+import { DocstoreCommandOptions, getDocstore, createDocstoreClient } from "./index.js";
 import { debugError, enableAllDebug } from "../../../common/debug.js";
 import { createRagEmbeddings } from "../../../rag/index.js";
 
@@ -14,15 +14,13 @@ export async function addDoc(
   data: string,
   options: DocstoreCommandOptions
 ): Promise<void> {
-  const docstorePath = getDocstorePath();
-
   try {
     // Enable debug output if debug flag is set
     if (options.debug) {
       enableAllDebug();
     }
     
-    const docstoreClient = new DocStoreSQLite(docstorePath);
+    const docstoreClient = await createDocstoreClient(options);
     const docstore = await getDocstore(docstoreClient, options.docstore);
 
     // Check if data is "-" to read from stdin

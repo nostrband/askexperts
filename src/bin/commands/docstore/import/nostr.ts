@@ -1,14 +1,13 @@
 import { Command } from "commander";
 import {
-  DocStoreSQLite,
   Doc,
   DocStoreClient,
 } from "../../../../docstore/index.js";
 import { SimplePool } from "nostr-tools";
 import {
   DocstoreCommandOptions,
-  getDocstorePath,
   getDocstore,
+  createDocstoreClient,
 } from "../index.js";
 import { Nostr } from "../../../../experts/utils/Nostr.js";
 import {
@@ -37,15 +36,13 @@ export async function importNostr(
   author: string,
   options: NostrImportOptions
 ): Promise<void> {
-  const docstorePath = getDocstorePath();
-
   try {
     // Enable debug output if debug flag is set
     if (options.debug) {
       enableAllDebug();
     }
 
-    const docstoreClient: DocStoreClient = new DocStoreSQLite(docstorePath);
+    const docstoreClient: DocStoreClient = await createDocstoreClient(options);
 
     // Get docstore ID
     const docstore = await getDocstore(docstoreClient, options.docstore);

@@ -42,3 +42,6 @@ export type {
   OnPromptPriceCallback,
   OnPromptPaidCallback
 } from "./common/types.js";
+
+// Export the common module
+export * from "./common/index.js";

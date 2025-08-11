@@ -1,9 +1,10 @@
 import { Command } from "commander";
-import { DocStore, DocStoreClient } from "../../../docstore/index.js";
+import { DocStore, DocStoreClient, DocStoreSQLite, DocStoreWebSocketClient } from "../../../docstore/index.js";
 import fs from "fs";
 import path from "path";
 import { debugError, debugDocstore, enableAllDebug } from "../../../common/debug.js";
 import { APP_DOCSTORE_PATH } from "../../../common/constants.js";
+import { RemoteClient } from "../../../remote/index.js";
 import { registerImportCommand } from "./import/index.js";
 import { registerCreateCommand } from "./create.js";
 import { registerListCommand } from "./ls.js";
@@ -77,6 +78,30 @@ export async function getDocstore(
 }
 
 /**
+ * Create a docstore client based on command options
+ * @param options Command options
+ * @returns DocStoreClient instance (either DocStoreSQLite or DocStoreWebSocketClient)
+ */
+export async function createDocstoreClient(options: DocstoreCommandOptions): Promise<DocStoreClient> {
+  // Use remote client if remote flag is set
+  if (options.remote) {
+    // Use the provided URL or default to https://docstore.askexperts.io
+    const serverUrl = options.url || "https://docstore.askexperts.io";
+    
+    // Create a RemoteClient to get the private key
+    const remoteClient = new RemoteClient();
+    const privateKey = remoteClient.getPrivateKey();
+    
+    // Create a DocStoreWebSocketClient with the server URL and private key
+    return new DocStoreWebSocketClient(serverUrl, privateKey);
+  } else {
+    // Use local SQLite client
+    const docstorePath = getDocstorePath();
+    return new DocStoreSQLite(docstorePath);
+  }
+}
+
+/**
  * Register the docstore command with the CLI
  * @param program The commander program
  */
@@ -89,9 +114,19 @@ export function registerDocstoreCommand(program: Command): void {
   const addDebugOption = (cmd: Command) =>
     cmd.option("-d, --debug", "Enable debug output");
 
+  // Add remote options to a command
+  const addRemoteOptions = (cmd: Command) =>
+    cmd
+      .option("-r, --remote", "Use remote client")
+      .option("-u, --url <url>", "URL of remote server (default: https://docstore.askexperts.io)");
+
   // Helper to add all common options
   const addCommonOptions = (cmd: Command) => {
     addDebugOption(cmd);
+    // Add remote options to all commands except server
+    if (cmd.name() !== "server") {
+      addRemoteOptions(cmd);
+    }
     return cmd;
   };
 
