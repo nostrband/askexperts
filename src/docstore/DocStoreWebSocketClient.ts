@@ -1,7 +1,7 @@
 import WebSocket from 'ws';
 import { Doc, DocStore, DocStoreClient, MessageType, Subscription } from './interfaces.js';
 import crypto from 'crypto';
-import { getPublicKey, finalizeEvent } from 'nostr-tools';
+import { createAuthToken } from '../common/auth.js';
 
 /**
  * Serializable version of Doc with regular arrays instead of Float32Array
@@ -44,7 +44,7 @@ export class DocStoreWebSocketClient implements DocStoreClient {
     
     // If privateKey is provided, add authorization header with NIP-98 token
     if (privateKey) {
-      const authToken = this.createAuthToken(privateKey, url, 'GET');
+      const authToken = createAuthToken(privateKey, url, 'GET');
       options.headers = {
         'Authorization': authToken
       };
@@ -357,34 +357,4 @@ export class DocStoreWebSocketClient implements DocStoreClient {
     this.ws.close();
   }
 
-  /**
-   * Create a NIP-98 auth token for WebSocket connection
-   * @param privateKey - The private key to sign the event with (as Uint8Array)
-   * @param url - The URL to connect to
-   * @param method - The HTTP method (usually 'GET' for WebSocket)
-   * @returns The authorization header value
-   */
-  private createAuthToken(privateKey: Uint8Array, url: string, method: string): string {
-    // Create a NIP-98 event
-    const event = {
-      kind: 27235,
-      created_at: Math.floor(Date.now() / 1000),
-      tags: [
-        ['u', url],
-        ['method', method]
-        // No payload tag for WebSocket connections
-      ],
-      content: '',
-      pubkey: getPublicKey(privateKey)
-    };
-    
-    // Sign the event
-    const signedEvent = finalizeEvent(event, privateKey);
-    
-    // Convert to base64
-    const base64Event = Buffer.from(JSON.stringify(signedEvent)).toString('base64');
-    
-    // Return the authorization header value
-    return `Nostr ${base64Event}`;
-  }
 }

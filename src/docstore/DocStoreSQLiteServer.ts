@@ -1,65 +1,11 @@
 import { WebSocketServer } from 'ws';
 import WebSocket from 'ws';
 import http from 'http';
-import { Doc, DocStore, Subscription, DocStorePerms, AuthRequest, WebSocketMessage } from './interfaces.js';
+import { Doc, DocStore, Subscription, DocStorePerms, WebSocketMessage } from './interfaces.js';
 import { MessageType } from './interfaces.js';
 import { DocStoreSQLite } from './DocStoreSQLite.js';
 import { debugDocstore, debugError } from '../common/debug.js';
-import * as nostrTools from 'nostr-tools';
-import { createHash } from 'crypto';
-
-// Helper function to create a digest hash
-function digest(algorithm: string, data: string): string {
-  return createHash(algorithm).update(data).digest('hex');
-}
-
-// Function to parse and validate NIP-98 auth token
-export async function parseAuthToken(origin: string, req: AuthRequest): Promise<string> {
-  try {
-    const { authorization } = req.headers;
-    if (!authorization || typeof authorization !== 'string') return "";
-    if (!authorization.startsWith('Nostr ')) return "";
-    
-    const data = authorization.split(' ')[1].trim();
-    if (!data) return "";
-
-    const json = Buffer.from(data, 'base64').toString('utf-8');
-    const event = JSON.parse(json);
-
-    const now = Math.floor(Date.now() / 1000);
-    if (event.kind !== 27235) return "";
-    if (event.created_at < now - 60 || event.created_at > now + 60) return "";
-
-    const u = event.tags.find((t: string[]) => t.length === 2 && t[0] === 'u')?.[1];
-    const method = event.tags.find((t: string[]) => t.length === 2 && t[0] === 'method')?.[1];
-    const payload = event.tags.find((t: string[]) => t.length === 2 && t[0] === 'payload')?.[1];
-    
-    if (method !== req.method) return "";
-
-    const url = new URL(u);
-    
-    if (
-      url.origin !== origin ||
-      url.pathname + url.search !== req.originalUrl
-    ) return "";
-
-    if (req.rawBody && req.rawBody.length > 0) {
-      const hash = digest('sha256', req.rawBody.toString());
-      if (hash !== payload) return "";
-    } else if (payload) {
-      return "";
-    }
-
-    // Finally after all cheap checks are done, verify the signature
-    if (!nostrTools.verifyEvent(event)) return "";
-
-    // all ok
-    return event.pubkey;
-  } catch (e) {
-    console.log('Auth error:', e);
-    return "";
-  }
-}
+import { parseAuthToken, AuthRequest } from '../common/auth.js';
 
 /**
  * Extended WebSocket interface with subscriptions property
@@ -158,9 +104,11 @@ export class DocStoreSQLiteServer {
           }
           
           // Check if the user is allowed
-          const isValidUser = await this.perms.isUser(pubkey);
-          if (!isValidUser) {
-            debugError(`Authentication failed: User ${pubkey} is not allowed`);
+          try {
+            await this.perms.checkUser(pubkey);
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'User is not allowed';
+            debugError(`Authentication failed: ${errorMessage}`);
             socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
             socket.destroy();
             return;
@@ -268,13 +216,11 @@ export class DocStoreSQLiteServer {
     // Check permissions if perms is provided and pubkey is available
     if (this.perms && ws.pubkey) {
       try {
-        const isAllowed = await this.perms.isAllowed(ws.pubkey, message);
-        if (!isAllowed) {
-          return this.sendErrorResponse(ws, message, ErrorCode.PERMISSION_DENIED, 'Permission denied for this operation');
-        }
+        await this.perms.checkPerms(ws.pubkey, message);
       } catch (error) {
         debugError('Permission check error:', error);
-        return this.sendErrorResponse(ws, message, ErrorCode.INTERNAL_ERROR, 'Error checking permissions');
+        const errorMessage = error instanceof Error ? error.message : 'Permission denied for this operation';
+        return this.sendErrorResponse(ws, message, ErrorCode.PERMISSION_DENIED, errorMessage);
       }
     }
     

@@ -161,17 +161,19 @@ export interface DocStorePerms {
   /**
    * Check if a pubkey is a valid user
    * @param pubkey - The public key of the user
-   * @returns Promise that resolves with true if the user is valid, false otherwise
+   * @throws Error if the user is not valid with a custom error message
+   * @returns Promise that resolves if the user is valid
    */
-  isUser(pubkey: string): Promise<boolean>;
+  checkUser(pubkey: string): Promise<void>;
   
   /**
    * Check if a user is allowed to perform an operation
    * @param pubkey - The public key of the user
    * @param message - The WebSocket message being processed
-   * @returns Promise that resolves with true if the operation is allowed, false otherwise
+   * @throws Error if the operation is not allowed with a custom error message
+   * @returns Promise that resolves if the operation is allowed
    */
-  isAllowed(pubkey: string, message: WebSocketMessage): Promise<boolean>;
+  checkPerms(pubkey: string, message: WebSocketMessage): Promise<void>;
 }
 
 /**

@@ -1,13 +1,8 @@
 import { DocStoreSQLiteServer } from "../src/docstore/DocStoreSQLiteServer.js";
 import { DocStorePerms, WebSocketMessage } from "../src/docstore/interfaces.js";
 import WebSocket from "ws";
-import { generateSecretKey, getPublicKey, finalizeEvent } from "nostr-tools";
-import { createHash } from "crypto";
-
-// Helper function to create a digest hash
-function digest(algorithm: string, data: string): string {
-  return createHash(algorithm).update(data).digest("hex");
-}
+import { generateSecretKey, getPublicKey } from "nostr-tools";
+import { createAuthToken } from "../src/common/auth.js";
 
 /**
  * Example implementation of DocStorePerms
@@ -40,68 +35,38 @@ class ExampleDocStorePerms implements DocStorePerms {
   /**
    * Check if a pubkey is a valid user
    * @param pubkey - The public key of the user
-   * @returns Promise that resolves with true if the user is valid, false otherwise
+   * @throws Error if the user is not valid with a custom error message
+   * @returns Promise that resolves if the user is valid
    */
-  async isUser(pubkey: string): Promise<boolean> {
-    return this.allowedPubkeys.has(pubkey);
+  async checkUser(pubkey: string): Promise<void> {
+    if (!this.allowedPubkeys.has(pubkey)) {
+      throw new Error(`User ${pubkey} is not authorized to access this server`);
+    }
   }
 
   /**
    * Check if a user is allowed to perform an operation
    * @param pubkey - The public key of the user
    * @param message - The WebSocket message being processed
-   * @returns Promise that resolves with true if the operation is allowed, false otherwise
+   * @throws Error if the operation is not allowed with a custom error message
+   * @returns Promise that resolves if the operation is allowed
    */
-  async isAllowed(pubkey: string, message: WebSocketMessage): Promise<boolean> {
+  async checkPerms(pubkey: string, message: WebSocketMessage): Promise<void> {
     // Get the allowed operations for this pubkey
     const allowedOps = this.allowedOperations.get(pubkey);
 
     // If no operations are defined for this pubkey, deny access
     if (!allowedOps) {
-      return false;
+      throw new Error(`User ${pubkey} has no defined permissions`);
     }
 
     // Check if the operation is allowed
-    return allowedOps.has(message.method);
+    if (!allowedOps.has(message.method)) {
+      throw new Error(`User ${pubkey} is not authorized to perform ${message.method} operation`);
+    }
   }
 }
 
-/**
- * Create a NIP-98 auth token for WebSocket connection
- * @param privateKey - The private key to sign the event with
- * @param url - The URL to connect to
- * @param method - The HTTP method (usually 'GET' for WebSocket)
- * @returns The authorization header value
- */
-function createAuthToken(
-  privateKey: Uint8Array,
-  url: string,
-  method: string
-): string {
-  // Create a NIP-98 event
-  const event = {
-    kind: 27235,
-    created_at: Math.floor(Date.now() / 1000),
-    tags: [
-      ["u", url],
-      ["method", method],
-      // No payload tag for WebSocket connections
-    ],
-    content: "",
-    pubkey: getPublicKey(privateKey),
-  };
-
-  // Sign the event
-  const signedEvent = finalizeEvent(event, privateKey);
-
-  // Convert to base64
-  const base64Event = Buffer.from(JSON.stringify(signedEvent)).toString(
-    "base64"
-  );
-
-  // Return the authorization header value
-  return `Nostr ${base64Event}`;
-}
 
 // Example usage
 async function main() {
