@@ -36,6 +36,22 @@ export enum ErrorCode {
 /**
  * DocStoreSQLiteServer class that exposes DocStoreSQLite functionality via WebSocket
  */
+/**
+ * Configuration options for DocStoreSQLiteServer
+ */
+export interface DocStoreSQLiteServerOptions {
+  /** Path to the SQLite database file */
+  dbPath: string;
+  /** Port to listen on */
+  port?: number;
+  /** Host to bind to */
+  host?: string;
+  /** Server origin for auth token validation (e.g. 'https://yourdomain.com') */
+  origin?: string;
+  /** Optional permissions interface for authentication and authorization */
+  perms?: DocStorePerms;
+}
+
 export class DocStoreSQLiteServer {
   private wss: WebSocketServer;
   private server: http.Server;
@@ -44,22 +60,20 @@ export class DocStoreSQLiteServer {
   private clients: Set<ExtendedWebSocket> = new Set();
   private perms?: DocStorePerms; // Optional permissions interface
   private serverOrigin: string;
+  private port: number;
+  private host: string;
 
   /**
    * Creates a new DocStoreSQLiteServer
-   * @param dbPath - Path to the SQLite database file
-   * @param port - Port to listen on
-   * @param host - Host to bind to
+   * @param options - Configuration options
    */
-  /**
-   * Creates a new DocStoreSQLiteServer
-   * @param dbPath - Path to the SQLite database file
-   * @param port - Port to listen on
-   * @param host - Host to bind to
-   * @param perms - Optional permissions interface for authentication and authorization
-   */
-  constructor(dbPath: string, port: number = 8080, host: string = 'localhost', perms?: DocStorePerms) {
-    debugDocstore(`Initializing DocStoreSQLiteServer with database at: ${dbPath}, listening on ${host}:${port}`);
+  constructor(options: DocStoreSQLiteServerOptions) {
+    const { dbPath, port = 8080, host = 'localhost', origin, perms } = options;
+    
+    this.port = port;
+    this.host = host;
+    
+    debugDocstore(`Initializing DocStoreSQLiteServer with database at: ${dbPath}`);
     
     // Initialize the DocStoreSQLite instance
     this.docStore = new DocStoreSQLite(dbPath);
@@ -68,7 +82,7 @@ export class DocStoreSQLiteServer {
     this.perms = perms;
     
     // Set server origin for auth token validation
-    this.serverOrigin = `http://${host}:${port}`;
+    this.serverOrigin = origin || `http://${host}:${port}`;
     
     // Create an HTTP server
     this.server = http.createServer((req: http.IncomingMessage, res: http.ServerResponse) => {
@@ -134,13 +148,18 @@ export class DocStoreSQLiteServer {
       }
     });
     
-    // Start the HTTP server
-    this.server.listen(port, host, () => {
-      debugDocstore(`Server listening on ${host}:${port}`);
-    });
-    
     // Set up event handlers
     this.setupWebSocketServer();
+  }
+  
+  /**
+   * Start the server and begin listening for connections
+   */
+  public start(): void {
+    // Start the HTTP server
+    this.server.listen(this.port, this.host, () => {
+      debugDocstore(`Server listening on ${this.host}:${this.port}`);
+    });
   }
 
   /**

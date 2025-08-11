@@ -74,12 +74,15 @@ async function main() {
   const perms = new ExampleDocStorePerms();
 
   // Create the server with permissions
-  const server = new DocStoreSQLiteServer(
-    "./docstore.db",
-    8880,
-    "localhost",
+  const server = new DocStoreSQLiteServer({
+    dbPath: "./docstore.db",
+    port: 8880,
+    host: "localhost",
     perms
-  );
+  });
+
+  // Start the server
+  server.start();
 
   console.log("DocStoreSQLiteServer started with authentication");
   console.log("Press Ctrl+C to stop");

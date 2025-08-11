@@ -23,8 +23,15 @@ async function main() {
   console.log(`Starting DocStoreSQLiteServer on ${HOST}:${PORT}`);
   console.log(`Using database at ${DB_PATH}`);
   
-  // Create and start the server
-  const server = new DocStoreSQLiteServer(DB_PATH, PORT, HOST);
+  // Create the server
+  const server = new DocStoreSQLiteServer({
+    dbPath: DB_PATH,
+    port: PORT,
+    host: HOST
+  });
+  
+  // Start the server
+  server.start();
   
   try {
     // Create a client
