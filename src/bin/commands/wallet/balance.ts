@@ -2,7 +2,6 @@ import { Command } from "commander";
 import { debugError } from "../../../common/debug.js";
 import { nwc } from "@getalby/sdk";
 import { getWalletByNameOrDefault } from "./utils.js";
-import { getDB } from "../../../db/utils.js";
 
 /**
  * Options for the balance command

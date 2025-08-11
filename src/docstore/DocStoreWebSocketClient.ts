@@ -26,10 +26,6 @@ export class DocStoreWebSocketClient implements DocStoreClient {
   /**
    * Creates a new DocStoreWebSocketClient
    * @param url - WebSocket URL to connect to
-   */
-  /**
-   * Creates a new DocStoreWebSocketClient
-   * @param url - WebSocket URL to connect to
    * @param privateKey - Optional private key for authentication (as Uint8Array)
    */
   constructor(url: string, privateKey?: Uint8Array) {
