@@ -1,6 +1,6 @@
 {
   "name": "askexperts",
-  "version": "0.6.15",
+  "version": "0.6.16",
   "description": "AskExperts SDK: build and use AI experts - ask them questions and pay with bitcoin on an open protocol",
   "main": "dist/index.js",
   "type": "module",
@@ -15,7 +15,17 @@
     "start": "tsx src/index.ts",
     "dev": "tsx --watch src/index.ts",
     "expert": "tsx examples/expert-example.ts",
-    "prepublishOnly": "npm run build && npm run build:client"
+    "test:exports": "tsx tests/test-exports.ts",
+    "prepublishOnly": "npm run build && npm run build:modules",
+    "build:modules": "npm run build:client && npm run build:experts && npm run build:docstore && npm run build:server && npm run build:mcp && npm run build:openai && npm run build:rag && npm run build:proxy && npm run build:payments",
+    "build:experts": "mkdir -p dist/experts && cp -r dist/src/experts/* dist/experts/",
+    "build:docstore": "mkdir -p dist/docstore && cp -r dist/src/docstore/* dist/docstore/",
+    "build:server": "mkdir -p dist/server && cp -r dist/src/server/* dist/server/",
+    "build:mcp": "mkdir -p dist/mcp && cp -r dist/src/mcp/* dist/mcp/",
+    "build:openai": "mkdir -p dist/openai && cp -r dist/src/openai/* dist/openai/",
+    "build:rag": "mkdir -p dist/rag && cp -r dist/src/rag/* dist/rag/",
+    "build:proxy": "mkdir -p dist/proxy && cp -r dist/src/proxy/* dist/proxy/",
+    "build:payments": "mkdir -p dist/payments && cp -r dist/src/payments/* dist/payments/"
   },
   "keywords": [
     "mcp",
@@ -40,8 +50,29 @@
       "browser": "./dist/client/index.browser.js",
       "default": "./dist/client/index.node.js"
     },
-    "./expert": {
-      "default": "./dist/expert/index.js"
+    "./experts": {
+      "default": "./dist/experts/index.js"
+    },
+    "./docstore": {
+      "default": "./dist/docstore/index.js"
+    },
+    "./server": {
+      "default": "./dist/server/index.js"
+    },
+    "./mcp": {
+      "default": "./dist/mcp/index.js"
+    },
+    "./openai": {
+      "default": "./dist/openai/index.js"
+    },
+    "./rag": {
+      "default": "./dist/rag/index.js"
+    },
+    "./proxy": {
+      "default": "./dist/proxy/index.js"
+    },
+    "./payments": {
+      "default": "./dist/payments/index.js"
     }
   },
   "publishConfig": {

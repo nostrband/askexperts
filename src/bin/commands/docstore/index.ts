@@ -14,6 +14,7 @@ import { registerDeleteCommand } from "./delete.js";
 import { registerGetCommand } from "./get.js";
 import { registerListDocsCommand } from "./list.js";
 import { registerSearchCommand } from "./search.js";
+import { registerServerCommand } from "./server.js";
 
 /**
  * Options for docstore commands
@@ -25,6 +26,8 @@ export interface DocstoreCommandOptions {
   type?: string;
   id?: string;
   limit?: number;
+  remote?: boolean;
+  url?: string;
 }
 
 /**
@@ -102,6 +105,7 @@ export function registerDocstoreCommand(program: Command): void {
   registerGetCommand(docstoreCommand, addCommonOptions);
   registerListDocsCommand(docstoreCommand, addCommonOptions);
   registerSearchCommand(docstoreCommand, addCommonOptions);
+  registerServerCommand(docstoreCommand, addCommonOptions);
   
   // Register import command with its subcommands
   registerImportCommand(docstoreCommand, addCommonOptions);

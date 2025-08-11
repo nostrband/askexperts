@@ -58,6 +58,14 @@ export class RemoteClient {
   }
 
   /**
+   * Get the private key
+   * @returns The private key as Uint8Array
+   */
+  getPrivateKey(): Uint8Array {
+    return this.privateKey;
+  }
+
+  /**
    * Sign up on the askexperts.io remote service
    * @returns A promise that resolves when signup is complete
    */
