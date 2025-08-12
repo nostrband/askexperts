@@ -1,6 +1,6 @@
 {
   "name": "askexperts",
-  "version": "0.6.20",
+  "version": "0.6.21",
   "description": "AskExperts SDK: build and use AI experts - ask them questions and pay with bitcoin on an open protocol",
   "main": "dist/index.js",
   "type": "module",
@@ -19,7 +19,7 @@
     "expert": "tsx examples/expert-example.ts",
     "test:exports": "tsx tests/test-exports.ts",
     "prepublishOnly": "npm run build",
-    "build:modules": "npm run build:client && npm run build:experts && npm run build:docstore && npm run build:server && npm run build:mcp && npm run build:openai && npm run build:rag && npm run build:proxy && npm run build:payments && npm run build:common && npm run build:bin && npm run build:db && npm run build:remote && npm run build:stream",
+    "build:modules": "npm run build:client && npm run build:experts && npm run build:docstore && npm run build:server && npm run build:mcp && npm run build:openai && npm run build:rag && npm run build:proxy && npm run build:payments && npm run build:common && npm run build:bin && npm run build:db && npm run build:remote && npm run build:stream && npm run build:wallet",
     "build:experts": "mkdir -p dist/experts && cp -r dist/src/experts/* dist/experts/",
     "build:docstore": "mkdir -p dist/docstore && cp -r dist/src/docstore/* dist/docstore/",
     "build:server": "mkdir -p dist/server && cp -r dist/src/server/* dist/server/",
@@ -32,7 +32,8 @@
     "build:bin": "mkdir -p dist/bin && cp -r dist/src/bin/* dist/bin/",
     "build:db": "mkdir -p dist/db && cp -r dist/src/db/* dist/db/",
     "build:remote": "mkdir -p dist/remote && cp -r dist/src/remote/* dist/remote/",
-    "build:stream": "mkdir -p dist/stream && cp -r dist/src/stream/* dist/stream/"
+    "build:stream": "mkdir -p dist/stream && cp -r dist/src/stream/* dist/stream/",
+    "build:wallet": "mkdir -p dist/wallet && cp -r dist/src/wallet/* dist/wallet/"
   },
   "keywords": [
     "mcp",
@@ -64,6 +65,7 @@
     "dist/remote",
     "dist/server",
     "dist/stream",
+    "dist/wallet",
     "bin",
     "README.md"
   ],
@@ -108,6 +110,9 @@
     },
     "./stream": {
       "default": "./dist/stream/index.js"
+    },
+    "./wallet": {
+      "default": "./dist/wallet/index.js"
     }
   },
   "publishConfig": {

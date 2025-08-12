@@ -322,6 +322,83 @@ export class DocStoreWebSocketClient implements DocStoreClient {
   }
 
   /**
+   * List docstores by specific IDs
+   * @param ids - Array of docstore IDs to retrieve
+   * @returns Promise that resolves with an array of docstore objects
+   */
+  async listDocStoresByIds(ids: string[]): Promise<DocStore[]> {
+    try {
+      // The server will handle filtering by IDs based on the perms object
+      // This is just a pass-through to the regular listDocstores method
+      // The server will use the perms.listIds to filter the results
+      const response = await this.sendAndWait(MessageType.REQUEST, 'listDocstores', {});
+      
+      // If we have IDs, filter the results client-side as a fallback
+      // (the server should already filter based on perms.listIds)
+      if (ids.length > 0) {
+        const idSet = new Set(ids);
+        return response.docstores.filter((docstore: DocStore) => idSet.has(docstore.id));
+      }
+      
+      return response.docstores;
+    } catch (error) {
+      return [];
+    }
+  }
+
+  /**
+   * List documents by specific IDs
+   * @param docstore_id - ID of the docstore containing the documents
+   * @param ids - Array of document IDs to retrieve
+   * @returns Promise that resolves with an array of document objects
+   */
+  async listDocsByIds(docstore_id: string, ids: string[]): Promise<Doc[]> {
+    if (ids.length === 0) {
+      return [];
+    }
+
+    try {
+      // Create a subscription to get all documents and filter by ID
+      const docs: Doc[] = [];
+      
+      // Create a set of IDs for efficient lookup
+      const idSet = new Set(ids);
+      
+      // Create a subscription to get the documents
+      const subscription = await this.subscribe(
+        { docstore_id },
+        async (doc?: Doc) => {
+          if (doc && idSet.has(doc.id)) {
+            docs.push(doc);
+          }
+        }
+      );
+      
+      // Wait for the subscription to complete (EOF)
+      await new Promise<void>((resolve) => {
+        const checkInterval = setInterval(() => {
+          if (docs.length === ids.length) {
+            clearInterval(checkInterval);
+            subscription.close();
+            resolve();
+          }
+        }, 100);
+        
+        // Set a timeout to prevent hanging
+        setTimeout(() => {
+          clearInterval(checkInterval);
+          subscription.close();
+          resolve();
+        }, 10000); // 10 second timeout
+      });
+      
+      return docs;
+    } catch (error) {
+      return [];
+    }
+  }
+
+  /**
    * Delete a docstore and all its documents
    * @param id - ID of the docstore to delete
    * @returns Promise that resolves with true if docstore existed and was deleted, false otherwise

@@ -1,19 +1,19 @@
 import { Command } from "commander";
 import { debugError } from "../../../common/debug.js";
-import { getDB } from "../../../db/utils.js";
+import { WalletCommandOptions, createWalletClient } from "./client.js";
 
 /**
  * Execute the list wallets command
- * 
- * @param dbPath Path to the database file
+ *
+ * @param options Command options
  */
-export async function executeListWalletsCommand(): Promise<void> {
+export async function executeListWalletsCommand(options: WalletCommandOptions = {}): Promise<void> {
   try {
-    // Get the DB instance
-    const db = getDB();
+    // Get the wallet client instance
+    const walletClient = createWalletClient(options);
     
     // Get all wallets
-    const wallets = db.listWallets();
+    const wallets = await walletClient.listWallets();
     
     if (wallets.length === 0) {
       console.log("No wallets found");
@@ -46,9 +46,11 @@ export function registerListCommand(program: Command): void {
   program
     .command("list")
     .description("List all wallets")
-    .action(async () => {
+    .option("-r, --remote", "Use remote wallet client")
+    .option("-u, --url <url>", "URL of remote wallet server (default: https://walletapi.askexperts.io)")
+    .action(async (options) => {
       try {
-        await executeListWalletsCommand();
+        await executeListWalletsCommand(options);
       } catch (error) {
         console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
         process.exit(1);

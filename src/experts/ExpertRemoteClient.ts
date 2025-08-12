@@ -1,6 +1,6 @@
 import type { DBExpert } from "../db/interfaces.js";
 import type { ExpertClient } from "./ExpertClient.js";
-import { debugClient, debugError } from "../common/debug.js";
+import { debugError } from "../common/debug.js";
 import { getDB } from "../db/index.js";
 import { createAuthToken } from "../common/auth.js";
 
@@ -62,6 +62,27 @@ export class ExpertRemoteClient implements ExpertClient {
       return await response.json();
     } catch (error) {
       debugError("Error in ExpertRemoteClient.listExperts:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * List experts by specific IDs
+   * @param ids - Array of expert pubkeys to retrieve
+   * @returns Promise resolving to an array of expert objects matching the provided IDs
+   */
+  async listExpertsByIds(ids: string[]): Promise<DBExpert[]> {
+    try {
+      if (!ids.length) {
+        return [];
+      }
+
+      // For now, we'll fetch all experts and filter them client-side
+      // In a future implementation, this could be optimized with a dedicated endpoint
+      const allExperts = await this.listExperts();
+      return allExperts.filter(expert => ids.includes(expert.pubkey));
+    } catch (error) {
+      debugError("Error in ExpertRemoteClient.listExpertsByIds:", error);
       throw error;
     }
   }

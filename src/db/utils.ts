@@ -1,6 +1,5 @@
 import { DB } from "./index.js";
 import { APP_DB_PATH } from "../common/constants.js";
-import { ExpertClient } from "../experts/ExpertClient.js";
 
 // Singleton DB instance
 let dbInstance: DB | null = null;

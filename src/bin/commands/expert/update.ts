@@ -1,12 +1,12 @@
 import { Command } from "commander";
 import { debugError, enableAllDebug, enableErrorDebug } from "../../../common/debug.js";
 import { getWalletByNameOrDefault } from "../../commands/wallet/utils.js";
-import { getExpertClient } from "../../../experts/ExpertRemoteClient.js";
+import { ExpertCommandOptions, createExpertClient, addRemoteOptions } from "./index.js";
 
 /**
  * Options for the update expert command
  */
-interface UpdateExpertCommandOptions {
+interface UpdateExpertCommandOptions extends ExpertCommandOptions {
   wallet?: string;
   env?: string[];
   docstores?: string[];
@@ -30,7 +30,7 @@ export async function updateExpert(
     else enableErrorDebug();
 
     // Get expert client
-    const expertClient = getExpertClient();
+    const expertClient = createExpertClient(options);
     
     // Get the expert
     const expert = await expertClient.getExpert(pubkey);
@@ -43,7 +43,7 @@ export async function updateExpert(
 
     // Update wallet if specified
     if (options.wallet) {
-      const wallet = getWalletByNameOrDefault(options.wallet);
+      const wallet = await getWalletByNameOrDefault(options.wallet);
       expert.wallet_id = wallet.id;
       changes = true;
     }
@@ -108,7 +108,7 @@ export async function updateExpert(
  * @param program The commander program or parent command
  */
 export function registerUpdateCommand(program: Command): void {
-  program
+  const command = program
     .command("update")
     .description("Update an existing expert in the database")
     .argument("<pubkey>", "Public key of the expert to update")
@@ -126,4 +126,7 @@ export function registerUpdateCommand(program: Command): void {
         process.exit(1);
       }
     });
+    
+  // Add remote options
+  addRemoteOptions(command);
 }

@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { getDB } from "../../../db/utils.js";
+import { getWalletClient } from "../../../wallet/index.js";
 import { DBExpert } from "../../../db/interfaces.js";
 import { SimplePool } from "nostr-tools";
 import { ChromaRagDB } from "../../../rag/index.js";
@@ -18,12 +18,12 @@ import {
   parseDocstoreIdsList,
   createDocStoreClientFromParsed
 } from "./run.js";
-import { getExpertClient } from "../../../experts/ExpertRemoteClient.js";
+import { ExpertCommandOptions, createExpertClient, addRemoteOptions } from "./index.js";
 
 /**
  * Options for the all experts command
  */
-interface AllExpertsCommandOptions {
+interface AllExpertsCommandOptions extends ExpertCommandOptions {
   debug?: boolean;
   interval?: number;
   startDelay?: number;
@@ -108,10 +108,9 @@ export async function runAllExperts(options: AllExpertsCommandOptions): Promise<
       }
 
       try {
-        // Get wallet for the expert
-        // Note: We're still using getDB() for wallet operations since they haven't been moved to ExpertClient
-        const db = getDB();
-        const wallet = db.getWallet(expert.wallet_id);
+        // Get wallet for the expert using the wallet client
+        const walletClient = getWalletClient();
+        const wallet = await walletClient.getWallet(expert.wallet_id);
         if (!wallet) {
           throw new Error(`Wallet with ID ${expert.wallet_id} not found for expert ${expert.nickname}`);
         }
@@ -195,7 +194,7 @@ export async function runAllExperts(options: AllExpertsCommandOptions): Promise<
 
     // Function to check for experts to start/stop
     async function checkExperts(): Promise<void> {
-      const expertClient = getExpertClient();
+      const expertClient = createExpertClient(options);
       const experts = await expertClient.listExperts();
       
       // Find experts to start (enabled and not already running)
@@ -270,7 +269,7 @@ export async function runAllExperts(options: AllExpertsCommandOptions): Promise<
  * @param program The commander program or parent command
  */
 export function registerAllCommand(program: Command): void {
-  program
+  const command = program
     .command("all")
     .description("Run all enabled experts from the database")
     .option("-d, --debug", "Enable debug logging")
@@ -281,7 +280,9 @@ export function registerAllCommand(program: Command): void {
       const options: AllExpertsCommandOptions = {
         debug: cmdOptions.debug,
         interval: cmdOptions.interval,
-        startDelay: cmdOptions.startDelay
+        startDelay: cmdOptions.startDelay,
+        remote: cmdOptions.remote,
+        url: cmdOptions.url
       };
       
       try {
@@ -291,4 +292,7 @@ export function registerAllCommand(program: Command): void {
         process.exit(1);
       }
     });
+    
+  // Add remote options
+  addRemoteOptions(command);
 }

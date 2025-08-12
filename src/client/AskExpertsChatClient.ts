@@ -10,6 +10,7 @@ import { debugError, debugClient } from "../common/debug.js";
 import { Expert, Prompt, Quote, Proof } from "../common/types.js";
 import { parseBolt11 } from "../common/bolt11.js";
 import { getWalletByNameOrDefault } from "../bin/commands/wallet/utils.js";
+import { DBWallet } from "../db/interfaces.js";
 
 /**
  * Options for the chat client
@@ -37,8 +38,8 @@ export class AskExpertsChatClient {
   private messageHistory: ChatMessage[] = [];
   private expert: Expert | null = null;
   private options: ChatClientOptions;
-  private client: AskExpertsPayingClient;
-  private maxAmountSats: number;
+  private client!: AskExpertsPayingClient; // Using definite assignment assertion
+  private maxAmountSats: number = 100; // Default value
 
   /**
    * Creates a new AskExpertsChatClient
@@ -50,17 +51,20 @@ export class AskExpertsChatClient {
     this.options = options;
     
     // Get wallet from database using the provided wallet name or default
-    const wallet = getWalletByNameOrDefault(options.wallet);
-    const nwcString = wallet.nwc;
-
-    // Try to get discovery relays from options or environment variables
-    let discoveryRelays: string[] | undefined = options.relays;
-    if (!discoveryRelays && process.env.DISCOVERY_RELAYS) {
-      discoveryRelays = process.env.DISCOVERY_RELAYS.split(",").map((relay) =>
-        relay.trim()
-      );
-    }
-
+    const walletPromise = getWalletByNameOrDefault(options.wallet);
+    
+    // Initialize properties that don't depend on the wallet
+    this.initializeNonWalletProperties(options);
+    
+    // Finish initialization asynchronously
+    this.initializeWithWallet(walletPromise);
+  }
+  
+  /**
+   * Initialize properties that don't depend on the wallet
+   * @param options Client options
+   */
+  private initializeNonWalletProperties(options: ChatClientOptions): void {
     // Parse max amount
     this.maxAmountSats = options.maxAmount
       ? parseInt(options.maxAmount, 10)
@@ -68,12 +72,30 @@ export class AskExpertsChatClient {
     if (isNaN(this.maxAmountSats) || this.maxAmountSats <= 0) {
       throw new Error("Maximum amount must be a positive number.");
     }
+  }
+  
+  /**
+   * Complete initialization with the wallet
+   * @param walletPromise Promise that resolves to the wallet
+   */
+  private async initializeWithWallet(walletPromise: Promise<DBWallet>): Promise<void> {
+    try {
+      const wallet = await walletPromise;
+      const nwcString = wallet.nwc;
 
-    // Create the payment manager
-    const paymentManager = new LightningPaymentManager(nwcString);
+      // Try to get discovery relays from options or environment variables
+      let discoveryRelays: string[] | undefined = this.options.relays;
+      if (!discoveryRelays && process.env.DISCOVERY_RELAYS) {
+        discoveryRelays = process.env.DISCOVERY_RELAYS.split(",").map((relay) =>
+          relay.trim()
+        );
+      }
 
-    // Initialize the paying client
-    this.client = new AskExpertsPayingClient(paymentManager, {
+      // Create the payment manager
+      const paymentManager = new LightningPaymentManager(nwcString);
+
+      // Initialize the paying client
+      this.client = new AskExpertsPayingClient(paymentManager, {
       maxAmountSats: this.maxAmountSats,
       discoveryRelays,
       onPaid: async (prompt: Prompt, quote: Quote, proof: Proof): Promise<void> => {
@@ -98,6 +120,10 @@ export class AskExpertsChatClient {
         }
       }
     });
+    } catch (error) {
+      debugError("Error initializing wallet:", error);
+      throw error;
+    }
   }
 
   /**

@@ -2,11 +2,12 @@ import { DatabaseSync } from "node:sqlite";
 import { DBDocServer, DBWallet, DBExpert } from "./interfaces.js";
 import { debugDB, debugError } from "../common/debug.js";
 import { ExpertClient } from "../experts/ExpertClient.js";
+import { WalletClient } from "../wallet/WalletClient.js";
 
 /**
  * SQLite implementation of the database for experts, wallets, and docstore servers
  */
-export class DB implements ExpertClient {
+export class DB implements ExpertClient, WalletClient {
   private db: DatabaseSync;
 
   /**
@@ -72,6 +73,36 @@ export class DB implements ExpertClient {
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_experts_type ON experts (type)");
     this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_experts_pubkey ON experts (pubkey)");
     this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_experts_nickname ON experts (nickname)");
+
+    // Migration: Add user_id column to wallets table if it doesn't exist
+    try {
+      // Check if user_id column exists in wallets table
+      const walletColumns = this.db.prepare("PRAGMA table_info(wallets)").all();
+      const hasUserIdColumn = walletColumns.some((col: any) => col.name === 'user_id');
+      
+      if (!hasUserIdColumn) {
+        debugDB("Adding user_id column to wallets table");
+        this.db.exec("ALTER TABLE wallets ADD COLUMN user_id TEXT NOT NULL DEFAULT ''");
+        this.db.exec("CREATE INDEX IF NOT EXISTS idx_wallets_user_id ON wallets (user_id)");
+      }
+    } catch (error) {
+      debugError("Error adding user_id column to wallets table:", error);
+    }
+
+    // Migration: Add user_id column to experts table if it doesn't exist
+    try {
+      // Check if user_id column exists in experts table
+      const expertColumns = this.db.prepare("PRAGMA table_info(experts)").all();
+      const hasUserIdColumn = expertColumns.some((col: any) => col.name === 'user_id');
+      
+      if (!hasUserIdColumn) {
+        debugDB("Adding user_id column to experts table");
+        this.db.exec("ALTER TABLE experts ADD COLUMN user_id TEXT NOT NULL DEFAULT ''");
+        this.db.exec("CREATE INDEX IF NOT EXISTS idx_experts_user_id ON experts (user_id)");
+      }
+    } catch (error) {
+      debugError("Error adding user_id column to experts table:", error);
+    }
   }
 
   /**
@@ -175,18 +206,49 @@ export class DB implements ExpertClient {
    * List all wallets
    * @returns Array of wallet objects
    */
-  listWallets(): DBWallet[] {
+  async listWallets(): Promise<DBWallet[]> {
     const stmt = this.db.prepare("SELECT id, name, nwc, default_wallet as 'default' FROM wallets ORDER BY id ASC");
     const rows = stmt.all();
 
-    return rows.map(
+    const wallets = rows.map(
       (row: Record<string, any>): DBWallet => ({
         id: Number(row.id || 0),
         name: String(row.name || ""),
         nwc: String(row.nwc || ""),
         default: Boolean(row.default || false),
+        user_id: String(row.user_id || ""),
       })
     );
+    
+    return Promise.resolve(wallets);
+  }
+
+  /**
+   * List wallets by specific IDs
+   * @param ids - Array of wallet IDs to retrieve
+   * @returns Promise resolving to an array of wallet objects matching the provided IDs
+   */
+  async listWalletsByIds(ids: number[]): Promise<DBWallet[]> {
+    if (!ids.length) {
+      return Promise.resolve([]);
+    }
+
+    // Create placeholders for the SQL query (?, ?, ?, etc.)
+    const placeholders = ids.map(() => '?').join(',');
+    const stmt = this.db.prepare(`SELECT id, name, nwc, default_wallet as 'default' FROM wallets WHERE id IN (${placeholders}) ORDER BY id ASC`);
+    const rows = stmt.all(...ids);
+
+    const wallets = rows.map(
+      (row: Record<string, any>): DBWallet => ({
+        id: Number(row.id || 0),
+        name: String(row.name || ""),
+        nwc: String(row.nwc || ""),
+        default: Boolean(row.default || false),
+        user_id: String(row.user_id || ""),
+      })
+    );
+    
+    return Promise.resolve(wallets);
   }
 
   /**
@@ -194,20 +256,23 @@ export class DB implements ExpertClient {
    * @param id - ID of the wallet to get
    * @returns The wallet if found, null otherwise
    */
-  getWallet(id: number): DBWallet | null {
+  async getWallet(id: number): Promise<DBWallet | null> {
     const stmt = this.db.prepare("SELECT id, name, nwc, default_wallet as 'default' FROM wallets WHERE id = ?");
     const row = stmt.get(id);
 
     if (!row) {
-      return null;
+      return Promise.resolve(null);
     }
 
-    return {
+    const wallet = {
       id: Number(row.id || 0),
       name: String(row.name || ""),
       nwc: String(row.nwc || ""),
       default: Boolean(row.default || false),
+      user_id: String(row.user_id || ""),
     };
+    
+    return Promise.resolve(wallet);
   }
 
   /**
@@ -215,40 +280,46 @@ export class DB implements ExpertClient {
    * @param name - Name of the wallet to get
    * @returns The wallet if found, null otherwise
    */
-  getWalletByName(name: string): DBWallet | null {
+  async getWalletByName(name: string): Promise<DBWallet | null> {
     const stmt = this.db.prepare("SELECT id, name, nwc, default_wallet as 'default' FROM wallets WHERE name = ?");
     const row = stmt.get(name);
 
     if (!row) {
-      return null;
+      return Promise.resolve(null);
     }
 
-    return {
+    const wallet = {
       id: Number(row.id || 0),
       name: String(row.name || ""),
       nwc: String(row.nwc || ""),
       default: Boolean(row.default || false),
+      user_id: String(row.user_id || ""),
     };
+    
+    return Promise.resolve(wallet);
   }
 
   /**
    * Get the default wallet
    * @returns The default wallet if found, null otherwise
    */
-  getDefaultWallet(): DBWallet | null {
+  async getDefaultWallet(): Promise<DBWallet | null> {
     const stmt = this.db.prepare("SELECT id, name, nwc, default_wallet as 'default' FROM wallets WHERE default_wallet = 1 LIMIT 1");
     const row = stmt.get();
 
     if (!row) {
-      return null;
+      return Promise.resolve(null);
     }
 
-    return {
+    const wallet = {
       id: Number(row.id || 0),
       name: String(row.name || ""),
       nwc: String(row.nwc || ""),
       default: Boolean(row.default || false),
+      user_id: String(row.user_id || ""),
     };
+    
+    return Promise.resolve(wallet);
   }
 
   /**
@@ -256,7 +327,7 @@ export class DB implements ExpertClient {
    * @param wallet - Wallet to insert (without id)
    * @returns ID of the inserted wallet
    */
-  insertWallet(wallet: Omit<DBWallet, "id">): number {
+  async insertWallet(wallet: Omit<DBWallet, "id">): Promise<number> {
     // Check if this is the first wallet, if so mark it as default
     const walletCount = this.db.prepare("SELECT COUNT(*) as count FROM wallets").get();
     const count = walletCount ? Number(walletCount.count) : 0;
@@ -269,17 +340,18 @@ export class DB implements ExpertClient {
     }
 
     const stmt = this.db.prepare(`
-      INSERT INTO wallets (name, nwc, default_wallet)
-      VALUES (?, ?, ?)
+      INSERT INTO wallets (name, nwc, default_wallet, user_id)
+      VALUES (?, ?, ?, ?)
     `);
 
     const result = stmt.run(
       wallet.name,
       wallet.nwc,
-      wallet.default ? 1 : 0
+      wallet.default ? 1 : 0,
+      wallet.user_id || ""
     );
 
-    return result.lastInsertRowid as number;
+    return Promise.resolve(result.lastInsertRowid as number);
   }
 
   /**
@@ -287,7 +359,7 @@ export class DB implements ExpertClient {
    * @param wallet - Wallet to update
    * @returns true if wallet was updated, false otherwise
    */
-  updateWallet(wallet: DBWallet): boolean {
+  async updateWallet(wallet: DBWallet): Promise<boolean> {
     // If this wallet is set as default, unset any existing default wallet
     if (wallet.default) {
       this.db.prepare("UPDATE wallets SET default_wallet = 0 WHERE default_wallet = 1 AND id != ?").run(wallet.id);
@@ -295,7 +367,7 @@ export class DB implements ExpertClient {
 
     const stmt = this.db.prepare(`
       UPDATE wallets
-      SET name = ?, nwc = ?, default_wallet = ?
+      SET name = ?, nwc = ?, default_wallet = ?, user_id = ?
       WHERE id = ?
     `);
 
@@ -303,10 +375,11 @@ export class DB implements ExpertClient {
       wallet.name,
       wallet.nwc,
       wallet.default ? 1 : 0,
+      wallet.user_id || "",
       wallet.id
     );
 
-    return result.changes > 0;
+    return Promise.resolve(result.changes > 0);
   }
 
   /**
@@ -314,18 +387,18 @@ export class DB implements ExpertClient {
    * @param id - ID of the wallet to delete
    * @returns true if wallet was deleted, false otherwise
    */
-  deleteWallet(id: number): boolean {
+  async deleteWallet(id: number): Promise<boolean> {
     // Check if there are any experts using this wallet
     const expertCount = this.db.prepare("SELECT COUNT(*) as count FROM experts WHERE wallet_id = ?").get(id);
     const count = expertCount ? Number(expertCount.count) : 0;
     if (count > 0) {
-      throw new Error(`Cannot delete wallet with ID ${id} because it is used by ${count} experts`);
+      return Promise.reject(new Error(`Cannot delete wallet with ID ${id} because it is used by ${count} experts`));
     }
 
     const stmt = this.db.prepare("DELETE FROM wallets WHERE id = ?");
     const result = stmt.run(id);
 
-    return result.changes > 0;
+    return Promise.resolve(result.changes > 0);
   }
 
   /**
@@ -346,6 +419,39 @@ export class DB implements ExpertClient {
         docstores: String(row.docstores || ""),
         privkey: row.privkey ? String(row.privkey) : undefined,
         disabled: Boolean(row.disabled || false),
+        user_id: String(row.user_id || ""),
+      })
+    );
+    
+    return Promise.resolve(experts);
+  }
+
+  /**
+   * List experts by specific IDs
+   * @param ids - Array of expert pubkeys to retrieve
+   * @returns Promise resolving to an array of expert objects matching the provided IDs
+   */
+  async listExpertsByIds(ids: string[]): Promise<DBExpert[]> {
+    if (!ids.length) {
+      return Promise.resolve([]);
+    }
+
+    // Create placeholders for the SQL query (?, ?, ?, etc.)
+    const placeholders = ids.map(() => '?').join(',');
+    const stmt = this.db.prepare(`SELECT * FROM experts WHERE pubkey IN (${placeholders}) ORDER BY pubkey ASC`);
+    const rows = stmt.all(...ids);
+
+    const experts = rows.map(
+      (row: Record<string, any>): DBExpert => ({
+        pubkey: String(row.pubkey || ""),
+        wallet_id: Number(row.wallet_id || 0),
+        type: String(row.type || ""),
+        nickname: String(row.nickname || ""),
+        env: String(row.env || ""),
+        docstores: String(row.docstores || ""),
+        privkey: row.privkey ? String(row.privkey) : undefined,
+        disabled: Boolean(row.disabled || false),
+        user_id: String(row.user_id || ""),
       })
     );
     
@@ -374,6 +480,7 @@ export class DB implements ExpertClient {
       docstores: String(row.docstores || ""),
       privkey: row.privkey ? String(row.privkey) : undefined,
       disabled: Boolean(row.disabled || false),
+      user_id: String(row.user_id || ""),
     };
     
     return Promise.resolve(expert);
@@ -385,16 +492,15 @@ export class DB implements ExpertClient {
    * @returns Promise resolving to true if expert was inserted, false otherwise
    */
   async insertExpert(expert: DBExpert): Promise<boolean> {
-    // Check if wallet exists - using the synchronous getWallet method
-    // since we're not changing wallet methods to async in this refactoring
-    const wallet = this.getWallet(expert.wallet_id);
+    // Check if wallet exists - now using the async getWallet method
+    const wallet = await this.getWallet(expert.wallet_id);
     if (!wallet) {
       throw new Error(`Wallet with ID ${expert.wallet_id} does not exist`);
     }
 
     const stmt = this.db.prepare(`
-      INSERT INTO experts (pubkey, wallet_id, type, nickname, env, docstores, privkey, disabled)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO experts (pubkey, wallet_id, type, nickname, env, docstores, privkey, disabled, user_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     try {
@@ -406,7 +512,8 @@ export class DB implements ExpertClient {
         expert.env,
         expert.docstores,
         expert.privkey || null,
-        expert.disabled ? 1 : 0
+        expert.disabled ? 1 : 0,
+        expert.user_id || ""
       );
       return Promise.resolve(true);
     } catch (error) {
@@ -421,16 +528,15 @@ export class DB implements ExpertClient {
    * @returns Promise resolving to true if expert was updated, false otherwise
    */
   async updateExpert(expert: DBExpert): Promise<boolean> {
-    // Check if wallet exists - using the synchronous getWallet method
-    // since we're not changing wallet methods to async in this refactoring
-    const wallet = this.getWallet(expert.wallet_id);
+    // Check if wallet exists - now using the async getWallet method
+    const wallet = await this.getWallet(expert.wallet_id);
     if (!wallet) {
       throw new Error(`Wallet with ID ${expert.wallet_id} does not exist`);
     }
 
     const stmt = this.db.prepare(`
       UPDATE experts
-      SET wallet_id = ?, type = ?, nickname = ?, env = ?, docstores = ?, privkey = ?, disabled = ?
+      SET wallet_id = ?, type = ?, nickname = ?, env = ?, docstores = ?, privkey = ?, disabled = ?, user_id = ?
       WHERE pubkey = ?
     `);
 
@@ -442,6 +548,7 @@ export class DB implements ExpertClient {
       expert.docstores,
       expert.privkey || null,
       expert.disabled ? 1 : 0,
+      expert.user_id || "",
       expert.pubkey
     );
 

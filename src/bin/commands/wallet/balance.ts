@@ -2,26 +2,26 @@ import { Command } from "commander";
 import { debugError } from "../../../common/debug.js";
 import { nwc } from "@getalby/sdk";
 import { getWalletByNameOrDefault } from "./utils.js";
+import { WalletCommandOptions } from "./client.js";
 
 /**
  * Options for the balance command
  */
-interface BalanceOptions {
+interface BalanceOptions extends WalletCommandOptions {
   wallet?: string;
 }
 
 /**
  * Execute the balance command
- * 
+ *
  * @param options Command line options
- * @param dbPath Path to the database file
  */
 export async function executeBalanceCommand(
   options: BalanceOptions
 ): Promise<void> {
   try {
     // Get the wallet to use
-    const wallet = getWalletByNameOrDefault(options.wallet);
+    const wallet = await getWalletByNameOrDefault(options);
     
     // Create NWC client
     const client = new nwc.NWCClient({
@@ -56,6 +56,8 @@ export function registerBalanceCommand(program: Command): void {
     .command("balance")
     .description("Check wallet balance")
     .option("--wallet <name>", "Wallet to use (default wallet if not specified)")
+    .option("-r, --remote", "Use remote wallet client")
+    .option("-u, --url <url>", "URL of remote wallet server (default: https://walletapi.askexperts.io)")
     .action(async (options) => {
       try {
         await executeBalanceCommand(options);

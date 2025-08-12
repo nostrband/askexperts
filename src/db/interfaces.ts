@@ -21,6 +21,7 @@ export interface DBWallet {
   name: string;
   nwc: string;
   default: boolean;
+  user_id?: string;
 }
 
 /**
@@ -35,4 +36,5 @@ export interface DBExpert {
   docstores: string;
   privkey?: string;
   disabled?: boolean;
+  user_id?: string;
 }

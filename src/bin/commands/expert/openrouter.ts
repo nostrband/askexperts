@@ -6,18 +6,18 @@ import {
   enableAllDebug,
   enableErrorDebug,
 } from "../../../common/debug.js";
-import { getDB } from "../../../db/utils.js";
+import { getWalletClient } from "../../../wallet/index.js";
 import { generateRandomKeyPair } from "../../../common/crypto.js";
 import { getPublicKey } from "nostr-tools";
 import { bytesToHex } from "nostr-tools/utils";
 import { DBExpert } from "../../../db/interfaces.js";
 import { getWalletByNameOrDefault } from "../wallet/utils.js";
-import { getExpertClient } from "../../../experts/ExpertRemoteClient.js";
+import { ExpertCommandOptions, createExpertClient, addRemoteOptions } from "./index.js";
 
 /**
  * Options for the OpenRouter experts command
  */
-export interface OpenRouterExpertsCommandOptions {
+export interface OpenRouterExpertsCommandOptions extends ExpertCommandOptions {
   margin: number;
   models?: string[];
   debug?: boolean;
@@ -40,9 +40,7 @@ export async function manageOpenRouterExperts(
 
   try {
     // Get the expert client
-    const expertClient = getExpertClient();
-    // Get the database instance for wallet operations
-    const db = getDB();
+    const expertClient = createExpertClient(options);
 
     const openRouter = getOpenRouter();
 
@@ -59,7 +57,7 @@ export async function manageOpenRouterExperts(
     }
 
     // Get the wallet to use for experts
-    const wallet = getWalletByNameOrDefault(options.wallet);
+    const wallet = await getWalletByNameOrDefault(options.wallet);
     debugExpert(`Using wallet: ${wallet.name} (ID: ${wallet.id})`);
 
     // Get all existing OpenRouter experts from the database
@@ -345,7 +343,7 @@ export async function manageOpenRouterExperts(
  * @param program The commander program or parent command
  */
 export function registerOpenRouterCommand(program: Command): void {
-  program
+  const command = program
     .command("openrouter")
     .description(
       "Manage experts for OpenRouter models in the database. Creates or updates experts for available models and disables experts for unavailable models."
@@ -375,4 +373,7 @@ export function registerOpenRouterCommand(program: Command): void {
         process.exit(1);
       }
     });
+    
+  // Add remote options
+  addRemoteOptions(command);
 }

@@ -1,11 +1,11 @@
 import { Command } from "commander";
 import { debugError } from "../../../common/debug.js";
-import { getDB } from "../../../db/utils.js";
+import { WalletCommandOptions, createWalletClient } from "./client.js";
 
 /**
  * Options for the update wallet command
  */
-interface UpdateWalletOptions {
+interface UpdateWalletOptions extends WalletCommandOptions {
   nwc?: string;
   default?: boolean;
 }
@@ -27,11 +27,11 @@ export async function executeUpdateWalletCommand(
       throw new Error("Wallet name is required");
     }
     
-    // Get the DB instance
-    const db = getDB();
+    // Get the wallet client instance
+    const walletClient = createWalletClient(options);
     
     // Check if wallet with this name exists
-    const existingWallet = db.getWalletByName(name);
+    const existingWallet = await walletClient.getWalletByName(name);
     if (!existingWallet) {
       throw new Error(`Wallet with name '${name}' does not exist`);
     }
@@ -44,7 +44,7 @@ export async function executeUpdateWalletCommand(
     };
     
     // Save the updated wallet
-    const success = db.updateWallet(updatedWallet);
+    const success = await walletClient.updateWallet(updatedWallet);
     
     if (success) {
       console.log(`Wallet '${name}' updated successfully`);
@@ -80,6 +80,8 @@ export function registerUpdateCommand(program: Command): void {
     .argument("<name>", "Name of the wallet to update")
     .option("-n, --nwc <string>", "New NWC connection string")
     .option("--default", "Set this wallet as the default")
+    .option("-r, --remote", "Use remote wallet client")
+    .option("-u, --url <url>", "URL of remote wallet server (default: https://walletapi.askexperts.io)")
     .action(async (name, options) => {
       try {
         await executeUpdateWalletCommand(name, options);

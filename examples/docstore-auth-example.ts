@@ -11,6 +11,7 @@ import { createAuthToken } from "../src/common/auth.js";
 class ExampleDocStorePerms implements DocStorePerms {
   private allowedPubkeys: Set<string> = new Set();
   private allowedOperations: Map<string, Set<string>> = new Map();
+  private userIds: Map<string, string> = new Map(); // Map to store user IDs for pubkeys
 
   constructor() {}
 
@@ -30,6 +31,9 @@ class ExampleDocStorePerms implements DocStorePerms {
         "subscribe",
       ])
     );
+    
+    // Set a default user ID for the pubkey (using the pubkey itself as the ID)
+    this.userIds.set(pubkey, pubkey);
   }
 
   /**
@@ -49,9 +53,9 @@ class ExampleDocStorePerms implements DocStorePerms {
    * @param pubkey - The public key of the user
    * @param message - The WebSocket message being processed
    * @throws Error if the operation is not allowed with a custom error message
-   * @returns Promise that resolves if the operation is allowed
+   * @returns Promise that resolves with an optional object containing listIds if the operation is allowed
    */
-  async checkPerms(pubkey: string, message: WebSocketMessage): Promise<void> {
+  async checkPerms(pubkey: string, message: WebSocketMessage): Promise<{ listIds?: string[] } | void> {
     // Get the allowed operations for this pubkey
     const allowedOps = this.allowedOperations.get(pubkey);
 
@@ -64,6 +68,31 @@ class ExampleDocStorePerms implements DocStorePerms {
     if (!allowedOps.has(message.method)) {
       throw new Error(`User ${pubkey} is not authorized to perform ${message.method} operation`);
     }
+
+    // For listDocstores method, return listIds if needed
+    // This is just an example - in a real implementation, you would determine
+    // which docstores the user has access to based on your permission model
+    if (message.method === 'listDocstores') {
+      // In this example, we're not restricting access to specific docstores
+      // But in a real implementation, you might return specific docstore IDs here
+      return {}; // Return empty object (no restrictions)
+      
+      // Example of restricting to specific docstores:
+      // return { listIds: ['docstore-id-1', 'docstore-id-2'] };
+    }
+
+    // For other methods, just return void
+    return;
+  }
+
+  /**
+   * Get the user ID associated with a public key
+   * @param pubkey - Public key of the user
+   * @returns Promise that resolves with the user ID
+   */
+  async getUserId(pubkey: string): Promise<string> {
+    // Return the user ID for this pubkey, or the pubkey itself if not found
+    return Promise.resolve(this.userIds.get(pubkey) || pubkey);
   }
 }
 

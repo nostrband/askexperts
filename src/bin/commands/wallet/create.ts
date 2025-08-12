@@ -1,12 +1,12 @@
 import { Command } from "commander";
 import { debugError } from "../../../common/debug.js";
 import { createWallet } from "nwc-enclaved-utils";
-import { getDB } from "../../../db/utils.js";
+import { WalletCommandOptions, createWalletClient } from "./client.js";
 
 /**
  * Options for the create wallet command
  */
-interface CreateWalletOptions {
+interface CreateWalletOptions extends WalletCommandOptions {
   default?: boolean;
 }
 
@@ -27,11 +27,11 @@ export async function executeCreateWalletCommand(
       throw new Error("Wallet name is required");
     }
     
-    // Get the DB instance
-    const db = getDB();
+    // Get the wallet client instance
+    const walletClient = createWalletClient(options);
     
     // Check if wallet with this name already exists
-    const existingWallet = db.getWalletByName(name);
+    const existingWallet = await walletClient.getWalletByName(name);
     if (existingWallet) {
       throw new Error(`Wallet with name '${name}' already exists`);
     }
@@ -42,7 +42,7 @@ export async function executeCreateWalletCommand(
     const nwcString = wallet.nwcString;
     
     // Add the wallet to the database
-    const walletId = db.insertWallet({
+    const walletId = await walletClient.insertWallet({
       name,
       nwc: nwcString,
       default: options.default || false
@@ -73,6 +73,8 @@ export function registerCreateCommand(program: Command): void {
     .description("Create a new NWC wallet")
     .argument("<name>", "Name of the wallet")
     .option("--default", "Set this wallet as the default")
+    .option("-r, --remote", "Use remote wallet client")
+    .option("-u, --url <url>", "URL of remote wallet server (default: https://walletapi.askexperts.io)")
     .action(async (name, options) => {
       try {
         await executeCreateWalletCommand(name, options);

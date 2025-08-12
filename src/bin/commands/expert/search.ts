@@ -6,8 +6,9 @@ import { Expert } from "../../../common/types.js";
 import { debugError } from "../../../common/debug.js";
 import { parseExpertProfile } from "../../../experts/utils/Nostr.js";
 import Table from "cli-table3";
+import { ExpertCommandOptions, addRemoteOptions } from "./index.js";
 
-interface SearchCommandOptions {
+interface SearchCommandOptions extends ExpertCommandOptions {
   relays?: string;
   search?: string;
   tags?: string;
@@ -120,10 +121,10 @@ export async function searchExperts(options: SearchCommandOptions): Promise<void
  * @param program The commander program or parent command
  */
 export function registerSearchCommand(program: Command): void {
-  program
+  const command = program
     .command("search")
     .description("Search expert profiles from relays")
-    .option("-r, --relays <urls>", "Comma-separated list of relay URLs")
+    .option("--relays <urls>", "Comma-separated list of relay URLs")
     .option("-s, --search <query>", "Search query for filtering experts")
     .option("-t, --tags <tags>", "Comma-separated list of tags to filter by")
     .action(async (options: SearchCommandOptions) => {
@@ -134,4 +135,7 @@ export function registerSearchCommand(program: Command): void {
         process.exit(1);
       }
     });
+    
+  // Add remote options
+  addRemoteOptions(command);
 }

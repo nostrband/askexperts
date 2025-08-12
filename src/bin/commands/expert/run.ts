@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { getDB } from "../../../db/utils.js";
+import { getWalletClient } from "../../../wallet/index.js";
 import { DBExpert, DBWallet } from "../../../db/interfaces.js";
 import { NostrExpert } from "../../../experts/NostrExpert.js";
 import { OpenaiProxyExpertBase } from "../../../experts/OpenaiProxyExpertBase.js";
@@ -20,12 +20,12 @@ import { DocStoreWebSocketClient } from "../../../docstore/DocStoreWebSocketClie
 import { getDocstorePath } from "../../commands/docstore/index.js";
 import dotenv from "dotenv";
 import { DocStoreClient } from "../../../docstore/interfaces.js";
-import { getExpertClient } from "../../../experts/ExpertRemoteClient.js";
+import { ExpertCommandOptions, createExpertClient, addRemoteOptions } from "./index.js";
 
 /**
  * Options for the run expert command
  */
-interface RunExpertCommandOptions {
+interface RunExpertCommandOptions extends ExpertCommandOptions {
   debug?: boolean;
 }
 
@@ -35,8 +35,8 @@ interface RunExpertCommandOptions {
  * @param identifier Nickname or pubkey of the expert
  * @returns The expert if found, null otherwise
  */
-async function getExpertByNicknameOrPubkey(identifier: string): Promise<DBExpert | null> {
-  const expertClient = getExpertClient();
+async function getExpertByNicknameOrPubkey(identifier: string, options: RunExpertCommandOptions): Promise<DBExpert | null> {
+  const expertClient = createExpertClient(options);
 
   // First try to get by pubkey
   let expert = await expertClient.getExpert(identifier);
@@ -58,8 +58,9 @@ async function getExpertByNicknameOrPubkey(identifier: string): Promise<DBExpert
  * @returns The wallet
  * @throws Error if wallet not found
  */
-function getWalletForExpert(walletId: number): DBWallet {
-  const wallet = getDB().getWallet(walletId);
+async function getWalletForExpert(walletId: number): Promise<DBWallet> {
+  const walletClient = getWalletClient();
+  const wallet = await walletClient.getWallet(walletId);
   if (!wallet) {
     throw new Error(`Wallet with ID ${walletId} not found`);
   }
@@ -333,7 +334,7 @@ async function runNostrExpert(
 ): Promise<void> {
   try {
     // Get wallet for the expert
-    const wallet = getWalletForExpert(expert.wallet_id);
+    const wallet = await getWalletForExpert(expert.wallet_id);
     const nwcString = wallet.nwc;
 
     // Parse environment variables using dotenv
@@ -426,7 +427,7 @@ async function runOpenRouterExpert(
 ): Promise<void> {
   try {
     // Get wallet for the expert
-    const wallet = getWalletForExpert(expert.wallet_id);
+    const wallet = await getWalletForExpert(expert.wallet_id);
     const nwcString = wallet.nwc;
 
     // Create payment manager
@@ -479,7 +480,7 @@ export async function runExpert(
 
   try {
     // Get expert by nickname or pubkey
-    const expert = await getExpertByNicknameOrPubkey(identifier);
+    const expert = await getExpertByNicknameOrPubkey(identifier, options);
     if (!expert) {
       throw new Error(
         `Expert with nickname or pubkey '${identifier}' not found`
@@ -508,7 +509,7 @@ export async function runExpert(
  * @param program The commander program or parent command
  */
 export function registerRunCommand(program: Command): void {
-  program
+  const command = program
     .command("run")
     .description("Run an expert by nickname or pubkey")
     .argument("<identifier>", "Nickname or pubkey of the expert to run")
@@ -521,4 +522,7 @@ export function registerRunCommand(program: Command): void {
         process.exit(1);
       }
     });
+    
+  // Add remote options
+  addRemoteOptions(command);
 }

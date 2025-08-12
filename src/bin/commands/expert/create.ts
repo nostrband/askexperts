@@ -5,12 +5,12 @@ import { getPublicKey } from "nostr-tools";
 import { bytesToHex } from "nostr-tools/utils";
 import { debugError, enableAllDebug, enableErrorDebug } from "../../../common/debug.js";
 import { getWalletByNameOrDefault } from "../../commands/wallet/utils.js";
-import { getExpertClient } from "../../../experts/ExpertRemoteClient.js";
+import { ExpertCommandOptions, createExpertClient, addRemoteOptions } from "./index.js";
 
 /**
  * Options for the create expert command
  */
-interface CreateExpertCommandOptions {
+interface CreateExpertCommandOptions extends ExpertCommandOptions {
   wallet?: string;
   env?: string[];
   docstores?: string[];
@@ -46,7 +46,7 @@ export async function createExpert(
     }
 
     // Get wallet ID using the utility function
-    const wallet = getWalletByNameOrDefault(options.wallet);
+    const wallet = await getWalletByNameOrDefault(options.wallet);
     const walletId = wallet.id;
 
     // Generate or use provided private key
@@ -88,7 +88,7 @@ export async function createExpert(
     };
 
     // Insert expert into database
-    const expertClient = getExpertClient();
+    const expertClient = createExpertClient(options);
     const success = await expertClient.insertExpert(expert);
     if (!success) {
       throw new Error("Failed to insert expert into database");
@@ -115,7 +115,7 @@ export async function createExpert(
  * @param program The commander program or parent command
  */
 export function registerCreateCommand(program: Command): void {
-  program
+  const command = program
     .command("create")
     .description("Create a new expert in the database")
     .argument("<type>", "Type of expert (nostr or openai)")
@@ -133,4 +133,7 @@ export function registerCreateCommand(program: Command): void {
         process.exit(1);
       }
     });
+    
+  // Add remote options
+  addRemoteOptions(command);
 }

@@ -13,6 +13,7 @@ export interface Doc {
   type: string;
   data: string;
   embeddings: Float32Array[]; // Array of embedding vectors
+  user_id?: string; // User ID associated with the document
 }
 
 /**
@@ -25,6 +26,7 @@ export interface DocStore {
   model: string;       // name of embeddings model
   vector_size: number; // size of embedding vectors
   options: string;     // options of the model, '' by default
+  user_id?: string;    // User ID associated with the docstore
 }
 
 /**
@@ -109,6 +111,21 @@ export interface DocStoreClient {
   listDocstores(): Promise<DocStore[]>;
   
   /**
+   * List docstores by specific IDs
+   * @param ids - Array of docstore IDs to retrieve
+   * @returns Promise that resolves with an array of docstore objects
+   */
+  listDocStoresByIds(ids: string[]): Promise<DocStore[]>;
+  
+  /**
+   * List documents by specific IDs
+   * @param docstore_id - ID of the docstore containing the documents
+   * @param ids - Array of document IDs to retrieve
+   * @returns Promise that resolves with an array of document objects
+   */
+  listDocsByIds(docstore_id: string, ids: string[]): Promise<Doc[]>;
+  
+  /**
    * Delete a docstore and all its documents
    * @param id - ID of the docstore to delete
    * @returns Promise that resolves with true if docstore existed and was deleted, false otherwise
@@ -171,9 +188,16 @@ export interface DocStorePerms {
    * @param pubkey - The public key of the user
    * @param message - The WebSocket message being processed
    * @throws Error if the operation is not allowed with a custom error message
-   * @returns Promise that resolves if the operation is allowed
+   * @returns Promise that resolves with an optional object containing listIds if the operation is allowed
    */
-  checkPerms(pubkey: string, message: WebSocketMessage): Promise<void>;
+  checkPerms(pubkey: string, message: WebSocketMessage): Promise<{ listIds?: string[] } | void>;
+
+  /**
+   * Get the user ID associated with a public key
+   * @param pubkey - Public key of the user
+   * @returns Promise that resolves with the user ID
+   */
+  getUserId(pubkey: string): Promise<string>;
 }
 
 /**

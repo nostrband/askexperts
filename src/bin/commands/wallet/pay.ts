@@ -3,12 +3,12 @@ import { debugError } from "../../../common/debug.js";
 import { nwc } from "@getalby/sdk";
 import { parseBolt11 } from "../../../common/bolt11.js";
 import { getWalletByNameOrDefault } from "./utils.js";
-import { getDB } from "../../../db/utils.js";
+import { WalletCommandOptions } from "./client.js";
 
 /**
  * Options for the pay command
  */
-interface PayOptions {
+interface PayOptions extends WalletCommandOptions {
   wallet?: string;
   amount?: string;
 }
@@ -31,7 +31,7 @@ export async function executePayCommand(
     }
     
     // Get the wallet to use
-    const wallet = getWalletByNameOrDefault(options.wallet);
+    const wallet = await getWalletByNameOrDefault(options);
     
     // Parse the invoice to get amount
     let amount: number | undefined;
@@ -101,6 +101,8 @@ export function registerPayCommand(program: Command): void {
     .argument("<invoice>", "Lightning invoice to pay")
     .option("--wallet <name>", "Wallet to use (default wallet if not specified)")
     .option("--amount <sats>", "Amount to pay in satoshis (required for zero-amount invoices)")
+    .option("-r, --remote", "Use remote wallet client")
+    .option("-u, --url <url>", "URL of remote wallet server (default: https://walletapi.askexperts.io)")
     .action(async (invoice, options) => {
       try {
         await executePayCommand(invoice, options);

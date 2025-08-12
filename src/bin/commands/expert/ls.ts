@@ -1,12 +1,12 @@
 import { Command } from "commander";
 import { debugError } from "../../../common/debug.js";
 import Table from "cli-table3";
-import { getExpertClient } from "../../../experts/ExpertRemoteClient.js";
+import { ExpertCommandOptions, createExpertClient, addRemoteOptions } from "./index.js";
 
 /**
  * Options for the ls command
  */
-interface LsCommandOptions {
+interface LsCommandOptions extends ExpertCommandOptions {
   type?: string;
   search?: string;
 }
@@ -18,8 +18,8 @@ interface LsCommandOptions {
  */
 export async function listExperts(options: LsCommandOptions): Promise<void> {
   try {
-    // Get all experts from the database
-    const expertClient = getExpertClient();
+    // Get expert client based on options
+    const expertClient = createExpertClient(options);
     let experts = await expertClient.listExperts();
     
     // Filter by type if specified
@@ -93,7 +93,7 @@ export async function listExperts(options: LsCommandOptions): Promise<void> {
  * @param program The commander program or parent command
  */
 export function registerLsCommand(program: Command): void {
-  program
+  const command = program
     .command("ls")
     .description("List experts from the database")
     .option("-t, --type <type>", "Filter experts by type (e.g., nostr, openai)")
@@ -106,4 +106,7 @@ export function registerLsCommand(program: Command): void {
         process.exit(1);
       }
     });
+  
+  // Add remote options
+  addRemoteOptions(command);
 }

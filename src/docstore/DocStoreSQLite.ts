@@ -66,6 +66,36 @@ export class DocStoreSQLite implements DocStoreClient {
       "CREATE INDEX IF NOT EXISTS idx_docs_timestamp ON docs (timestamp)"
     );
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_docs_type ON docs (type)");
+
+    // Migration: Add user_id column to docstores table if it doesn't exist
+    try {
+      // Check if user_id column exists in docstores table
+      const docstoreColumns = this.db.prepare("PRAGMA table_info(docstores)").all();
+      const hasUserIdColumn = docstoreColumns.some((col: any) => col.name === 'user_id');
+      
+      if (!hasUserIdColumn) {
+        debugDocstore("Adding user_id column to docstores table");
+        this.db.exec("ALTER TABLE docstores ADD COLUMN user_id TEXT NOT NULL DEFAULT ''");
+        this.db.exec("CREATE INDEX IF NOT EXISTS idx_docstores_user_id ON docstores (user_id)");
+      }
+    } catch (error) {
+      debugError("Error adding user_id column to docstores table:", error);
+    }
+
+    // Migration: Add user_id column to docs table if it doesn't exist
+    try {
+      // Check if user_id column exists in docs table
+      const docsColumns = this.db.prepare("PRAGMA table_info(docs)").all();
+      const hasUserIdColumn = docsColumns.some((col: any) => col.name === 'user_id');
+      
+      if (!hasUserIdColumn) {
+        debugDocstore("Adding user_id column to docs table");
+        this.db.exec("ALTER TABLE docs ADD COLUMN user_id TEXT NOT NULL DEFAULT ''");
+        this.db.exec("CREATE INDEX IF NOT EXISTS idx_docs_user_id ON docs (user_id)");
+      }
+    } catch (error) {
+      debugError("Error adding user_id column to docs table:", error);
+    }
   }
 
   /**
@@ -109,6 +139,7 @@ export class DocStoreSQLite implements DocStoreClient {
         type: row.type?.toString() || "",
         data: row.data?.toString() || "",
         embeddings: embeddingsArray,
+        user_id: row.user_id?.toString() || "",
         // aid is not included in the returned Doc object as it's an internal implementation detail
       };
     };
@@ -328,7 +359,8 @@ export class DocStoreSQLite implements DocStoreClient {
       timestamp: Number(row.timestamp || 0),
       model: String(row.model || ""),
       vector_size: Number(row.vector_size || 0),
-      options: String(row.options || "")
+      options: String(row.options || ""),
+      user_id: String(row.user_id || "")
     };
   }
 
@@ -358,8 +390,8 @@ export class DocStoreSQLite implements DocStoreClient {
     // Use INSERT OR REPLACE to handle both insert and update in a single atomic operation
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO docs (
-        id, docstore_id, timestamp, created_at, type, data, embeddings
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        id, docstore_id, timestamp, created_at, type, data, embeddings, user_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -369,7 +401,8 @@ export class DocStoreSQLite implements DocStoreClient {
       doc.created_at,
       doc.type,
       doc.data,
-      embeddingsBlob
+      embeddingsBlob,
+      doc.user_id || ""
     );
     
     return Promise.resolve();
@@ -407,6 +440,7 @@ export class DocStoreSQLite implements DocStoreClient {
       type: row.type?.toString() || "",
       data: row.data?.toString() || "",
       embeddings: embeddingsArray,
+      user_id: row.user_id?.toString() || "",
     };
     
     return Promise.resolve(doc);
@@ -454,10 +488,10 @@ export class DocStoreSQLite implements DocStoreClient {
     const id = crypto.randomUUID();
 
     const stmt = this.db.prepare(
-      "INSERT INTO docstores (id, name, timestamp, model, vector_size, options) VALUES (?, ?, ?, ?, ?, ?)"
+      "INSERT INTO docstores (id, name, timestamp, model, vector_size, options, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
     );
 
-    stmt.run(id, name, timestamp, model, vector_size, options);
+    stmt.run(id, name, timestamp, model, vector_size, options, "");
     debugDocstore(`Created new docstore with name: ${name}, ID: ${id}, model: ${model}, vector_size: ${vector_size}`);
     return Promise.resolve(id);
   }
@@ -478,10 +512,88 @@ export class DocStoreSQLite implements DocStoreClient {
         model: String(row.model || ""),
         vector_size: Number(row.vector_size || 0),
         options: String(row.options || ""),
+        user_id: String(row.user_id || ""),
       })
     );
     
     return Promise.resolve(docstores);
+  }
+
+  /**
+   * List docstores by specific IDs
+   * @param ids - Array of docstore IDs to retrieve
+   * @returns Promise that resolves with an array of docstore objects
+   */
+  async listDocStoresByIds(ids: string[]): Promise<DocStore[]> {
+    if (ids.length === 0) {
+      return Promise.resolve([]);
+    }
+
+    // Create placeholders for the IN clause
+    const placeholders = ids.map(() => '?').join(',');
+    
+    const stmt = this.db.prepare(`SELECT * FROM docstores WHERE id IN (${placeholders}) ORDER BY id ASC`);
+    const rows = stmt.all(...ids);
+
+    const docstores = rows.map(
+      (row: Record<string, any>): DocStore => ({
+        id: String(row.id || ""),
+        name: String(row.name || ""),
+        timestamp: Number(row.timestamp || 0),
+        model: String(row.model || ""),
+        vector_size: Number(row.vector_size || 0),
+        options: String(row.options || ""),
+        user_id: String(row.user_id || ""),
+      })
+    );
+    
+    return Promise.resolve(docstores);
+  }
+
+  /**
+   * List documents by specific IDs
+   * @param docstore_id - ID of the docstore containing the documents
+   * @param ids - Array of document IDs to retrieve
+   * @returns Promise that resolves with an array of document objects
+   */
+  async listDocsByIds(docstore_id: string, ids: string[]): Promise<Doc[]> {
+    if (ids.length === 0) {
+      return Promise.resolve([]);
+    }
+
+    // Create placeholders for the IN clause
+    const placeholders = ids.map(() => '?').join(',');
+    
+    // Prepare the query with docstore_id and the list of document IDs
+    const query = `SELECT * FROM docs WHERE docstore_id = ? AND id IN (${placeholders}) ORDER BY id ASC`;
+    
+    // Create the parameter array with docstore_id as the first parameter
+    const params = [docstore_id, ...ids];
+    
+    const stmt = this.db.prepare(query);
+    const rows = stmt.all(...params);
+
+    // Convert rows to Doc objects
+    const docs = rows.map((row: Record<string, any>): Doc => {
+      // Convert embeddings from BLOB to Float32Array[]
+      let embeddingsArray: Float32Array[] = [];
+      if (row.embeddings) {
+        embeddingsArray = this.blobToFloat32Arrays(row.embeddings as Buffer, docstore_id);
+      }
+
+      return {
+        id: row.id?.toString() || "",
+        docstore_id: row.docstore_id?.toString() || "",
+        timestamp: Number(row.timestamp || 0),
+        created_at: Number(row.created_at || 0),
+        type: row.type?.toString() || "",
+        data: row.data?.toString() || "",
+        embeddings: embeddingsArray,
+        user_id: row.user_id?.toString() || "",
+      };
+    });
+    
+    return Promise.resolve(docs);
   }
 
   /**

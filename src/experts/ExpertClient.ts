@@ -12,6 +12,13 @@ export interface ExpertClient {
   listExperts(): Promise<DBExpert[]>;
 
   /**
+   * List experts by specific IDs
+   * @param ids - Array of expert pubkeys to retrieve
+   * @returns Promise resolving to an array of expert objects matching the provided IDs
+   */
+  listExpertsByIds(ids: string[]): Promise<DBExpert[]>;
+
+  /**
    * Get an expert by pubkey
    * @param pubkey - Pubkey of the expert to get
    * @returns Promise resolving to the expert if found, null otherwise

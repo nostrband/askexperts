@@ -15,6 +15,17 @@ class ExampleExpertServerPerms implements ExpertServerPerms {
 
   constructor() {}
 
+  /**
+   * Get the user ID associated with a public key
+   * @param pubkey - Public key of the user
+   * @returns Promise that resolves with the user ID
+   */
+  async getUserId(pubkey: string): Promise<string> {
+    // For this example, we'll just use the pubkey as the user ID
+    // In a real implementation, you might look up the user ID in a database
+    return pubkey;
+  }
+
   addPubkey(pubkey: string) {
     this.allowedPubkeys.add(pubkey);
     this.allowedOperations.set(
@@ -34,9 +45,9 @@ class ExampleExpertServerPerms implements ExpertServerPerms {
    * @param pubkey - The public key of the user
    * @param req - The Express request being processed
    * @throws Error if the operation is not allowed with a custom error message
-   * @returns Promise that resolves if the operation is allowed
+   * @returns Promise that resolves with optional listIds if the operation is allowed
    */
-  async checkPerms(pubkey: string, req: Request): Promise<void> {
+  async checkPerms(pubkey: string, req: Request): Promise<{ listIds?: string[] }> {
     // Check if the pubkey is allowed
     if (!this.allowedPubkeys.has(pubkey)) {
       throw new Error(`User ${pubkey} is not authorized to access this server`);
@@ -54,6 +65,10 @@ class ExampleExpertServerPerms implements ExpertServerPerms {
     if (!allowedOps.has(req.method)) {
       throw new Error(`User ${pubkey} is not authorized to perform ${req.method} operation`);
     }
+
+    // For this example, we're not restricting which experts can be listed
+    // In a real implementation, you might return specific expert IDs based on the user's permissions
+    return {};
   }
 }
 

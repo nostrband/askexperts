@@ -21,7 +21,7 @@ export interface SmartMcpCommandOptions {
  */
 export async function startSmartMcpServer(options: SmartMcpCommandOptions): Promise<void> {
   // Get wallet from database using the provided wallet name or default
-  const wallet = getWalletByNameOrDefault(options.wallet);
+  const wallet = await getWalletByNameOrDefault(options.wallet);
   const nwcString = wallet.nwc;
   
   // Try to get OpenAI API key from options or environment variables

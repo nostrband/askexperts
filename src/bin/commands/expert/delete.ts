@@ -1,12 +1,12 @@
 import { Command } from "commander";
 import { debugError, enableAllDebug, enableErrorDebug } from "../../../common/debug.js";
 import readline from "readline";
-import { getExpertClient } from "../../../experts/ExpertRemoteClient.js";
+import { ExpertCommandOptions, createExpertClient, addRemoteOptions } from "./index.js";
 
 /**
  * Options for the delete expert command
  */
-interface DeleteExpertCommandOptions {
+interface DeleteExpertCommandOptions extends ExpertCommandOptions {
   yes?: boolean;
   debug?: boolean;
 }
@@ -36,7 +36,7 @@ export async function deleteExpert(
     else enableErrorDebug();
 
     // Get expert client
-    const expertClient = getExpertClient();
+    const expertClient = createExpertClient(options);
     
     // Get the expert
     const expert = await expertClient.getExpert(pubkey);
@@ -85,7 +85,7 @@ export async function deleteExpert(
  * @param program The commander program or parent command
  */
 export function registerDeleteCommand(program: Command): void {
-  program
+  const command = program
     .command("delete")
     .description("Delete an expert from the database")
     .argument("<pubkey>", "Public key of the expert to delete")
@@ -99,4 +99,7 @@ export function registerDeleteCommand(program: Command): void {
         process.exit(1);
       }
     });
+    
+  // Add remote options
+  addRemoteOptions(command);
 }

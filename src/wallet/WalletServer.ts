@@ -2,16 +2,35 @@ import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import * as http from "http";
 import { debugClient, debugError } from "../common/debug.js";
-import type { ExpertClient } from "./ExpertClient.js";
-import type { DBExpert } from "../db/interfaces.js";
-import { ExpertServerPerms } from "./interfaces.js";
+import type { WalletClient } from "./WalletClient.js";
+import type { DBWallet } from "../db/interfaces.js";
 import { parseAuthToken, AuthRequest } from "../common/auth.js";
 import { getDB } from "../db/utils.js";
 
 /**
- * Configuration options for ExpertServer
+ * Interface for wallet server permissions
  */
-export interface ExpertServerOptions {
+export interface WalletServerPerms {
+  /**
+   * Check if the user has permission to perform the requested operation
+   * @param pubkey - Public key of the user
+   * @param req - Express request object
+   * @returns Promise that resolves with optional listIds if the user has permission, rejects otherwise
+   */
+  checkPerms(pubkey: string, req: Request): Promise<{ listIds?: string[] }>;
+
+  /**
+   * Get the user ID associated with a public key
+   * @param pubkey - Public key of the user
+   * @returns Promise that resolves with the user ID
+   */
+  getUserId(pubkey: string): Promise<string>;
+}
+
+/**
+ * Configuration options for WalletServer
+ */
+export interface WalletServerOptions {
   /** Port to listen on */
   port: number;
   /** Base path for the API (e.g., '/api') */
@@ -19,30 +38,28 @@ export interface ExpertServerOptions {
   /** Server origin for auth token validation (e.g. 'https://yourdomain.com') */
   origin?: string;
   /** Optional permissions interface for authentication and authorization */
-  perms?: ExpertServerPerms;
+  perms?: WalletServerPerms;
 }
 
 /**
- * ExpertServer class that provides an HTTP API for ExpertClient operations
+ * WalletServer class that provides an HTTP API for WalletClient operations
  */
-export class ExpertServer {
+export class WalletServer {
   private app: express.Application;
   private port: number;
   private basePath: string;
   private stopped = true;
   private server?: http.Server;
-  private expertClient: ExpertClient;
-  private perms?: ExpertServerPerms;
+  private walletClient: WalletClient;
+  private perms?: WalletServerPerms;
   private serverOrigin: string;
 
   /**
-   * Creates a new ExpertServer instance
+   * Creates a new WalletServer instance
    *
-   * @param options - Configuration options or port number (for backward compatibility)
-   * @param basePath - Base path for the API (e.g., '/api') when using port number constructor
+   * @param options - Configuration options
    */
-  constructor(options: ExpertServerOptions) {
-    // New constructor with options object
+  constructor(options: WalletServerOptions) {
     this.port = options.port;
     this.basePath = options.basePath
       ? options.basePath.startsWith("/")
@@ -52,8 +69,8 @@ export class ExpertServer {
     this.perms = options.perms;
     this.serverOrigin = options.origin || `http://localhost:${this.port}`;
 
-    // Get the expert client
-    this.expertClient = getDB();
+    // Get the wallet client
+    this.walletClient = getDB();
 
     // Create the Express app
     this.app = express();
@@ -155,59 +172,60 @@ export class ExpertServer {
       else res.status(200).json({ status: "ok" });
     });
 
-    // List experts endpoint
-    this.app.get(`${path}experts`, this.handleListExperts.bind(this));
+    // List wallets endpoint
+    this.app.get(`${path}wallets`, this.handleListWallets.bind(this));
 
-    // Get expert endpoint
-    this.app.get(`${path}experts/:pubkey`, this.handleGetExpert.bind(this));
+    // Get wallet by ID endpoint
+    this.app.get(`${path}wallets/:id`, this.handleGetWallet.bind(this));
 
-    // Insert expert endpoint
-    this.app.post(`${path}experts`, this.handleInsertExpert.bind(this));
+    // Get wallet by name endpoint
+    this.app.get(`${path}wallets/name/:name`, this.handleGetWalletByName.bind(this));
 
-    // Update expert endpoint
-    this.app.put(`${path}experts/:pubkey`, this.handleUpdateExpert.bind(this));
+    // Get default wallet endpoint
+    this.app.get(`${path}wallets/default`, this.handleGetDefaultWallet.bind(this));
 
-    // Set expert disabled status endpoint
-    this.app.patch(
-      `${path}experts/:pubkey/disabled`,
-      this.handleSetExpertDisabled.bind(this)
-    );
+    // Insert wallet endpoint
+    this.app.post(`${path}wallets`, this.handleInsertWallet.bind(this));
 
-    // Delete expert endpoint
-    this.app.delete(
-      `${path}experts/:pubkey`,
-      this.handleDeleteExpert.bind(this)
-    );
+    // Update wallet endpoint
+    this.app.put(`${path}wallets/:id`, this.handleUpdateWallet.bind(this));
+
+    // Delete wallet endpoint
+    this.app.delete(`${path}wallets/:id`, this.handleDeleteWallet.bind(this));
   }
 
   /**
-   * Handles requests to list all experts
+   * Handles requests to list all wallets
    *
    * @param req - Express request object
    * @param res - Express response object
    * @private
    */
-  private async handleListExperts(req: Request, res: Response): Promise<void> {
+  private async handleListWallets(req: Request, res: Response): Promise<void> {
     if (this.stopped) {
       res.status(503).json({ error: "Service unavailable" });
       return;
     }
 
     try {
-      let experts;
+      let wallets;
       
       // Check if we have listIds in the perms object
       if ((req as any).perms?.listIds !== undefined) {
-        // Use the listExpertsByIds method with the provided IDs
-        experts = await this.expertClient.listExpertsByIds((req as any).perms.listIds);
+        // Convert string IDs to numbers for wallet IDs
+        const numericIds = (req as any).perms.listIds.map((id: string) => parseInt(id, 10));
+        // Filter out any NaN values that might result from invalid IDs
+        const validIds = numericIds.filter((id: number) => !isNaN(id));
+        // Use the listWalletsByIds method with the provided IDs
+        wallets = await this.walletClient.listWalletsByIds(validIds);
       } else {
-        // Use the regular listExperts method
-        experts = await this.expertClient.listExperts();
+        // Use the regular listWallets method
+        wallets = await this.walletClient.listWallets();
       }
       
-      res.status(200).json(experts);
+      res.status(200).json(wallets);
     } catch (error) {
-      debugError("Error handling list experts request:", error);
+      debugError("Error handling list wallets request:", error);
       const message = error instanceof Error ? error.message : String(error);
       res.status(500).json({
         error: "Internal server error",
@@ -217,34 +235,34 @@ export class ExpertServer {
   }
 
   /**
-   * Handles requests to get an expert by pubkey
+   * Handles requests to get a wallet by ID
    *
    * @param req - Express request object
    * @param res - Express response object
    * @private
    */
-  private async handleGetExpert(req: Request, res: Response): Promise<void> {
+  private async handleGetWallet(req: Request, res: Response): Promise<void> {
     if (this.stopped) {
       res.status(503).json({ error: "Service unavailable" });
       return;
     }
 
     try {
-      const pubkey = req.params.pubkey;
-      if (!pubkey) {
-        res.status(400).json({ error: "Missing pubkey parameter" });
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: "Invalid wallet ID" });
         return;
       }
 
-      const expert = await this.expertClient.getExpert(pubkey);
-      if (!expert) {
-        res.status(404).json({ error: "Expert not found" });
+      const wallet = await this.walletClient.getWallet(id);
+      if (!wallet) {
+        res.status(404).json({ error: "Wallet not found" });
         return;
       }
 
-      res.status(200).json(expert);
+      res.status(200).json(wallet);
     } catch (error) {
-      debugError("Error handling get expert request:", error);
+      debugError("Error handling get wallet request:", error);
       const message = error instanceof Error ? error.message : String(error);
       res.status(500).json({
         error: "Internal server error",
@@ -254,22 +272,90 @@ export class ExpertServer {
   }
 
   /**
-   * Handles requests to insert a new expert
+   * Handles requests to get a wallet by name
    *
    * @param req - Express request object
    * @param res - Express response object
    * @private
    */
-  private async handleInsertExpert(req: Request, res: Response): Promise<void> {
+  private async handleGetWalletByName(req: Request, res: Response): Promise<void> {
     if (this.stopped) {
       res.status(503).json({ error: "Service unavailable" });
       return;
     }
 
     try {
-      const expert = req.body as DBExpert;
-      if (!expert || !expert.pubkey) {
-        res.status(400).json({ error: "Invalid expert data" });
+      const name = req.params.name;
+      if (!name) {
+        res.status(400).json({ error: "Missing wallet name" });
+        return;
+      }
+
+      const wallet = await this.walletClient.getWalletByName(name);
+      if (!wallet) {
+        res.status(404).json({ error: "Wallet not found" });
+        return;
+      }
+
+      res.status(200).json(wallet);
+    } catch (error) {
+      debugError("Error handling get wallet by name request:", error);
+      const message = error instanceof Error ? error.message : String(error);
+      res.status(500).json({
+        error: "Internal server error",
+        message: message,
+      });
+    }
+  }
+
+  /**
+   * Handles requests to get the default wallet
+   *
+   * @param req - Express request object
+   * @param res - Express response object
+   * @private
+   */
+  private async handleGetDefaultWallet(req: Request, res: Response): Promise<void> {
+    if (this.stopped) {
+      res.status(503).json({ error: "Service unavailable" });
+      return;
+    }
+
+    try {
+      const wallet = await this.walletClient.getDefaultWallet();
+      if (!wallet) {
+        res.status(404).json({ error: "Default wallet not found" });
+        return;
+      }
+
+      res.status(200).json(wallet);
+    } catch (error) {
+      debugError("Error handling get default wallet request:", error);
+      const message = error instanceof Error ? error.message : String(error);
+      res.status(500).json({
+        error: "Internal server error",
+        message: message,
+      });
+    }
+  }
+
+  /**
+   * Handles requests to insert a new wallet
+   *
+   * @param req - Express request object
+   * @param res - Express response object
+   * @private
+   */
+  private async handleInsertWallet(req: Request, res: Response): Promise<void> {
+    if (this.stopped) {
+      res.status(503).json({ error: "Service unavailable" });
+      return;
+    }
+
+    try {
+      const wallet = req.body as Omit<DBWallet, "id">;
+      if (!wallet || !wallet.name || !wallet.nwc) {
+        res.status(400).json({ error: "Invalid wallet data" });
         return;
       }
 
@@ -277,18 +363,14 @@ export class ExpertServer {
       if (this.perms) {
         const pubkey = (req as any).pubkey;
         if (pubkey) {
-          expert.user_id = await this.perms.getUserId(pubkey);
+          wallet.user_id = await this.perms.getUserId(pubkey);
         }
       }
 
-      const success = await this.expertClient.insertExpert(expert);
-      if (success) {
-        res.status(201).json({ success: true });
-      } else {
-        res.status(400).json({ error: "Failed to insert expert" });
-      }
+      const id = await this.walletClient.insertWallet(wallet);
+      res.status(201).json({ id });
     } catch (error) {
-      debugError("Error handling insert expert request:", error);
+      debugError("Error handling insert wallet request:", error);
       const message = error instanceof Error ? error.message : String(error);
       res.status(500).json({
         error: "Internal server error",
@@ -298,34 +380,34 @@ export class ExpertServer {
   }
 
   /**
-   * Handles requests to update an existing expert
+   * Handles requests to update an existing wallet
    *
    * @param req - Express request object
    * @param res - Express response object
    * @private
    */
-  private async handleUpdateExpert(req: Request, res: Response): Promise<void> {
+  private async handleUpdateWallet(req: Request, res: Response): Promise<void> {
     if (this.stopped) {
       res.status(503).json({ error: "Service unavailable" });
       return;
     }
 
     try {
-      const pubkey = req.params.pubkey;
-      if (!pubkey) {
-        res.status(400).json({ error: "Missing pubkey parameter" });
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: "Invalid wallet ID" });
         return;
       }
 
-      const expert = req.body as DBExpert;
-      if (!expert) {
-        res.status(400).json({ error: "Invalid expert data" });
+      const wallet = req.body as DBWallet;
+      if (!wallet) {
+        res.status(400).json({ error: "Invalid wallet data" });
         return;
       }
 
-      // Ensure the pubkey in the URL matches the pubkey in the body
-      if (expert.pubkey !== pubkey) {
-        res.status(400).json({ error: "Pubkey mismatch" });
+      // Ensure the ID in the URL matches the ID in the body
+      if (wallet.id !== id) {
+        res.status(400).json({ error: "ID mismatch" });
         return;
       }
 
@@ -333,18 +415,18 @@ export class ExpertServer {
       if (this.perms) {
         const pubkey = (req as any).pubkey;
         if (pubkey) {
-          expert.user_id = await this.perms.getUserId(pubkey);
+          wallet.user_id = await this.perms.getUserId(pubkey);
         }
       }
 
-      const success = await this.expertClient.updateExpert(expert);
+      const success = await this.walletClient.updateWallet(wallet);
       if (success) {
         res.status(200).json({ success: true });
       } else {
-        res.status(404).json({ error: "Expert not found" });
+        res.status(404).json({ error: "Wallet not found" });
       }
     } catch (error) {
-      debugError("Error handling update expert request:", error);
+      debugError("Error handling update wallet request:", error);
       const message = error instanceof Error ? error.message : String(error);
       res.status(500).json({
         error: "Internal server error",
@@ -354,81 +436,33 @@ export class ExpertServer {
   }
 
   /**
-   * Handles requests to set the disabled status of an expert
+   * Handles requests to delete a wallet
    *
    * @param req - Express request object
    * @param res - Express response object
    * @private
    */
-  private async handleSetExpertDisabled(
-    req: Request,
-    res: Response
-  ): Promise<void> {
+  private async handleDeleteWallet(req: Request, res: Response): Promise<void> {
     if (this.stopped) {
       res.status(503).json({ error: "Service unavailable" });
       return;
     }
 
     try {
-      const pubkey = req.params.pubkey;
-      if (!pubkey) {
-        res.status(400).json({ error: "Missing pubkey parameter" });
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: "Invalid wallet ID" });
         return;
       }
 
-      const { disabled } = req.body;
-      if (disabled === undefined) {
-        res.status(400).json({ error: "Missing disabled parameter" });
-        return;
-      }
-
-      const success = await this.expertClient.setExpertDisabled(
-        pubkey,
-        disabled
-      );
+      const success = await this.walletClient.deleteWallet(id);
       if (success) {
         res.status(200).json({ success: true });
       } else {
-        res.status(404).json({ error: "Expert not found" });
+        res.status(404).json({ error: "Wallet not found" });
       }
     } catch (error) {
-      debugError("Error handling set expert disabled request:", error);
-      const message = error instanceof Error ? error.message : String(error);
-      res.status(500).json({
-        error: "Internal server error",
-        message: message,
-      });
-    }
-  }
-
-  /**
-   * Handles requests to delete an expert
-   *
-   * @param req - Express request object
-   * @param res - Express response object
-   * @private
-   */
-  private async handleDeleteExpert(req: Request, res: Response): Promise<void> {
-    if (this.stopped) {
-      res.status(503).json({ error: "Service unavailable" });
-      return;
-    }
-
-    try {
-      const pubkey = req.params.pubkey;
-      if (!pubkey) {
-        res.status(400).json({ error: "Missing pubkey parameter" });
-        return;
-      }
-
-      const success = await this.expertClient.deleteExpert(pubkey);
-      if (success) {
-        res.status(200).json({ success: true });
-      } else {
-        res.status(404).json({ error: "Expert not found" });
-      }
-    } catch (error) {
-      debugError("Error handling delete expert request:", error);
+      debugError("Error handling delete wallet request:", error);
       const message = error instanceof Error ? error.message : String(error);
       res.status(500).json({
         error: "Internal server error",
@@ -447,7 +481,7 @@ export class ExpertServer {
     this.stopped = false;
     this.server = this.app.listen(this.port);
     debugClient(
-      `Expert Server running at http://localhost:${this.port}${this.basePath}`
+      `Wallet Server running at http://localhost:${this.port}${this.basePath}`
     );
   }
 

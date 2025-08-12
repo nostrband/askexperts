@@ -2,12 +2,12 @@ import { Command } from "commander";
 import { debugError } from "../../../common/debug.js";
 import { nwc } from "@getalby/sdk";
 import { getWalletByNameOrDefault } from "./utils.js";
-import { getDB } from "../../../db/utils.js";
+import { WalletCommandOptions } from "./client.js";
 
 /**
  * Options for the invoice command
  */
-interface InvoiceOptions {
+interface InvoiceOptions extends WalletCommandOptions {
   wallet?: string;
   desc?: string;
   hash?: string;
@@ -37,7 +37,7 @@ export async function executeInvoiceCommand(
     }
     
     // Get the wallet to use
-    const wallet = getWalletByNameOrDefault(options.wallet);
+    const wallet = await getWalletByNameOrDefault(options);
     
     // Create NWC client
     const client = new nwc.NWCClient({
@@ -103,6 +103,8 @@ export function registerInvoiceCommand(program: Command): void {
     .option("--wallet <name>", "Wallet to use (default wallet if not specified)")
     .option("--desc <description>", "Invoice description")
     .option("--hash <hash>", "Description hash")
+    .option("-r, --remote", "Use remote wallet client")
+    .option("-u, --url <url>", "URL of remote wallet server (default: https://walletapi.askexperts.io)")
     .action(async (amount, options) => {
       try {
         await executeInvoiceCommand(amount, options);

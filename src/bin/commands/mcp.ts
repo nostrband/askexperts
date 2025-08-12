@@ -20,7 +20,7 @@ export interface McpCommandOptions {
 export async function startMcpServer(options: McpCommandOptions): Promise<void> {
 
   // Get wallet from database using the provided wallet name or default
-  const wallet = getWalletByNameOrDefault(options.wallet);
+  const wallet = await getWalletByNameOrDefault(options.wallet);
   const nwcString = wallet.nwc;
   
   // Try to get discovery relays from options or environment variables
