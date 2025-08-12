@@ -20,6 +20,7 @@ import { DocStoreWebSocketClient } from "../../../docstore/DocStoreWebSocketClie
 import { getDocstorePath } from "../../commands/docstore/index.js";
 import dotenv from "dotenv";
 import { DocStoreClient } from "../../../docstore/interfaces.js";
+import { getExpertClient } from "../../../experts/ExpertRemoteClient.js";
 
 /**
  * Options for the run expert command
@@ -34,16 +35,16 @@ interface RunExpertCommandOptions {
  * @param identifier Nickname or pubkey of the expert
  * @returns The expert if found, null otherwise
  */
-function getExpertByNicknameOrPubkey(identifier: string): DBExpert | null {
-  const db = getDB();
+async function getExpertByNicknameOrPubkey(identifier: string): Promise<DBExpert | null> {
+  const expertClient = getExpertClient();
 
   // First try to get by pubkey
-  let expert = db.getExpert(identifier);
+  let expert = await expertClient.getExpert(identifier);
 
   // If not found, try to find by nickname
   if (!expert) {
     // We need to search through all experts to find by nickname
-    const experts = db.listExperts();
+    const experts = await expertClient.listExperts();
     expert = experts.find((e) => e.nickname === identifier) || null;
   }
 
@@ -478,7 +479,7 @@ export async function runExpert(
 
   try {
     // Get expert by nickname or pubkey
-    const expert = getExpertByNicknameOrPubkey(identifier);
+    const expert = await getExpertByNicknameOrPubkey(identifier);
     if (!expert) {
       throw new Error(
         `Expert with nickname or pubkey '${identifier}' not found`

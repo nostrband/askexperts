@@ -4,8 +4,6 @@ import { DBExpert } from "../../../db/interfaces.js";
 import { SimplePool } from "nostr-tools";
 import { ChromaRagDB } from "../../../rag/index.js";
 import { LightningPaymentManager } from "../../../payments/LightningPaymentManager.js";
-import { DocStoreSQLite } from "../../../docstore/DocStoreSQLite.js";
-import { getDocstorePath } from "../../commands/docstore/index.js";
 import {
   debugError,
   debugExpert,
@@ -20,6 +18,7 @@ import {
   parseDocstoreIdsList,
   createDocStoreClientFromParsed
 } from "./run.js";
+import { getExpertClient } from "../../../experts/ExpertRemoteClient.js";
 
 /**
  * Options for the all experts command
@@ -110,6 +109,7 @@ export async function runAllExperts(options: AllExpertsCommandOptions): Promise<
 
       try {
         // Get wallet for the expert
+        // Note: We're still using getDB() for wallet operations since they haven't been moved to ExpertClient
         const db = getDB();
         const wallet = db.getWallet(expert.wallet_id);
         if (!wallet) {
@@ -195,8 +195,8 @@ export async function runAllExperts(options: AllExpertsCommandOptions): Promise<
 
     // Function to check for experts to start/stop
     async function checkExperts(): Promise<void> {
-      const db = getDB();
-      const experts = db.listExperts();
+      const expertClient = getExpertClient();
+      const experts = await expertClient.listExperts();
       
       // Find experts to start (enabled and not already running)
       const expertsToStart = experts.filter(

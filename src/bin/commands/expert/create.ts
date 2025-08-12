@@ -1,11 +1,11 @@
 import { Command } from "commander";
 import { DBExpert } from "../../../db/interfaces.js";
-import { getDB } from "../../../db/utils.js";
 import { generateRandomKeyPair } from "../../../common/crypto.js";
 import { getPublicKey } from "nostr-tools";
 import { bytesToHex } from "nostr-tools/utils";
-import { debugError, debugExpert, enableAllDebug, enableErrorDebug } from "../../../common/debug.js";
+import { debugError, enableAllDebug, enableErrorDebug } from "../../../common/debug.js";
 import { getWalletByNameOrDefault } from "../../commands/wallet/utils.js";
+import { getExpertClient } from "../../../experts/ExpertRemoteClient.js";
 
 /**
  * Options for the create expert command
@@ -88,7 +88,8 @@ export async function createExpert(
     };
 
     // Insert expert into database
-    const success = getDB().insertExpert(expert);
+    const expertClient = getExpertClient();
+    const success = await expertClient.insertExpert(expert);
     if (!success) {
       throw new Error("Failed to insert expert into database");
     }

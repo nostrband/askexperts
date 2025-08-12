@@ -2,7 +2,7 @@
  * Authentication utilities for NIP-98 token-based authentication
  */
 import { createHash } from 'crypto';
-import { getPublicKey, finalizeEvent } from 'nostr-tools';
+import { getPublicKey, finalizeEvent, verifyEvent } from 'nostr-tools';
 
 /**
  * Interface for HTTP requests with authorization headers
@@ -70,7 +70,7 @@ export async function parseAuthToken(origin: string, req: AuthRequest): Promise<
     }
 
     // Finally after all cheap checks are done, verify the signature
-    if (!verifyEvent(event)) return "";
+    if (!verifyNostrEvent(event)) return "";
 
     // all ok
     return event.pubkey;
@@ -85,10 +85,8 @@ export async function parseAuthToken(origin: string, req: AuthRequest): Promise<
  * @param event - Nostr event to verify
  * @returns True if signature is valid, false otherwise
  */
-function verifyEvent(event: any): boolean {
+function verifyNostrEvent(event: any): boolean {
   try {
-    // Import from nostr-tools dynamically to avoid circular dependencies
-    const { verifyEvent } = require('nostr-tools');
     return verifyEvent(event);
   } catch (error) {
     console.error('Error verifying event:', error);

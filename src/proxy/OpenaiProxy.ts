@@ -335,10 +335,12 @@ export class OpenaiProxy {
       // and start terminating only after that.
 
       // Wait until all connections are closed with timeout
+      let to;
       await Promise.race([
         closePromise,
-        new Promise((ok) => setTimeout(ok, 5000)),
+        new Promise((ok) => to = setTimeout(ok, 5000)),
       ]);
+      clearTimeout(to);
 
       debugError("Server stopped");
       resolve();

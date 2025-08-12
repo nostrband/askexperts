@@ -6,10 +6,10 @@ import {
   enableErrorDebug,
 } from "../../common/debug.js";
 import * as readline from "readline";
-import { getDB } from "../../db/utils.js";
 import { DBExpert } from "../../db/interfaces.js";
 import * as fs from "fs";
 import * as path from "path";
+import { getExpertClient } from "../../experts/ExpertRemoteClient.js";
 
 /**
  * Options for the chat command
@@ -40,8 +40,8 @@ export async function executeChatCommand(
     
     // Try to find expert by nickname if it doesn't look like a pubkey
     if (!expertIdentifier.startsWith('npub') && expertIdentifier.length !== 64) {
-      const db = getDB();
-      const experts = db.listExperts();
+      const expertClient = getExpertClient();
+      const experts = await expertClient.listExperts();
       const expertByNickname = experts.find((expert: DBExpert) =>
         expert.nickname.toLowerCase() === expertIdentifier.toLowerCase()
       );

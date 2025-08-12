@@ -1,11 +1,12 @@
 import { DatabaseSync } from "node:sqlite";
 import { DBDocServer, DBWallet, DBExpert } from "./interfaces.js";
 import { debugDB, debugError } from "../common/debug.js";
+import { ExpertClient } from "../experts/ExpertClient.js";
 
 /**
  * SQLite implementation of the database for experts, wallets, and docstore servers
  */
-export class DB {
+export class DB implements ExpertClient {
   private db: DatabaseSync;
 
   /**
@@ -329,13 +330,13 @@ export class DB {
 
   /**
    * List all experts
-   * @returns Array of expert objects
+   * @returns Promise resolving to an array of expert objects
    */
-  listExperts(): DBExpert[] {
+  async listExperts(): Promise<DBExpert[]> {
     const stmt = this.db.prepare("SELECT * FROM experts ORDER BY pubkey ASC");
     const rows = stmt.all();
 
-    return rows.map(
+    const experts = rows.map(
       (row: Record<string, any>): DBExpert => ({
         pubkey: String(row.pubkey || ""),
         wallet_id: Number(row.wallet_id || 0),
@@ -347,22 +348,24 @@ export class DB {
         disabled: Boolean(row.disabled || false),
       })
     );
+    
+    return Promise.resolve(experts);
   }
 
   /**
    * Get an expert by pubkey
    * @param pubkey - Pubkey of the expert to get
-   * @returns The expert if found, null otherwise
+   * @returns Promise resolving to the expert if found, null otherwise
    */
-  getExpert(pubkey: string): DBExpert | null {
+  async getExpert(pubkey: string): Promise<DBExpert | null> {
     const stmt = this.db.prepare("SELECT * FROM experts WHERE pubkey = ?");
     const row = stmt.get(pubkey);
 
     if (!row) {
-      return null;
+      return Promise.resolve(null);
     }
 
-    return {
+    const expert = {
       pubkey: String(row.pubkey || ""),
       wallet_id: Number(row.wallet_id || 0),
       type: String(row.type || ""),
@@ -372,15 +375,18 @@ export class DB {
       privkey: row.privkey ? String(row.privkey) : undefined,
       disabled: Boolean(row.disabled || false),
     };
+    
+    return Promise.resolve(expert);
   }
 
   /**
    * Insert a new expert
    * @param expert - Expert to insert
-   * @returns true if expert was inserted, false otherwise
+   * @returns Promise resolving to true if expert was inserted, false otherwise
    */
-  insertExpert(expert: DBExpert): boolean {
-    // Check if wallet exists
+  async insertExpert(expert: DBExpert): Promise<boolean> {
+    // Check if wallet exists - using the synchronous getWallet method
+    // since we're not changing wallet methods to async in this refactoring
     const wallet = this.getWallet(expert.wallet_id);
     if (!wallet) {
       throw new Error(`Wallet with ID ${expert.wallet_id} does not exist`);
@@ -402,20 +408,21 @@ export class DB {
         expert.privkey || null,
         expert.disabled ? 1 : 0
       );
-      return true;
+      return Promise.resolve(true);
     } catch (error) {
       debugError("Error inserting expert:", error);
-      return false;
+      return Promise.resolve(false);
     }
   }
 
   /**
    * Update an existing expert
    * @param expert - Expert to update
-   * @returns true if expert was updated, false otherwise
+   * @returns Promise resolving to true if expert was updated, false otherwise
    */
-  updateExpert(expert: DBExpert): boolean {
-    // Check if wallet exists
+  async updateExpert(expert: DBExpert): Promise<boolean> {
+    // Check if wallet exists - using the synchronous getWallet method
+    // since we're not changing wallet methods to async in this refactoring
     const wallet = this.getWallet(expert.wallet_id);
     if (!wallet) {
       throw new Error(`Wallet with ID ${expert.wallet_id} does not exist`);
@@ -438,16 +445,16 @@ export class DB {
       expert.pubkey
     );
 
-    return result.changes > 0;
+    return Promise.resolve(result.changes > 0);
   }
 
   /**
    * Set the disabled status of an expert
    * @param pubkey - Pubkey of the expert to update
    * @param disabled - Whether the expert should be disabled
-   * @returns true if expert was updated, false otherwise
+   * @returns Promise resolving to true if expert was updated, false otherwise
    */
-  setDisabled(pubkey: string, disabled: boolean): boolean {
+  async setExpertDisabled(pubkey: string, disabled: boolean): Promise<boolean> {
     const stmt = this.db.prepare(`
       UPDATE experts
       SET disabled = ?
@@ -459,19 +466,19 @@ export class DB {
       pubkey
     );
 
-    return result.changes > 0;
+    return Promise.resolve(result.changes > 0);
   }
 
   /**
    * Delete an expert
    * @param pubkey - Pubkey of the expert to delete
-   * @returns true if expert was deleted, false otherwise
+   * @returns Promise resolving to true if expert was deleted, false otherwise
    */
-  deleteExpert(pubkey: string): boolean {
+  async deleteExpert(pubkey: string): Promise<boolean> {
     const stmt = this.db.prepare("DELETE FROM experts WHERE pubkey = ?");
     const result = stmt.run(pubkey);
 
-    return result.changes > 0;
+    return Promise.resolve(result.changes > 0);
   }
 
   /**

@@ -3,5 +3,6 @@
  */
 
 export { DB } from './DB.js';
-export { DBDocServer, DBWallet, DBExpert } from './interfaces.js';
+export type { DBExpert } from './interfaces.js';
 export { getDB } from './utils.js';
+export type { ExpertClient } from '../experts/ExpertClient.js';

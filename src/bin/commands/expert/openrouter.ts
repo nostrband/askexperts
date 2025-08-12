@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { getOpenRouter, OpenRouter } from "../../../experts/utils/OpenRouter.js";
+import { getOpenRouter } from "../../../experts/utils/OpenRouter.js";
 import {
   debugError,
   debugExpert,
@@ -12,6 +12,7 @@ import { getPublicKey } from "nostr-tools";
 import { bytesToHex } from "nostr-tools/utils";
 import { DBExpert } from "../../../db/interfaces.js";
 import { getWalletByNameOrDefault } from "../wallet/utils.js";
+import { getExpertClient } from "../../../experts/ExpertRemoteClient.js";
 
 /**
  * Options for the OpenRouter experts command
@@ -38,7 +39,9 @@ export async function manageOpenRouterExperts(
   else enableErrorDebug();
 
   try {
-    // Get the database instance
+    // Get the expert client
+    const expertClient = getExpertClient();
+    // Get the database instance for wallet operations
     const db = getDB();
 
     const openRouter = getOpenRouter();
@@ -60,18 +63,22 @@ export async function manageOpenRouterExperts(
     debugExpert(`Using wallet: ${wallet.name} (ID: ${wallet.id})`);
 
     // Get all existing OpenRouter experts from the database
-    const allExperts = db.listExperts();
+    const allExperts = await expertClient.listExperts();
     const openRouterExperts = allExperts.filter(
       (expert) => expert.type === "openrouter"
     );
-    debugExpert(`Found ${openRouterExperts.length} existing OpenRouter experts in database`);
+    debugExpert(
+      `Found ${openRouterExperts.length} existing OpenRouter experts in database`
+    );
 
     // Create a map of existing experts by model ID
     const existingExpertsByModel = new Map<string, DBExpert>();
     for (const expert of openRouterExperts) {
       // Extract model from env (format: EXPERT_MODEL=model\nEXPERT_MARGIN=margin)
       const envLines = expert.env.split("\n");
-      const modelLine = envLines.find((line) => line.startsWith("EXPERT_MODEL="));
+      const modelLine = envLines.find((line) =>
+        line.startsWith("EXPERT_MODEL=")
+      );
       if (modelLine) {
         const model = modelLine.substring("EXPERT_MODEL=".length);
         existingExpertsByModel.set(model, expert);
@@ -83,21 +90,23 @@ export async function manageOpenRouterExperts(
       const modelId = model.id;
       try {
         debugExpert(`Processing model: ${modelId}`);
-        
+
         // Check if the model is accessible
         const apiKey = process.env.OPENROUTER_API_KEY || "";
         const isModelAccessible = await openRouter.checkModel(modelId, apiKey);
-        
+
         if (!isModelAccessible) {
-          debugExpert(`Skipping model ${modelId} as it requires a provider API key or is not accessible`);
-          
+          debugExpert(
+            `Skipping model ${modelId} as it requires a provider API key or is not accessible`
+          );
+
           // If we have an existing expert for this model, disable it
           const existingExpert = existingExpertsByModel.get(modelId);
           if (existingExpert && !existingExpert.disabled) {
             debugExpert(`Disabling expert for inaccessible model ${modelId}`);
-            db.setDisabled(existingExpert.pubkey, true);
+            await expertClient.setExpertDisabled(existingExpert.pubkey, true);
           }
-          
+
           continue;
         }
 
@@ -107,34 +116,34 @@ export async function manageOpenRouterExperts(
         if (existingExpert) {
           // Update existing expert
           debugExpert(`Updating existing expert for model ${modelId}`);
-          
+
           // Update environment variables with current margin
           const envLines = existingExpert.env.split("\n");
-          const updatedEnvLines = envLines.map(line => {
+          const updatedEnvLines = envLines.map((line) => {
             if (line.startsWith("EXPERT_MARGIN=")) {
               return `EXPERT_MARGIN=${options.margin}`;
             }
             return line;
           });
-          
+
           existingExpert.env = updatedEnvLines.join("\n");
           existingExpert.disabled = false; // Ensure expert is enabled
-          
+
           // Update in database
-          db.updateExpert(existingExpert);
+          await expertClient.updateExpert(existingExpert);
           debugExpert(`Updated expert for model ${modelId}`);
         } else {
           // Create new expert
           debugExpert(`Creating new expert for model ${modelId}`);
-          
+
           // Generate keypair
           const { privateKey } = generateRandomKeyPair();
           const privkey = privateKey;
           const pubkey = getPublicKey(privkey);
-          
+
           // Create environment variables
           const env = `EXPERT_MODEL=${modelId}\nEXPERT_MARGIN=${options.margin}`;
-          
+
           // Create expert object
           const expert: DBExpert = {
             pubkey,
@@ -144,12 +153,14 @@ export async function manageOpenRouterExperts(
             env,
             docstores: "",
             privkey: bytesToHex(privkey),
-            disabled: false
+            disabled: false,
           };
-          
+
           // Insert into database
-          db.insertExpert(expert);
-          debugExpert(`Created expert for model ${modelId} with pubkey ${pubkey}`);
+          await expertClient.insertExpert(expert);
+          debugExpert(
+            `Created expert for model ${modelId} with pubkey ${pubkey}`
+          );
         }
       } catch (error) {
         debugError(`Error processing model ${modelId}: ${error}`);
@@ -157,11 +168,11 @@ export async function manageOpenRouterExperts(
     }
 
     // Disable experts for models that are no longer available
-    const availableModelIds = new Set(filteredModels.map(model => model.id));
+    const availableModelIds = new Set(filteredModels.map((model) => model.id));
     for (const [modelId, expert] of existingExpertsByModel.entries()) {
       if (!availableModelIds.has(modelId)) {
         debugExpert(`Disabling expert for unavailable model ${modelId}`);
-        db.setDisabled(expert.pubkey, true);
+        await expertClient.setExpertDisabled(expert.pubkey, true);
       }
     }
 
@@ -186,7 +197,7 @@ export async function manageOpenRouterExperts(
         }
 
         // Get all existing OpenRouter experts from the database
-        const currentExperts = db.listExperts().filter(
+        const currentExperts = (await expertClient.listExperts()).filter(
           (expert) => expert.type === "openrouter"
         );
 
@@ -194,7 +205,9 @@ export async function manageOpenRouterExperts(
         const currentExpertsByModel = new Map<string, DBExpert>();
         for (const expert of currentExperts) {
           const envLines = expert.env.split("\n");
-          const modelLine = envLines.find((line) => line.startsWith("EXPERT_MODEL="));
+          const modelLine = envLines.find((line) =>
+            line.startsWith("EXPERT_MODEL=")
+          );
           if (modelLine) {
             const model = modelLine.substring("EXPERT_MODEL=".length);
             currentExpertsByModel.set(model, expert);
@@ -207,21 +220,31 @@ export async function manageOpenRouterExperts(
           try {
             // Check if the model is accessible
             const apiKey = process.env.OPENROUTER_API_KEY || "";
-            const isModelAccessible = await openRouter.checkModel(modelId, apiKey);
-            
+            const isModelAccessible = await openRouter.checkModel(
+              modelId,
+              apiKey
+            );
+
             if (!isModelAccessible) {
-              debugExpert(`Skipping model ${modelId} as it requires a provider API key or is not accessible`);
-              
+              debugExpert(
+                `Skipping model ${modelId} as it requires a provider API key or is not accessible`
+              );
+
               // If we have an existing expert for this model, disable it
               const existingExpert = currentExpertsByModel.get(modelId);
               if (existingExpert && !existingExpert.disabled) {
-                debugExpert(`Disabling expert for inaccessible model ${modelId}`);
-                db.setDisabled(existingExpert.pubkey, true);
+                debugExpert(
+                  `Disabling expert for inaccessible model ${modelId}`
+                );
+                await expertClient.setExpertDisabled(
+                  existingExpert.pubkey,
+                  true
+                );
               }
-              
+
               continue;
             }
-            
+
             // Check if we already have an expert for this model
             const existingExpert = currentExpertsByModel.get(modelId);
 
@@ -229,20 +252,23 @@ export async function manageOpenRouterExperts(
               // Enable expert if it was disabled
               if (existingExpert.disabled) {
                 debugExpert(`Re-enabling expert for model ${modelId}`);
-                db.setDisabled(existingExpert.pubkey, false);
+                await expertClient.setExpertDisabled(
+                  existingExpert.pubkey,
+                  false
+                );
               }
             } else {
               // Create new expert
               debugExpert(`Creating new expert for model ${modelId}`);
-              
+
               // Generate keypair
               const { privateKey } = generateRandomKeyPair();
               const privkey = privateKey;
               const pubkey = getPublicKey(privkey);
-              
+
               // Create environment variables
               const env = `EXPERT_MODEL=${modelId}\nEXPERT_MARGIN=${options.margin}`;
-              
+
               // Create expert object
               const expert: DBExpert = {
                 pubkey,
@@ -252,12 +278,14 @@ export async function manageOpenRouterExperts(
                 env,
                 docstores: "",
                 privkey: bytesToHex(privkey),
-                disabled: false
+                disabled: false,
               };
-              
+
               // Insert into database
-              db.insertExpert(expert);
-              debugExpert(`Created expert for model ${modelId} with pubkey ${pubkey}`);
+              await expertClient.insertExpert(expert);
+              debugExpert(
+                `Created expert for model ${modelId} with pubkey ${pubkey}`
+              );
             }
           } catch (error) {
             debugError(`Error processing model ${modelId}: ${error}`);
@@ -265,15 +293,19 @@ export async function manageOpenRouterExperts(
         }
 
         // Disable experts for models that are no longer available
-        const availableModelIds = new Set(latestFilteredModels.map(model => model.id));
+        const availableModelIds = new Set(
+          latestFilteredModels.map((model) => model.id)
+        );
         for (const [modelId, expert] of currentExpertsByModel.entries()) {
           if (!availableModelIds.has(modelId)) {
             debugExpert(`Disabling expert for unavailable model ${modelId}`);
-            db.setDisabled(expert.pubkey, true);
+            await expertClient.setExpertDisabled(expert.pubkey, true);
           }
         }
 
-        debugExpert(`Refreshed experts: ${latestFilteredModels.length} active models`);
+        debugExpert(
+          `Refreshed experts: ${latestFilteredModels.length} active models`
+        );
       } catch (error) {
         debugError(`Error refreshing experts: ${error}`);
       }

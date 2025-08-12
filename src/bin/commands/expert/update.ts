@@ -1,8 +1,7 @@
 import { Command } from "commander";
-import { DBExpert } from "../../../db/interfaces.js";
-import { getDB } from "../../../db/utils.js";
-import { debugError, debugExpert, enableAllDebug, enableErrorDebug } from "../../../common/debug.js";
+import { debugError, enableAllDebug, enableErrorDebug } from "../../../common/debug.js";
 import { getWalletByNameOrDefault } from "../../commands/wallet/utils.js";
+import { getExpertClient } from "../../../experts/ExpertRemoteClient.js";
 
 /**
  * Options for the update expert command
@@ -30,11 +29,11 @@ export async function updateExpert(
     if (options.debug) enableAllDebug();
     else enableErrorDebug();
 
-    // Get DB instance
-    const db = getDB();
+    // Get expert client
+    const expertClient = getExpertClient();
     
     // Get the expert
-    const expert = db.getExpert(pubkey);
+    const expert = await expertClient.getExpert(pubkey);
     if (!expert) {
       throw new Error(`Expert with pubkey ${pubkey} not found`);
     }
@@ -84,7 +83,7 @@ export async function updateExpert(
     }
 
     // Update expert in database
-    const success = getDB().updateExpert(expert);
+    const success = await expertClient.updateExpert(expert);
     if (!success) {
       throw new Error("Failed to update expert in database");
     }

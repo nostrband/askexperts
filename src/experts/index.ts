@@ -1,7 +1,6 @@
 /**
- * Exports for experts
+ * Experts module for ExpertServer and ExpertRemoteClient
  */
 
-export { OpenaiProxyExpert as OpenaiExpert } from './OpenaiProxyExpert.js';
-export { NostrExpert } from './NostrExpert.js';
-export { Nostr } from './utils/Nostr.js';
+export { ExpertServer } from './ExpertServer.js';
+export { ExpertRemoteClient } from './ExpertRemoteClient.js';

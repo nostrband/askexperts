@@ -1,7 +1,7 @@
 import { Command } from "commander";
-import { getDB } from "../../../db/utils.js";
 import { debugError } from "../../../common/debug.js";
 import Table from "cli-table3";
+import { getExpertClient } from "../../../experts/ExpertRemoteClient.js";
 
 /**
  * Options for the ls command
@@ -19,8 +19,8 @@ interface LsCommandOptions {
 export async function listExperts(options: LsCommandOptions): Promise<void> {
   try {
     // Get all experts from the database
-    const db = getDB();
-    let experts = db.listExperts();
+    const expertClient = getExpertClient();
+    let experts = await expertClient.listExperts();
     
     // Filter by type if specified
     if (options.type) {
