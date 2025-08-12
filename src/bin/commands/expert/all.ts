@@ -13,10 +13,12 @@ import {
   enableErrorDebug,
 } from "../../../common/debug.js";
 
-// Import the start functions from run.js
-import { 
-  startNostrExpert, 
-  startOpenRouterExpert 
+// Import the start functions and utilities from run.js
+import {
+  startNostrExpert,
+  startOpenRouterExpert,
+  parseDocstoreIdsList,
+  createDocStoreClientFromParsed
 } from "./run.js";
 
 /**
@@ -69,12 +71,8 @@ export async function runAllExperts(options: AllExpertsCommandOptions): Promise<
     const ragDB = new ChromaRagDB(ragHost, ragPort);
     debugExpert("RAG database initialized");
 
-    // Get fixed docstore path
-    const docstorePath = getDocstorePath();
-    debugExpert(`Using docstore at: ${docstorePath}`);
-
-    // Create DocStoreSQLite instance
-    const docStoreClient = new DocStoreSQLite(docstorePath);
+    // We'll create docstore clients on demand when starting each expert
+    // This allows us to support both local and remote docstores
 
     // Track running experts
     const runningExperts: Map<string, RunningExpert> = new Map();
@@ -91,7 +89,7 @@ export async function runAllExperts(options: AllExpertsCommandOptions): Promise<
         // Final cleaning after all experts are stopped
         setTimeout(() => {
           for (const pm of paymentManagers.values()) pm[Symbol.dispose]();
-          docStoreClient[Symbol.dispose]();
+          // Note: Individual docstore clients are disposed in their respective expert stop handlers
           pool.destroy();
           debugExpert("All experts shut down and resources cleaned up");
           process.exit(0);
@@ -138,12 +136,24 @@ export async function runAllExperts(options: AllExpertsCommandOptions): Promise<
 
         // Start the expert based on its type
         if (expert.type === "nostr") {
+          // Parse docstores - exactly one must be specified
+          const parsedDocstores = parseDocstoreIdsList(expert.docstores);
+          if (parsedDocstores.length !== 1) {
+            throw new Error(
+              `Expert ${expert.nickname} must have exactly one docstore specified, found ${parsedDocstores.length}`
+            );
+          }
+          const parsedDocstore = parsedDocstores[0];
+
+          // Create the appropriate DocStoreClient based on the docstore ID format
+          const expertDocStoreClient = createDocStoreClientFromParsed(parsedDocstore);
+          
           await startNostrExpert(
             expert,
             pool,
             paymentManager,
             ragDB,
-            docStoreClient,
+            expertDocStoreClient,
             expertStopPromise
           );
         } else if (expert.type === "openrouter") {
@@ -274,12 +284,6 @@ export function registerAllCommand(program: Command): void {
         startDelay: cmdOptions.startDelay
       };
       
-      try {
-        await runAllExperts(options);
-      } catch (error) {
-        debugError("Error running all experts:", error);
-        process.exit(1);
-      }
       try {
         await runAllExperts(options);
       } catch (error) {

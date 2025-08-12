@@ -180,6 +180,5 @@ export function registerNostrImportCommand(
     )
     .action(importNostr);
 
-  // Add common options
   addCommonOptions(nostrCommand);
 }

@@ -16,7 +16,7 @@ export function registerImportCommand(
     .description("Import documents from various sources");
   
   // Add common options
-  addCommonOptions(importCommand);
+  // addCommonOptions(importCommand);
   
   // Register import subcommands
   registerNostrImportCommand(importCommand, addCommonOptions);

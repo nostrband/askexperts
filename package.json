@@ -8,7 +8,7 @@
     "askexperts": "./bin/askexperts"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && npm run build:modules",
     "build:client": "npm run build:client:node && npm run build:client:browser && npm run build:client:index && npm run build:client:files",
     "build:client:node": "esbuild src/client/index.ts --bundle --platform=node --target=node18 --format=esm --outfile=dist/client/index.node.js",
     "build:client:browser": "esbuild src/client/index.ts --bundle --platform=browser --target=es2020 --format=esm --outfile=dist/client/index.browser.js --external:stream --external:events --external:zlib --external:util --external:crypto --external:fs --external:path --external:os --external:http --external:https --external:net --external:tls --external:child_process --external:worker_threads --external:readline --external:assert --external:buffer --external:../proxy/* --external:../mcp/AskExpertsHttp* --external:../bin/* --external:../expert/*",
@@ -18,7 +18,7 @@
     "dev": "tsx --watch src/index.ts",
     "expert": "tsx examples/expert-example.ts",
     "test:exports": "tsx tests/test-exports.ts",
-    "prepublishOnly": "npm run build && npm run build:modules",
+    "prepublishOnly": "npm run build",
     "build:modules": "npm run build:client && npm run build:experts && npm run build:docstore && npm run build:server && npm run build:mcp && npm run build:openai && npm run build:rag && npm run build:proxy && npm run build:payments && npm run build:common && npm run build:bin && npm run build:db && npm run build:remote && npm run build:stream",
     "build:experts": "mkdir -p dist/experts && cp -r dist/src/experts/* dist/experts/",
     "build:docstore": "mkdir -p dist/docstore && cp -r dist/src/docstore/* dist/docstore/",

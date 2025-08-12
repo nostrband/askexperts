@@ -225,7 +225,7 @@ export class DocStoreSQLiteServer {
    * @param message - Parsed message
    */
   private async handleMessage(ws: ExtendedWebSocket, message: WebSocketMessage): Promise<void> {
-    debugDocstore(`Received message: ${JSON.stringify(message)}`);
+    // debugDocstore(`Received message: ${JSON.stringify(message)}`);
     
     // Validate message format
     if (!message.id || !message.type || !message.method) {

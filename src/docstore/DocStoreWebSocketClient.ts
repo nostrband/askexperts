@@ -2,6 +2,7 @@ import WebSocket from 'ws';
 import { Doc, DocStore, DocStoreClient, MessageType, Subscription } from './interfaces.js';
 import crypto from 'crypto';
 import { createAuthToken } from '../common/auth.js';
+import { debugDocstore, debugError } from '../common/debug.js';
 
 /**
  * Serializable version of Doc with regular arrays instead of Float32Array
@@ -18,6 +19,8 @@ export class DocStoreWebSocketClient implements DocStoreClient {
   private ws: any; // Using any type for WebSocket to avoid type conflicts
   private messageCallbacks: Map<string, (response: any) => void> = new Map();
   private subscriptionCallbacks: Map<string, (doc?: Doc) => Promise<void>> = new Map();
+  private docBuffers: Map<string, Doc[]> = new Map();
+  private processingSubscriptions: Set<string> = new Set();
   private connected: boolean = false;
   private connectPromise: Promise<void>;
   private connectResolve!: () => void;
@@ -51,7 +54,7 @@ export class DocStoreWebSocketClient implements DocStoreClient {
 
     // Set up event handlers
     this.ws.on('open', () => {
-      console.log('Connected to DocStoreSQLiteServer');
+      debugDocstore('Connected to DocStoreSQLiteServer');
       this.connected = true;
       this.connectResolve();
     });
@@ -61,17 +64,17 @@ export class DocStoreWebSocketClient implements DocStoreClient {
         const message = JSON.parse(data.toString());
         this.handleMessage(message);
       } catch (error) {
-        console.error('Error parsing message:', error);
+        debugError('Error parsing message:', error);
       }
     });
 
     this.ws.on('close', () => {
-      console.log('Disconnected from DocStoreSQLiteServer');
+      debugDocstore('Disconnected from DocStoreSQLiteServer');
       this.connected = false;
     });
 
     this.ws.on('error', (error: Error) => {
-      console.error('WebSocket error:', error);
+      debugError('WebSocket error:', error);
       if (!this.connected) {
         this.connectReject(error);
       }
@@ -109,17 +112,17 @@ export class DocStoreWebSocketClient implements DocStoreClient {
         const subscriptionCallback = this.subscriptionCallbacks.get(id);
         if (subscriptionCallback) {
           if (params.eof) {
-            // End of feed, call with undefined
-            subscriptionCallback(undefined);
+            // End of feed, enqueue undefined to signal end
+            this.enqueueDoc(id, undefined);
           } else if (params.doc) {
-            // Document received, call with the document
-            subscriptionCallback(params.doc);
+            // Document received, enqueue it for processing
+            this.enqueueDoc(id, params.doc);
           }
         }
         break;
 
       default:
-        console.warn(`Unhandled message type: ${type}`);
+        debugDocstore(`Unhandled message type: ${type}`);
     }
   }
 
@@ -349,8 +352,95 @@ export class DocStoreWebSocketClient implements DocStoreClient {
   /**
    * Close the WebSocket connection
    */
-  [Symbol.dispose](): void {
-    this.ws.close();
+  /**
+   * Enqueue a document for processing by a subscription
+   * @param subId - Subscription ID
+   * @param doc - Document to process, or undefined to signal end of feed
+   */
+  private enqueueDoc(subId: string, doc?: Doc): void {
+    // Initialize buffer if it doesn't exist
+    if (!this.docBuffers.has(subId)) {
+      this.docBuffers.set(subId, []);
+    }
+
+    // Get the buffer
+    const buffer = this.docBuffers.get(subId)!;
+
+    // Add the document to the buffer
+    if (doc !== undefined) {
+      buffer.push(doc);
+    } else {
+      // For EOF (undefined), we add a special marker
+      // We'll use null as a marker for EOF since undefined can't be stored in arrays
+      buffer.push(null as unknown as Doc);
+    }
+
+    // Start processing if not already processing
+    if (!this.processingSubscriptions.has(subId)) {
+      this.processDocs(subId);
+    }
   }
+
+  /**
+   * Process documents for a subscription sequentially
+   * @param subId - Subscription ID
+   */
+  private async processDocs(subId: string): Promise<void> {
+    // Mark as processing
+    this.processingSubscriptions.add(subId);
+
+    try {
+      // Get the buffer
+      const buffer = this.docBuffers.get(subId);
+      if (!buffer || buffer.length === 0) {
+        // No documents to process
+        this.processingSubscriptions.delete(subId);
+        return;
+      }
+
+      // Get the callback
+      const callback = this.subscriptionCallbacks.get(subId);
+      if (!callback) {
+        // No callback, clear the buffer
+        this.docBuffers.delete(subId);
+        this.processingSubscriptions.delete(subId);
+        return;
+      }
+
+      // Process the first document
+      const doc = buffer.shift();
+      
+      // Check if it's the EOF marker (null)
+      if (doc === null) {
+        // Call with undefined to signal EOF
+        await callback(undefined);
+      } else {
+        // Process the document
+        await callback(doc);
+      }
+
+      // Continue processing if there are more documents
+      if (buffer.length > 0) {
+        // Process the next document
+        this.processDocs(subId);
+      } else {
+        // No more documents, remove from processing set
+        this.processingSubscriptions.delete(subId);
+      }
+    } catch (error) {
+      debugError('Error processing document:', error);
+      // Remove from processing set to allow retry
+      this.processingSubscriptions.delete(subId);
+    }
+  }
+
+  [Symbol.dispose](): void {
+    debugDocstore("DocStoreWebSocket client dispose");
+    this.ws.close();
+    this.subscriptionCallbacks.clear();
+    this.messageCallbacks.clear();
+    this.docBuffers.clear();
+    this.processingSubscriptions.clear();
+ }
 
 }

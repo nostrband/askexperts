@@ -139,7 +139,7 @@ export class DocstoreToRag {
             // If the batch is full, store it and reset
             if (batch.length >= BATCH_SIZE) {
               await this.ragDB.storeBatch(collection_name, batch);
-              debugDocstore("Synced batch", batch.length);
+              debugDocstore("Synced batch", batch.length, BATCH_SIZE);
               batch = [];
             }
           }

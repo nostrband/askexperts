@@ -16,6 +16,7 @@ import { createOpenAI, OpenaiInterface } from "../../../openai/index.js";
 import { AskExpertsServer } from "../../../server/AskExpertsServer.js";
 import { LightningPaymentManager } from "../../../payments/LightningPaymentManager.js";
 import { DocStoreSQLite } from "../../../docstore/DocStoreSQLite.js";
+import { DocStoreWebSocketClient } from "../../../docstore/DocStoreWebSocketClient.js";
 import { getDocstorePath } from "../../commands/docstore/index.js";
 import dotenv from "dotenv";
 import { DocStoreClient } from "../../../docstore/interfaces.js";
@@ -137,6 +138,96 @@ export async function startOpenRouterExpert(
   });
 }
 
+/**
+ * Parse a docstore ID string into URL and ID components
+ *
+ * If the docstore ID contains a ":", it's treated as a remote docstore with format:
+ * url:docstore_id (e.g., https://docstore.askexperts.io:docstore_id)
+ *
+ * @param docstoreIdStr - The docstore ID string to parse
+ * @returns An object containing the URL (if remote) and the actual docstore ID
+ */
+export function parseDocstoreId(docstoreIdStr: string): {
+  url?: string;
+  id: string;
+} {
+  // Check if the docstore ID contains a ":" character
+  if (docstoreIdStr.includes(":")) {
+    // Find the last ":" to separate URL from docstore ID
+    const lastColonIndex = docstoreIdStr.lastIndexOf(":");
+    
+    // Extract URL (everything before the last colon)
+    const url = docstoreIdStr.substring(0, lastColonIndex);
+    
+    // Extract actual docstore ID (everything after the last colon)
+    const id = docstoreIdStr.substring(lastColonIndex + 1);
+    
+    return { url, id };
+  } else {
+    // No ":" in the docstore ID, use as-is
+    return { id: docstoreIdStr };
+  }
+}
+
+/**
+ * Parse a comma-separated list of docstore IDs
+ *
+ * @param docstoresStr - Comma-separated list of docstore IDs
+ * @returns Array of parsed docstore ID objects
+ */
+export function parseDocstoreIdsList(docstoresStr: string): Array<{
+  url?: string;
+  id: string;
+}> {
+  const docstores = docstoresStr.split(",")
+    .map(d => d.trim())
+    .filter(d => d !== "");
+  
+  return docstores.map(parseDocstoreId);
+}
+
+/**
+ * Create the appropriate DocStoreClient based on a parsed docstore ID
+ *
+ * @param parsedDocstore - Parsed docstore ID object
+ * @returns DocStoreClient instance
+ */
+export function createDocStoreClientFromParsed(parsedDocstore: {
+  url?: string;
+  id: string;
+}): DocStoreClient {
+  if (parsedDocstore.url) {
+    // Remote docstore
+    debugExpert(`Creating DocStoreWebSocketClient for URL: ${parsedDocstore.url}, docstore ID: ${parsedDocstore.id}`);
+    return new DocStoreWebSocketClient(parsedDocstore.url);
+  } else {
+    // Local docstore
+    const docstorePath = getDocstorePath();
+    debugExpert(`Using local DocStoreSQLite at: ${docstorePath}`);
+    return new DocStoreSQLite(docstorePath);
+  }
+}
+
+/**
+ * Parse a docstore ID string and create the appropriate DocStoreClient
+ *
+ * If the docstore ID contains a ":", it's treated as a remote docstore with format:
+ * url:docstore_id (e.g., https://docstore.askexperts.io:docstore_id)
+ *
+ * @param docstoreIdStr - The docstore ID string to parse
+ * @returns An object containing the DocStoreClient and the actual docstore ID
+ */
+export function createDocStoreClient(docstoreIdStr: string): {
+  client: DocStoreClient;
+  docstoreId: string;
+} {
+  const parsedDocstore = parseDocstoreId(docstoreIdStr);
+  return {
+    client: createDocStoreClientFromParsed(parsedDocstore),
+    docstoreId: parsedDocstore.id
+  };
+}
+
 export async function startNostrExpert(
   expert: DBExpert,
   pool: SimplePool,
@@ -171,13 +262,14 @@ export async function startNostrExpert(
     : 0.1;
 
   // Parse docstores - exactly one must be specified
-  const docstores = expert.docstores.split(",").filter((d) => d.trim() !== "");
-  if (docstores.length !== 1) {
+  const parsedDocstores = parseDocstoreIdsList(expert.docstores);
+  if (parsedDocstores.length !== 1) {
     throw new Error(
-      `Expert ${expert.nickname} must have exactly one docstore specified, found ${docstores.length}`
+      `Expert ${expert.nickname} must have exactly one docstore specified, found ${parsedDocstores.length}`
     );
   }
-  const docstoreId = docstores[0].trim();
+  const parsedDocstore = parsedDocstores[0];
+  const docstoreId = parsedDocstore.id;
 
   // Get API key from environment
   const apiKey =
@@ -267,12 +359,17 @@ async function runNostrExpert(
     const ragDB = new ChromaRagDB(ragHost, ragPort);
     debugExpert("RAG database initialized");
 
-    // Get fixed docstore path
-    const docstorePath = getDocstorePath();
-    debugExpert(`Using docstore at: ${docstorePath}`);
+    // Parse docstores - exactly one must be specified
+    const parsedDocstores = parseDocstoreIdsList(expert.docstores);
+    if (parsedDocstores.length !== 1) {
+      throw new Error(
+        `Expert ${expert.nickname} must have exactly one docstore specified, found ${parsedDocstores.length}`
+      );
+    }
+    const parsedDocstore = parsedDocstores[0];
 
-    // Create DocStoreSQLite instance
-    const docStoreClient = new DocStoreSQLite(docstorePath);
+    // Create the appropriate DocStoreClient
+    const docStoreClient = createDocStoreClientFromParsed(parsedDocstore);
 
     // Create payment manager
     const paymentManager = new LightningPaymentManager(nwcString);
@@ -299,7 +396,7 @@ async function runNostrExpert(
       process.on("SIGINT", sigHandler);
       process.on("SIGTERM", sigHandler);
     });
-
+    
     await startNostrExpert(
       expert,
       pool,
