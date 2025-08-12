@@ -1,6 +1,6 @@
 {
   "name": "askexperts",
-  "version": "0.6.18",
+  "version": "0.6.19",
   "description": "AskExperts SDK: build and use AI experts - ask them questions and pay with bitcoin on an open protocol",
   "main": "dist/index.js",
   "type": "module",
@@ -9,15 +9,17 @@
   },
   "scripts": {
     "build": "tsc",
-    "build:client": "npm run build:client:node && npm run build:client:browser",
+    "build:client": "npm run build:client:node && npm run build:client:browser && npm run build:client:index && npm run build:client:files",
     "build:client:node": "esbuild src/client/index.ts --bundle --platform=node --target=node18 --format=esm --outfile=dist/client/index.node.js",
     "build:client:browser": "esbuild src/client/index.ts --bundle --platform=browser --target=es2020 --format=esm --outfile=dist/client/index.browser.js --external:stream --external:events --external:zlib --external:util --external:crypto --external:fs --external:path --external:os --external:http --external:https --external:net --external:tls --external:child_process --external:worker_threads --external:readline --external:assert --external:buffer --external:../proxy/* --external:../mcp/AskExpertsHttp* --external:../bin/* --external:../expert/*",
+    "build:client:index": "echo \"export * from './index.node.js';\" > dist/client/index.js",
+    "build:client:files": "cp -r dist/src/client/* dist/client/",
     "start": "tsx src/index.ts",
     "dev": "tsx --watch src/index.ts",
     "expert": "tsx examples/expert-example.ts",
     "test:exports": "tsx tests/test-exports.ts",
     "prepublishOnly": "npm run build && npm run build:modules",
-    "build:modules": "npm run build:client && npm run build:experts && npm run build:docstore && npm run build:server && npm run build:mcp && npm run build:openai && npm run build:rag && npm run build:proxy && npm run build:payments && npm run build:common",
+    "build:modules": "npm run build:client && npm run build:experts && npm run build:docstore && npm run build:server && npm run build:mcp && npm run build:openai && npm run build:rag && npm run build:proxy && npm run build:payments && npm run build:common && npm run build:bin && npm run build:db && npm run build:remote && npm run build:stream",
     "build:experts": "mkdir -p dist/experts && cp -r dist/src/experts/* dist/experts/",
     "build:docstore": "mkdir -p dist/docstore && cp -r dist/src/docstore/* dist/docstore/",
     "build:server": "mkdir -p dist/server && cp -r dist/src/server/* dist/server/",
@@ -26,7 +28,11 @@
     "build:rag": "mkdir -p dist/rag && cp -r dist/src/rag/* dist/rag/",
     "build:proxy": "mkdir -p dist/proxy && cp -r dist/src/proxy/* dist/proxy/",
     "build:payments": "mkdir -p dist/payments && cp -r dist/src/payments/* dist/payments/",
-    "build:common": "mkdir -p dist/common && cp -r dist/src/common/* dist/common/"
+    "build:common": "mkdir -p dist/common && cp -r dist/src/common/* dist/common/",
+    "build:bin": "mkdir -p dist/bin && cp -r dist/src/bin/* dist/bin/",
+    "build:db": "mkdir -p dist/db && cp -r dist/src/db/* dist/db/",
+    "build:remote": "mkdir -p dist/remote && cp -r dist/src/remote/* dist/remote/",
+    "build:stream": "mkdir -p dist/stream && cp -r dist/src/stream/* dist/stream/"
   },
   "keywords": [
     "mcp",
@@ -44,8 +50,10 @@
     "dist/index.js",
     "dist/index.d.ts",
     "dist/index.js.map",
+    "dist/bin",
     "dist/client",
     "dist/common",
+    "dist/db",
     "dist/docstore",
     "dist/experts",
     "dist/mcp",
@@ -53,7 +61,9 @@
     "dist/payments",
     "dist/proxy",
     "dist/rag",
+    "dist/remote",
     "dist/server",
+    "dist/stream",
     "bin",
     "README.md"
   ],
@@ -89,6 +99,15 @@
     },
     "./common": {
       "default": "./dist/common/index.js"
+    },
+    "./db": {
+      "default": "./dist/db/index.js"
+    },
+    "./remote": {
+      "default": "./dist/remote/index.js"
+    },
+    "./stream": {
+      "default": "./dist/stream/index.js"
     }
   },
   "publishConfig": {

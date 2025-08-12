@@ -1,4 +1,4 @@
 #!/usr/bin/env node
 
 // Import the compiled JavaScript file from dist directory
-import '../dist/src/bin/cli.js';
+import '../dist/bin/cli.js';
