@@ -170,7 +170,7 @@ export function registerNostrImportCommand(
       "Comma-separated list of event kinds to import"
     )
     .option(
-      "-r, --relays <relays>",
+      "--relays <relays>",
       "Comma-separated list of relays to fetch from"
     )
     .option(

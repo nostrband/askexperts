@@ -51,8 +51,6 @@ export function registerListCommand(
   const lsCommand = docstoreCommand
     .command("ls")
     .description("List all docstores")
-    .option("-r, --remote", "Use remote client")
-    .option("-u, --url <url>", "URL of remote server (default: https://docstore.askexperts.io)")
     .action(listDocstores);
   
   addCommonOptions(lsCommand);
