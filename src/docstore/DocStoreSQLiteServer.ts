@@ -18,7 +18,6 @@ interface ExtendedWebSocket {
   on: (event: string, listener: (...args: any[]) => void) => void;
   pubkey?: string; // Added pubkey for authenticated connections
   user_id?: string; // Added user_id for authenticated connections
-  perms?: { listIds?: string[] }; // Added perms object for storing permission results
 }
 
 /**
@@ -119,25 +118,14 @@ export class DocStoreSQLiteServer {
             return;
           }
           
-          // Check if the user is allowed
-          try {
-            await this.perms.checkUser(pubkey);
-          } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : 'User is not allowed';
-            debugError(`Authentication failed: ${errorMessage}`);
-            socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
-            socket.destroy();
-            return;
-          }
-          
-          // Get user_id
+          // Get user_id (this will also validate the user)
           let user_id: string;
           try {
             user_id = await this.perms.getUserId(pubkey);
           } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : 'Failed to get user ID';
+            const errorMessage = error instanceof Error ? error.message : 'User is not allowed or failed to get user ID';
             debugError(`Authentication failed: ${errorMessage}`);
-            socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n');
+            socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
             socket.destroy();
             return;
           }
@@ -250,9 +238,9 @@ export class DocStoreSQLiteServer {
     // Check permissions if perms is provided and user_id is available
     if (this.perms && ws.user_id) {
       try {
-        // Store the result of checkPerms in the WebSocket connection
+        // Store the result of checkPerms in the message
         const permsResult = await this.perms.checkPerms(ws.user_id, message);
-        ws.perms = permsResult || {};
+        message.perms = permsResult || {};
       } catch (error) {
         debugError('Permission check error:', error);
         const errorMessage = error instanceof Error ? error.message : 'Permission denied for this operation';
@@ -605,11 +593,11 @@ export class DocStoreSQLiteServer {
     try {
       let docstores: DocStore[];
       
-      // Check if we have listIds in the perms object
-      if (ws.perms?.listIds && ws.perms.listIds.length > 0) {
+      // Check if we have listIds in the message perms object
+      if (message.perms?.listIds && message.perms.listIds.length > 0) {
         // List docstores by IDs
-        docstores = await this.docStore.listDocStoresByIds(ws.perms.listIds);
-        debugDocstore(`Listing docstores by IDs: ${ws.perms.listIds.join(', ')}`);
+        docstores = await this.docStore.listDocStoresByIds(message.perms.listIds);
+        debugDocstore(`Listing docstores by IDs: ${message.perms.listIds.join(', ')}`);
       } else {
         // List all docstores
         docstores = await this.docStore.listDocstores();

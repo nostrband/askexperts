@@ -168,6 +168,7 @@ export interface WebSocketMessage {
     code: string;
     message: string;
   };
+  perms?: { listIds?: string[] }; // Added perms object for storing permission results
 }
 
 /**
@@ -176,16 +177,8 @@ export interface WebSocketMessage {
  */
 export interface DocStorePerms {
   /**
-   * Check if a pubkey is a valid user
-   * @param pubkey - The public key of the user
-   * @throws Error if the user is not valid with a custom error message
-   * @returns Promise that resolves if the user is valid
-   */
-  checkUser(pubkey: string): Promise<void>;
-  
-  /**
    * Check if a user is allowed to perform an operation
-   * @param pubkey - The public key of the user
+   * @param user_id - The user ID
    * @param message - The WebSocket message being processed
    * @throws Error if the operation is not allowed with a custom error message
    * @returns Promise that resolves with an optional object containing listIds if the operation is allowed
@@ -195,6 +188,7 @@ export interface DocStorePerms {
   /**
    * Get the user ID associated with a public key
    * @param pubkey - Public key of the user
+   * @throws Error if the user is not valid or doesn't exist
    * @returns Promise that resolves with the user ID
    */
   getUserId(pubkey: string): Promise<string>;
