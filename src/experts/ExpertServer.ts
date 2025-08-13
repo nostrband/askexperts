@@ -60,7 +60,14 @@ export class ExpertServer {
 
     // Configure middleware
     this.app.use(cors());
-    this.app.use(express.json({ limit: "1mb" }));
+    this.app.use(
+      express.json({
+        limit: "1mb",
+        verify: (req: http.IncomingMessage, res, buf) => {
+          (req as any).rawBody = buf;
+        },
+      })
+    );
 
     // Add authentication middleware if perms is provided
     if (this.perms) {
@@ -86,7 +93,7 @@ export class ExpertServer {
         headers: req.headers,
         method: req.method,
         originalUrl: req.originalUrl,
-        rawBody: req.body ? Buffer.from(JSON.stringify(req.body)) : undefined,
+        rawBody: (req as any).rawBody,
       };
 
       // Parse the auth token
@@ -95,12 +102,10 @@ export class ExpertServer {
       // If pubkey is empty, authentication failed
       if (!pubkey) {
         debugError("Authentication failed: Invalid or missing token");
-        res
-          .status(401)
-          .json({
-            error: "Unauthorized",
-            message: "Invalid or missing authentication token",
-          });
+        res.status(401).json({
+          error: "Unauthorized",
+          message: "Invalid or missing authentication token",
+        });
         return;
       }
 
@@ -113,7 +118,7 @@ export class ExpertServer {
           // Get user_id and store it in the request
           const user_id = await this.perms.getUserId(pubkey);
           (req as any).user_id = user_id;
-          
+
           const permsResult = await this.perms.checkPerms(user_id, req);
           // Store the perms result in the request for later use
           (req as any).perms = permsResult;
@@ -132,12 +137,10 @@ export class ExpertServer {
       next();
     } catch (error) {
       debugError("Authentication error:", error);
-      res
-        .status(500)
-        .json({
-          error: "Internal Server Error",
-          message: "Authentication error",
-        });
+      res.status(500).json({
+        error: "Internal Server Error",
+        message: "Authentication error",
+      });
     }
   }
 
@@ -199,16 +202,18 @@ export class ExpertServer {
 
     try {
       let experts;
-      
+
       // Check if we have listIds in the perms object
       if ((req as any).perms?.listIds !== undefined) {
         // Use the listExpertsByIds method with the provided IDs
-        experts = await this.expertClient.listExpertsByIds((req as any).perms.listIds);
+        experts = await this.expertClient.listExpertsByIds(
+          (req as any).perms.listIds
+        );
       } else {
         // Use the regular listExperts method
         experts = await this.expertClient.listExperts();
       }
-      
+
       res.status(200).json(experts);
     } catch (error) {
       debugError("Error handling list experts request:", error);

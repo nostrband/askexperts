@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { debugError } from "../../../common/debug.js";
 import { WalletCommandOptions, createWalletClient } from "./client.js";
+import { addCommonOptions } from "./index.js";
 
 /**
  * Execute the list wallets command
@@ -43,11 +44,9 @@ export async function executeListWalletsCommand(options: WalletCommandOptions = 
  * @param program The commander program
  */
 export function registerListCommand(program: Command): void {
-  program
+  const command = program
     .command("list")
     .description("List all wallets")
-    .option("-r, --remote", "Use remote wallet client")
-    .option("-u, --url <url>", "URL of remote wallet server (default: https://walletapi.askexperts.io)")
     .action(async (options) => {
       try {
         await executeListWalletsCommand(options);
@@ -56,4 +55,7 @@ export function registerListCommand(program: Command): void {
         process.exit(1);
       }
     });
+    
+  // Add common options (debug, remote, url)
+  addCommonOptions(command);
 }

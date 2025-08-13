@@ -3,6 +3,7 @@ import { debugError } from "../../../common/debug.js";
 import { nwc } from "@getalby/sdk";
 import { getWalletByNameOrDefault } from "./utils.js";
 import { WalletCommandOptions } from "./client.js";
+import { addCommonOptions } from "./index.js";
 
 /**
  * Options for the balance command
@@ -52,12 +53,10 @@ export async function executeBalanceCommand(
  * @param program The commander program
  */
 export function registerBalanceCommand(program: Command): void {
-  program
+  const command = program
     .command("balance")
     .description("Check wallet balance")
     .option("--wallet <name>", "Wallet to use (default wallet if not specified)")
-    .option("-r, --remote", "Use remote wallet client")
-    .option("-u, --url <url>", "URL of remote wallet server (default: https://walletapi.askexperts.io)")
     .action(async (options) => {
       try {
         await executeBalanceCommand(options);
@@ -66,4 +65,7 @@ export function registerBalanceCommand(program: Command): void {
         process.exit(1);
       }
     });
+    
+  // Add common options (debug, remote, url)
+  addCommonOptions(command);
 }

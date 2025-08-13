@@ -3,17 +3,6 @@
  */
 
 /**
- * Interface representing a docstore server
- */
-export interface DBDocServer {
-  id: number;
-  name: string;
-  type: string;
-  url: string;
-  credentials: string;
-}
-
-/**
  * Interface representing a wallet
  */
 export interface DBWallet {

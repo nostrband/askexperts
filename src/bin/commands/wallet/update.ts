@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { debugError } from "../../../common/debug.js";
 import { WalletCommandOptions, createWalletClient } from "./client.js";
+import { addCommonOptions } from "./index.js";
 
 /**
  * Options for the update wallet command
@@ -74,14 +75,12 @@ export async function executeUpdateWalletCommand(
  * @param program The commander program
  */
 export function registerUpdateCommand(program: Command): void {
-  program
+  const command = program
     .command("update")
     .description("Update an existing wallet")
     .argument("<name>", "Name of the wallet to update")
     .option("-n, --nwc <string>", "New NWC connection string")
     .option("--default", "Set this wallet as the default")
-    .option("-r, --remote", "Use remote wallet client")
-    .option("-u, --url <url>", "URL of remote wallet server (default: https://walletapi.askexperts.io)")
     .action(async (name, options) => {
       try {
         await executeUpdateWalletCommand(name, options);
@@ -90,4 +89,7 @@ export function registerUpdateCommand(program: Command): void {
         process.exit(1);
       }
     });
+    
+  // Add common options (debug, remote, url)
+  addCommonOptions(command);
 }

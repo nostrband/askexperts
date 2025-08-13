@@ -1,6 +1,7 @@
 import { getWalletClient } from "../../../wallet/utils.js";
 import { WalletClient } from "../../../wallet/WalletClient.js";
 import { RemoteClient } from "../../../remote/RemoteClient.js";
+import { debugClient, enableAllDebug } from "../../../common/debug.js";
 
 /**
  * Options for wallet commands with remote support
@@ -9,6 +10,7 @@ export interface WalletCommandOptions {
   wallet?: string;
   remote?: boolean;
   url?: string;
+  debug?: boolean;
   [key: string]: any; // Allow other options
 }
 
@@ -19,10 +21,16 @@ export interface WalletCommandOptions {
  * @returns A wallet client instance
  */
 export function createWalletClient(options: WalletCommandOptions): WalletClient {
+  // Enable debug output if debug flag is set
+  if (options.debug) {
+    enableAllDebug();
+  }
+  
   // Use remote client if remote flag is set
   if (options.remote) {
     // Use the provided URL or default to https://walletapi.askexperts.io
     const serverUrl = options.url || "https://walletapi.askexperts.io";
+    debugClient(`Connecting to remote server at ${serverUrl}`);
     
     // Create a RemoteClient to get the private key
     const remoteClient = new RemoteClient();

@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { debugError } from "../../../common/debug.js";
 import readline from "readline";
 import { WalletCommandOptions, createWalletClient } from "./client.js";
+import { addCommonOptions } from "./index.js";
 
 /**
  * Options for the delete wallet command
@@ -85,13 +86,11 @@ export async function executeDeleteWalletCommand(
  * @param program The commander program
  */
 export function registerDeleteCommand(program: Command): void {
-  program
+  const command = program
     .command("delete")
     .description("Delete an existing wallet")
     .argument("<name>", "Name of the wallet to delete")
     .option("-y, --yes", "Skip confirmation prompt")
-    .option("-r, --remote", "Use remote wallet client")
-    .option("-u, --url <url>", "URL of remote wallet server (default: https://walletapi.askexperts.io)")
     .action(async (name, options) => {
       try {
         await executeDeleteWalletCommand(name, options);
@@ -100,4 +99,7 @@ export function registerDeleteCommand(program: Command): void {
         process.exit(1);
       }
     });
+    
+  // Add common options (debug, remote, url)
+  addCommonOptions(command);
 }

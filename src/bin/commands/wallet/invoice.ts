@@ -3,6 +3,7 @@ import { debugError } from "../../../common/debug.js";
 import { nwc } from "@getalby/sdk";
 import { getWalletByNameOrDefault } from "./utils.js";
 import { WalletCommandOptions } from "./client.js";
+import { addCommonOptions } from "./index.js";
 
 /**
  * Options for the invoice command
@@ -96,15 +97,13 @@ export async function executeInvoiceCommand(
  * @param program The commander program
  */
 export function registerInvoiceCommand(program: Command): void {
-  program
+  const command = program
     .command("invoice")
     .description("Create a lightning invoice")
     .argument("<amount_sats>", "Amount in satoshis")
     .option("--wallet <name>", "Wallet to use (default wallet if not specified)")
     .option("--desc <description>", "Invoice description")
     .option("--hash <hash>", "Description hash")
-    .option("-r, --remote", "Use remote wallet client")
-    .option("-u, --url <url>", "URL of remote wallet server (default: https://walletapi.askexperts.io)")
     .action(async (amount, options) => {
       try {
         await executeInvoiceCommand(amount, options);
@@ -113,4 +112,7 @@ export function registerInvoiceCommand(program: Command): void {
         process.exit(1);
       }
     });
+    
+  // Add common options (debug, remote, url)
+  addCommonOptions(command);
 }

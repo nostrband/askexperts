@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { debugError } from "../../../common/debug.js";
 import { createWallet } from "nwc-enclaved-utils";
 import { WalletCommandOptions, createWalletClient } from "./client.js";
+import { addCommonOptions } from "./index.js";
 
 /**
  * Options for the create wallet command
@@ -68,13 +69,11 @@ export async function executeCreateWalletCommand(
  * @param program The commander program
  */
 export function registerCreateCommand(program: Command): void {
-  program
+  const command = program
     .command("create")
     .description("Create a new NWC wallet")
     .argument("<name>", "Name of the wallet")
     .option("--default", "Set this wallet as the default")
-    .option("-r, --remote", "Use remote wallet client")
-    .option("-u, --url <url>", "URL of remote wallet server (default: https://walletapi.askexperts.io)")
     .action(async (name, options) => {
       try {
         await executeCreateWalletCommand(name, options);
@@ -83,4 +82,7 @@ export function registerCreateCommand(program: Command): void {
         process.exit(1);
       }
     });
+    
+  // Add common options (debug, remote, url)
+  addCommonOptions(command);
 }

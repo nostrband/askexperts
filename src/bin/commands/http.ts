@@ -6,7 +6,6 @@ import {
   enableErrorDebug,
 } from "../../common/debug.js";
 import { Command } from "commander";
-import { getWalletByNameOrDefault } from "./wallet/utils.js";
 
 /**
  * Options for the HTTP server command

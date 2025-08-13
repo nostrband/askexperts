@@ -77,7 +77,14 @@ export class WalletServer {
 
     // Configure middleware
     this.app.use(cors());
-    this.app.use(express.json({ limit: "1mb" }));
+    this.app.use(
+      express.json({
+        limit: "1mb",
+        verify: (req: http.IncomingMessage, res, buf) => {
+          (req as any).rawBody = buf;
+        },
+      })
+    );
 
     // Add authentication middleware if perms is provided
     if (this.perms) {
@@ -103,7 +110,7 @@ export class WalletServer {
         headers: req.headers,
         method: req.method,
         originalUrl: req.originalUrl,
-        rawBody: req.body ? Buffer.from(JSON.stringify(req.body)) : undefined,
+        rawBody: (req as any).rawBody,
       };
 
       // Parse the auth token
@@ -112,12 +119,10 @@ export class WalletServer {
       // If pubkey is empty, authentication failed
       if (!pubkey) {
         debugError("Authentication failed: Invalid or missing token");
-        res
-          .status(401)
-          .json({
-            error: "Unauthorized",
-            message: "Invalid or missing authentication token",
-          });
+        res.status(401).json({
+          error: "Unauthorized",
+          message: "Invalid or missing authentication token",
+        });
         return;
       }
 
@@ -130,7 +135,7 @@ export class WalletServer {
           // Get user_id and store it in the request
           const user_id = await this.perms.getUserId(pubkey);
           (req as any).user_id = user_id;
-          
+
           const permsResult = await this.perms.checkPerms(user_id, req);
           // Store the perms result in the request for later use
           (req as any).perms = permsResult;
@@ -149,12 +154,10 @@ export class WalletServer {
       next();
     } catch (error) {
       debugError("Authentication error:", error);
-      res
-        .status(500)
-        .json({
-          error: "Internal Server Error",
-          message: "Authentication error",
-        });
+      res.status(500).json({
+        error: "Internal Server Error",
+        message: "Authentication error",
+      });
     }
   }
 
@@ -183,10 +186,16 @@ export class WalletServer {
     this.app.get(`${path}wallets/:id`, this.handleGetWallet.bind(this));
 
     // Get wallet by name endpoint
-    this.app.get(`${path}wallets/name/:name`, this.handleGetWalletByName.bind(this));
+    this.app.get(
+      `${path}wallets/name/:name`,
+      this.handleGetWalletByName.bind(this)
+    );
 
     // Get default wallet endpoint
-    this.app.get(`${path}wallets/default`, this.handleGetDefaultWallet.bind(this));
+    this.app.get(
+      `${path}wallets/default`,
+      this.handleGetDefaultWallet.bind(this)
+    );
 
     // Insert wallet endpoint
     this.app.post(`${path}wallets`, this.handleInsertWallet.bind(this));
@@ -213,11 +222,13 @@ export class WalletServer {
 
     try {
       let wallets;
-      
+
       // Check if we have listIds in the perms object
       if ((req as any).perms?.listIds !== undefined) {
         // Convert string IDs to numbers for wallet IDs
-        const numericIds = (req as any).perms.listIds.map((id: string) => parseInt(id, 10));
+        const numericIds = (req as any).perms.listIds.map((id: string) =>
+          parseInt(id, 10)
+        );
         // Filter out any NaN values that might result from invalid IDs
         const validIds = numericIds.filter((id: number) => !isNaN(id));
         // Use the listWalletsByIds method with the provided IDs
@@ -226,7 +237,7 @@ export class WalletServer {
         // Use the regular listWallets method
         wallets = await this.walletClient.listWallets();
       }
-      
+
       res.status(200).json(wallets);
     } catch (error) {
       debugError("Error handling list wallets request:", error);
@@ -282,7 +293,10 @@ export class WalletServer {
    * @param res - Express response object
    * @private
    */
-  private async handleGetWalletByName(req: Request, res: Response): Promise<void> {
+  private async handleGetWalletByName(
+    req: Request,
+    res: Response
+  ): Promise<void> {
     if (this.stopped) {
       res.status(503).json({ error: "Service unavailable" });
       return;
@@ -319,7 +333,10 @@ export class WalletServer {
    * @param res - Express response object
    * @private
    */
-  private async handleGetDefaultWallet(req: Request, res: Response): Promise<void> {
+  private async handleGetDefaultWallet(
+    req: Request,
+    res: Response
+  ): Promise<void> {
     if (this.stopped) {
       res.status(503).json({ error: "Service unavailable" });
       return;

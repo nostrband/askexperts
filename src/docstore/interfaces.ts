@@ -193,16 +193,3 @@ export interface DocStorePerms {
    */
   getUserId(pubkey: string): Promise<string>;
 }
-
-/**
- * Interface for HTTP requests with authorization headers
- */
-export interface AuthRequest {
-  headers: {
-    authorization?: string;
-    [key: string]: any;
-  };
-  method: string;
-  originalUrl: string;
-  rawBody?: Buffer;
-}

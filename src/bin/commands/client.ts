@@ -1,6 +1,5 @@
 import { Command } from "commander";
 import { AskExpertsSmartClient } from "../../client/index.js";
-import { FORMAT_TEXT } from "../../common/constants.js";
 import { debugMCP, debugError, enableAllDebug, enableErrorDebug } from '../../common/debug.js';
 import { getWalletByNameOrDefault } from "./wallet/utils.js";
 

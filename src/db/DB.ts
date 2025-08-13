@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { DBDocServer, DBWallet, DBExpert } from "./interfaces.js";
+import { DBWallet, DBExpert } from "./interfaces.js";
 import { debugDB, debugError } from "../common/debug.js";
 import { ExpertClient } from "../experts/ExpertClient.js";
 import { WalletClient } from "../wallet/WalletClient.js";
@@ -30,176 +30,41 @@ export class DB implements ExpertClient, WalletClient {
     // Wait up to 3 seconds for locks
     this.db.exec('PRAGMA busy_timeout = 3000;');
 
-    // Create docservers table
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS docservers (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        type TEXT NOT NULL,
-        url TEXT NOT NULL,
-        credentials TEXT NOT NULL
-      )
-    `);
-
-    // Create wallets table
+    // Create wallets table with all columns and indexes
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS wallets (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
+        name TEXT NOT NULL UNIQUE,
         nwc TEXT NOT NULL,
-        default_wallet BOOLEAN NOT NULL DEFAULT 0
+        default_wallet BOOLEAN NOT NULL DEFAULT 0,
+        user_id TEXT NOT NULL DEFAULT ''
       )
     `);
+    
+    // Create index for wallets that can't be included in the CREATE TABLE
+    this.db.exec("CREATE INDEX IF NOT EXISTS idx_wallets_default ON wallets (default_wallet)");
+    this.db.exec("CREATE INDEX IF NOT EXISTS idx_wallets_user_id ON wallets (user_id)");
 
-    // Create experts table
+    // Create experts table with all columns and indexes
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS experts (
         pubkey TEXT PRIMARY KEY,
         wallet_id INTEGER NOT NULL,
         type TEXT NOT NULL,
-        nickname TEXT NOT NULL,
+        nickname TEXT NOT NULL UNIQUE,
         env TEXT NOT NULL,
         docstores TEXT NOT NULL,
         privkey TEXT,
         disabled BOOLEAN NOT NULL DEFAULT 0,
+        user_id TEXT NOT NULL DEFAULT '',
         FOREIGN KEY (wallet_id) REFERENCES wallets(id)
       )
     `);
-
-    // Create indexes for better query performance
-    this.db.exec("CREATE INDEX IF NOT EXISTS idx_wallets_default ON wallets (default_wallet)");
-    this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_wallets_name ON wallets (name)");
+    
+    // Create indexes for experts that can't be included in the CREATE TABLE
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_experts_wallet_id ON experts (wallet_id)");
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_experts_type ON experts (type)");
-    this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_experts_pubkey ON experts (pubkey)");
-    this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_experts_nickname ON experts (nickname)");
-
-    // Migration: Add user_id column to wallets table if it doesn't exist
-    try {
-      // Check if user_id column exists in wallets table
-      const walletColumns = this.db.prepare("PRAGMA table_info(wallets)").all();
-      const hasUserIdColumn = walletColumns.some((col: any) => col.name === 'user_id');
-      
-      if (!hasUserIdColumn) {
-        debugDB("Adding user_id column to wallets table");
-        this.db.exec("ALTER TABLE wallets ADD COLUMN user_id TEXT NOT NULL DEFAULT ''");
-        this.db.exec("CREATE INDEX IF NOT EXISTS idx_wallets_user_id ON wallets (user_id)");
-      }
-    } catch (error) {
-      debugError("Error adding user_id column to wallets table:", error);
-    }
-
-    // Migration: Add user_id column to experts table if it doesn't exist
-    try {
-      // Check if user_id column exists in experts table
-      const expertColumns = this.db.prepare("PRAGMA table_info(experts)").all();
-      const hasUserIdColumn = expertColumns.some((col: any) => col.name === 'user_id');
-      
-      if (!hasUserIdColumn) {
-        debugDB("Adding user_id column to experts table");
-        this.db.exec("ALTER TABLE experts ADD COLUMN user_id TEXT NOT NULL DEFAULT ''");
-        this.db.exec("CREATE INDEX IF NOT EXISTS idx_experts_user_id ON experts (user_id)");
-      }
-    } catch (error) {
-      debugError("Error adding user_id column to experts table:", error);
-    }
-  }
-
-  /**
-   * List all docstore servers
-   * @returns Array of docstore server objects
-   */
-  listDocServers(): DBDocServer[] {
-    const stmt = this.db.prepare("SELECT * FROM docservers ORDER BY id ASC");
-    const rows = stmt.all();
-
-    return rows.map(
-      (row: Record<string, any>): DBDocServer => ({
-        id: Number(row.id || 0),
-        name: String(row.name || ""),
-        type: String(row.type || ""),
-        url: String(row.url || ""),
-        credentials: String(row.credentials || ""),
-      })
-    );
-  }
-
-  /**
-   * Get a docstore server by ID
-   * @param id - ID of the docstore server to get
-   * @returns The docstore server if found, null otherwise
-   */
-  getDocServer(id: number): DBDocServer | null {
-    const stmt = this.db.prepare("SELECT * FROM docservers WHERE id = ?");
-    const row = stmt.get(id);
-
-    if (!row) {
-      return null;
-    }
-
-    return {
-      id: Number(row.id || 0),
-      name: String(row.name || ""),
-      type: String(row.type || ""),
-      url: String(row.url || ""),
-      credentials: String(row.credentials || ""),
-    };
-  }
-
-  /**
-   * Insert a new docstore server
-   * @param docServer - Docstore server to insert (without id)
-   * @returns ID of the inserted docstore server
-   */
-  insertDocServer(docServer: Omit<DBDocServer, "id">): number {
-    const stmt = this.db.prepare(`
-      INSERT INTO docservers (name, type, url, credentials)
-      VALUES (?, ?, ?, ?)
-    `);
-
-    const result = stmt.run(
-      docServer.name,
-      docServer.type,
-      docServer.url,
-      docServer.credentials
-    );
-
-    return result.lastInsertRowid as number;
-  }
-
-  /**
-   * Update an existing docstore server
-   * @param docServer - Docstore server to update
-   * @returns true if docstore server was updated, false otherwise
-   */
-  updateDocServer(docServer: DBDocServer): boolean {
-    const stmt = this.db.prepare(`
-      UPDATE docservers
-      SET name = ?, type = ?, url = ?, credentials = ?
-      WHERE id = ?
-    `);
-
-    const result = stmt.run(
-      docServer.name,
-      docServer.type,
-      docServer.url,
-      docServer.credentials,
-      docServer.id
-    );
-
-    return result.changes > 0;
-  }
-
-  /**
-   * Delete a docstore server
-   * @param id - ID of the docstore server to delete
-   * @returns true if docstore server was deleted, false otherwise
-   */
-  deleteDocServer(id: number): boolean {
-    const stmt = this.db.prepare("DELETE FROM docservers WHERE id = ?");
-    const result = stmt.run(id);
-
-    return result.changes > 0;
+    this.db.exec("CREATE INDEX IF NOT EXISTS idx_experts_user_id ON experts (user_id)");
   }
 
   /**

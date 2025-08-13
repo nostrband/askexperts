@@ -11,6 +11,7 @@ import { registerServerCommand } from "./server.js";
 import { ExpertClient } from "../../../experts/ExpertClient.js";
 import { getExpertClient } from "../../../experts/ExpertRemoteClient.js";
 import { RemoteClient } from "../../../remote/index.js";
+import { debugClient, debugExpert } from "../../../common/debug.js";
 
 /**
  * Common options for expert commands
@@ -32,6 +33,7 @@ export function createExpertClient(options: ExpertCommandOptions): ExpertClient 
   if (options.remote) {
     // Use the provided URL or default to https://expertapi.askexperts.io
     const serverUrl = options.url || "https://expertapi.askexperts.io";
+    debugExpert(`Connecting to remote server at ${serverUrl}`);
     
     // Create a RemoteClient to get the private key
     const remoteClient = new RemoteClient();

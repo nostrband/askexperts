@@ -6,7 +6,6 @@ import {
   enableAllDebug,
   enableErrorDebug,
 } from "../../../common/debug.js";
-import { getWalletClient } from "../../../wallet/index.js";
 import { generateRandomKeyPair } from "../../../common/crypto.js";
 import { getPublicKey } from "nostr-tools";
 import { bytesToHex } from "nostr-tools/utils";

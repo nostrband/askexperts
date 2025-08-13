@@ -4,6 +4,7 @@ import { nwc } from "@getalby/sdk";
 import { parseBolt11 } from "../../../common/bolt11.js";
 import { getWalletByNameOrDefault } from "./utils.js";
 import { WalletCommandOptions } from "./client.js";
+import { addCommonOptions } from "./index.js";
 
 /**
  * Options for the pay command
@@ -95,14 +96,12 @@ export async function executePayCommand(
  * @param program The commander program
  */
 export function registerPayCommand(program: Command): void {
-  program
+  const command = program
     .command("pay")
     .description("Pay a lightning invoice")
     .argument("<invoice>", "Lightning invoice to pay")
     .option("--wallet <name>", "Wallet to use (default wallet if not specified)")
     .option("--amount <sats>", "Amount to pay in satoshis (required for zero-amount invoices)")
-    .option("-r, --remote", "Use remote wallet client")
-    .option("-u, --url <url>", "URL of remote wallet server (default: https://walletapi.askexperts.io)")
     .action(async (invoice, options) => {
       try {
         await executePayCommand(invoice, options);
@@ -111,4 +110,7 @@ export function registerPayCommand(program: Command): void {
         process.exit(1);
       }
     });
+    
+  // Add common options (debug, remote, url)
+  addCommonOptions(command);
 }
