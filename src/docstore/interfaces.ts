@@ -190,7 +190,7 @@ export interface DocStorePerms {
    * @throws Error if the operation is not allowed with a custom error message
    * @returns Promise that resolves with an optional object containing listIds if the operation is allowed
    */
-  checkPerms(pubkey: string, message: WebSocketMessage): Promise<{ listIds?: string[] } | void>;
+  checkPerms(user_id: string, message: WebSocketMessage): Promise<{ listIds?: string[] } | void>;
 
   /**
    * Get the user ID associated with a public key

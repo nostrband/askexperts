@@ -17,6 +17,7 @@ interface ExtendedWebSocket {
   close: () => void;
   on: (event: string, listener: (...args: any[]) => void) => void;
   pubkey?: string; // Added pubkey for authenticated connections
+  user_id?: string; // Added user_id for authenticated connections
   perms?: { listIds?: string[] }; // Added perms object for storing permission results
 }
 
@@ -129,11 +130,24 @@ export class DocStoreSQLiteServer {
             return;
           }
           
+          // Get user_id
+          let user_id: string;
+          try {
+            user_id = await this.perms.getUserId(pubkey);
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Failed to get user ID';
+            debugError(`Authentication failed: ${errorMessage}`);
+            socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n');
+            socket.destroy();
+            return;
+          }
+          
           // Authentication successful, proceed with the connection
           this.wss.handleUpgrade(request, socket, head, (ws: ExtendedWebSocket) => {
-            // Store the pubkey with the WebSocket connection
+            // Store the pubkey and user_id with the WebSocket connection
             ws.pubkey = pubkey;
-            debugDocstore(`connected user`, pubkey);
+            ws.user_id = user_id;
+            debugDocstore(`connected user`, pubkey, `with user_id`, user_id);
             this.wss.emit('connection', ws, request);
           });
         } catch (error) {
@@ -233,11 +247,11 @@ export class DocStoreSQLiteServer {
       return this.sendErrorResponse(ws, message, ErrorCode.INVALID_REQUEST, 'Missing required fields');
     }
     
-    // Check permissions if perms is provided and pubkey is available
-    if (this.perms && ws.pubkey) {
+    // Check permissions if perms is provided and user_id is available
+    if (this.perms && ws.user_id) {
       try {
         // Store the result of checkPerms in the WebSocket connection
-        const permsResult = await this.perms.checkPerms(ws.pubkey, message);
+        const permsResult = await this.perms.checkPerms(ws.user_id, message);
         ws.perms = permsResult || {};
       } catch (error) {
         debugError('Permission check error:', error);
@@ -391,14 +405,9 @@ export class DocStoreSQLiteServer {
         rawDoc.created_at = Math.floor(Date.now() / 1000);
       }
       
-      // Get user_id if perms is provided and pubkey is available
-      if (this.perms && ws.pubkey) {
-        try {
-          rawDoc.user_id = await this.perms.getUserId(ws.pubkey);
-        } catch (error) {
-          debugError('Error getting user_id:', error);
-          // Continue without user_id if there's an error
-        }
+      // Set user_id if available in the WebSocket connection
+      if (ws.user_id) {
+        rawDoc.user_id = ws.user_id;
       }
       
       // Convert regular arrays to Float32Array for embeddings
@@ -519,16 +528,16 @@ export class DocStoreSQLiteServer {
           const docstore = await this.docStore.getDocstore(id);
           
           if (docstore) {
-            // Get user_id
-            const user_id = await this.perms.getUserId(ws.pubkey);
-            
-            // Update the docstore with user_id
-            // Note: We need to add a method to update docstore in DocStoreSQLite
-            // For now, we'll use a workaround by directly updating the docstore in the database
-            const stmt = this.docStore['db'].prepare(
-              "UPDATE docstores SET user_id = ? WHERE id = ?"
-            );
-            stmt.run(user_id, id);
+            // Use the user_id from the WebSocket connection
+            if (ws.user_id) {
+              // Update the docstore with user_id
+              // Note: We need to add a method to update docstore in DocStoreSQLite
+              // For now, we'll use a workaround by directly updating the docstore in the database
+              const stmt = this.docStore['db'].prepare(
+                "UPDATE docstores SET user_id = ? WHERE id = ?"
+              );
+              stmt.run(ws.user_id, id);
+            }
           }
         } catch (error) {
           debugError('Error updating docstore with user_id:', error);

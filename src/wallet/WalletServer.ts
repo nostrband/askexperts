@@ -13,11 +13,11 @@ import { getDB } from "../db/utils.js";
 export interface WalletServerPerms {
   /**
    * Check if the user has permission to perform the requested operation
-   * @param pubkey - Public key of the user
+   * @param user_id - User ID
    * @param req - Express request object
    * @returns Promise that resolves with optional listIds if the user has permission, rejects otherwise
    */
-  checkPerms(pubkey: string, req: Request): Promise<{ listIds?: string[] }>;
+  checkPerms(user_id: string, req: Request): Promise<{ listIds?: string[] }>;
 
   /**
    * Get the user ID associated with a public key
@@ -127,7 +127,11 @@ export class WalletServer {
       // Check permissions if perms is provided
       if (this.perms) {
         try {
-          const permsResult = await this.perms.checkPerms(pubkey, req);
+          // Get user_id and store it in the request
+          const user_id = await this.perms.getUserId(pubkey);
+          (req as any).user_id = user_id;
+          
+          const permsResult = await this.perms.checkPerms(user_id, req);
           // Store the perms result in the request for later use
           (req as any).perms = permsResult;
         } catch (error) {
@@ -359,12 +363,9 @@ export class WalletServer {
         return;
       }
 
-      // Get user_id if perms is provided
-      if (this.perms) {
-        const pubkey = (req as any).pubkey;
-        if (pubkey) {
-          wallet.user_id = await this.perms.getUserId(pubkey);
-        }
+      // Use user_id from the request object if available
+      if ((req as any).user_id) {
+        wallet.user_id = (req as any).user_id;
       }
 
       const id = await this.walletClient.insertWallet(wallet);
@@ -411,12 +412,9 @@ export class WalletServer {
         return;
       }
 
-      // Get user_id if perms is provided
-      if (this.perms) {
-        const pubkey = (req as any).pubkey;
-        if (pubkey) {
-          wallet.user_id = await this.perms.getUserId(pubkey);
-        }
+      // Use user_id from the request object if available
+      if ((req as any).user_id) {
+        wallet.user_id = (req as any).user_id;
       }
 
       const success = await this.walletClient.updateWallet(wallet);

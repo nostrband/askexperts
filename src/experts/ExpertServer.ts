@@ -110,7 +110,11 @@ export class ExpertServer {
       // Check permissions if perms is provided
       if (this.perms) {
         try {
-          const permsResult = await this.perms.checkPerms(pubkey, req);
+          // Get user_id and store it in the request
+          const user_id = await this.perms.getUserId(pubkey);
+          (req as any).user_id = user_id;
+          
+          const permsResult = await this.perms.checkPerms(user_id, req);
           // Store the perms result in the request for later use
           (req as any).perms = permsResult;
         } catch (error) {
@@ -273,12 +277,9 @@ export class ExpertServer {
         return;
       }
 
-      // Get user_id if perms is provided
-      if (this.perms) {
-        const pubkey = (req as any).pubkey;
-        if (pubkey) {
-          expert.user_id = await this.perms.getUserId(pubkey);
-        }
+      // Use user_id from the request object if available
+      if ((req as any).user_id) {
+        expert.user_id = (req as any).user_id;
       }
 
       const success = await this.expertClient.insertExpert(expert);
@@ -329,12 +330,9 @@ export class ExpertServer {
         return;
       }
 
-      // Get user_id if perms is provided
-      if (this.perms) {
-        const pubkey = (req as any).pubkey;
-        if (pubkey) {
-          expert.user_id = await this.perms.getUserId(pubkey);
-        }
+      // Use user_id from the request object if available
+      if ((req as any).user_id) {
+        expert.user_id = (req as any).user_id;
       }
 
       const success = await this.expertClient.updateExpert(expert);
