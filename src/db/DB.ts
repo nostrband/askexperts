@@ -8,7 +8,7 @@ import crypto from "crypto";
 /**
  * SQLite implementation of the database for experts, wallets, and docstore servers
  */
-export class DB implements DBInterface, ExpertClient, WalletClient {
+export class DB implements ExpertClient, WalletClient {
   private db: DatabaseSync;
 
   /**

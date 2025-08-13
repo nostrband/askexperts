@@ -1,13 +1,15 @@
 import { Command } from "commander";
 import { debugError } from "../../../common/debug.js";
 import readline from "readline";
-import { WalletCommandOptions, createWalletClient } from "./client.js";
 import { addCommonOptions } from "./index.js";
+import { createDBClientForCommands } from "../utils.js";
 
 /**
  * Options for the delete wallet command
  */
-interface DeleteWalletOptions extends WalletCommandOptions {
+interface DeleteWalletOptions {
+  remote?: boolean;
+  url?: string;
   yes?: boolean;
 }
 
@@ -29,10 +31,10 @@ export async function executeDeleteWalletCommand(
     }
     
     // Get the wallet client instance
-    const walletClient = createWalletClient(options);
+    const db = await createDBClientForCommands(options);
     
     // Check if wallet with this name exists
-    const existingWallet = await walletClient.getWalletByName(name);
+    const existingWallet = await db.getWalletByName(name);
     if (!existingWallet) {
       throw new Error(`Wallet with name '${name}' does not exist`);
     }
@@ -58,7 +60,7 @@ export async function executeDeleteWalletCommand(
     
     // Delete the wallet
     try {
-      const success = await walletClient.deleteWallet(existingWallet.id);
+      const success = await db.deleteWallet(existingWallet.id);
       
       if (success) {
         console.log(`Wallet '${name}' deleted successfully`);

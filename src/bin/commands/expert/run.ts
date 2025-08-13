@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { getWalletClient } from "../../../wallet/index.js";
-import { DBExpert, DBWallet } from "../../../db/interfaces.js";
+import { DBExpert, DBInterface, DBWallet } from "../../../db/interfaces.js";
 import { NostrExpert } from "../../../experts/NostrExpert.js";
 import { OpenaiProxyExpertBase } from "../../../experts/OpenaiProxyExpertBase.js";
 import { OpenaiProxyExpert } from "../../../experts/OpenaiProxyExpert.js";
@@ -20,7 +20,8 @@ import { DocStoreWebSocketClient } from "../../../docstore/DocStoreWebSocketClie
 import { getDocstorePath } from "../../commands/docstore/index.js";
 import dotenv from "dotenv";
 import { DocStoreClient } from "../../../docstore/interfaces.js";
-import { ExpertCommandOptions, createExpertClient, addRemoteOptions } from "./index.js";
+import { ExpertCommandOptions, addRemoteOptions } from "./index.js";
+import { createDBClientForCommands } from "../utils.js";
 
 /**
  * Options for the run expert command
@@ -35,16 +36,18 @@ interface RunExpertCommandOptions extends ExpertCommandOptions {
  * @param identifier Nickname or pubkey of the expert
  * @returns The expert if found, null otherwise
  */
-async function getExpertByNicknameOrPubkey(identifier: string, options: RunExpertCommandOptions): Promise<DBExpert | null> {
-  const expertClient = createExpertClient(options);
-
+async function getExpertByNicknameOrPubkey(
+  db: DBInterface,
+  identifier: string,
+  options: RunExpertCommandOptions
+): Promise<DBExpert | null> {
   // First try to get by pubkey
-  let expert = await expertClient.getExpert(identifier);
+  let expert = await db.getExpert(identifier);
 
   // If not found, try to find by nickname
   if (!expert) {
     // We need to search through all experts to find by nickname
-    const experts = await expertClient.listExperts();
+    const experts = await db.listExperts();
     expert = experts.find((e) => e.nickname === identifier) || null;
   }
 
@@ -58,9 +61,8 @@ async function getExpertByNicknameOrPubkey(identifier: string, options: RunExper
  * @returns The wallet
  * @throws Error if wallet not found
  */
-async function getWalletForExpert(walletId: string): Promise<DBWallet> {
-  const walletClient = getWalletClient();
-  const wallet = await walletClient.getWallet(walletId);
+async function getWalletForExpert(db: DBInterface, walletId: string): Promise<DBWallet> {
+  const wallet = await db.getWallet(walletId);
   if (!wallet) {
     throw new Error(`Wallet with ID ${walletId} not found`);
   }
@@ -157,13 +159,13 @@ export function parseDocstoreId(docstoreIdStr: string): {
   if (docstoreIdStr.includes(":")) {
     // Find the last ":" to separate URL from docstore ID
     const lastColonIndex = docstoreIdStr.lastIndexOf(":");
-    
+
     // Extract URL (everything before the last colon)
     const url = docstoreIdStr.substring(0, lastColonIndex);
-    
+
     // Extract actual docstore ID (everything after the last colon)
     const id = docstoreIdStr.substring(lastColonIndex + 1);
-    
+
     return { url, id };
   } else {
     // No ":" in the docstore ID, use as-is
@@ -181,10 +183,11 @@ export function parseDocstoreIdsList(docstoresStr: string): Array<{
   url?: string;
   id: string;
 }> {
-  const docstores = docstoresStr.split(",")
-    .map(d => d.trim())
-    .filter(d => d !== "");
-  
+  const docstores = docstoresStr
+    .split(",")
+    .map((d) => d.trim())
+    .filter((d) => d !== "");
+
   return docstores.map(parseDocstoreId);
 }
 
@@ -200,7 +203,9 @@ export function createDocStoreClientFromParsed(parsedDocstore: {
 }): DocStoreClient {
   if (parsedDocstore.url) {
     // Remote docstore
-    debugExpert(`Creating DocStoreWebSocketClient for URL: ${parsedDocstore.url}, docstore ID: ${parsedDocstore.id}`);
+    debugExpert(
+      `Creating DocStoreWebSocketClient for URL: ${parsedDocstore.url}, docstore ID: ${parsedDocstore.id}`
+    );
     return new DocStoreWebSocketClient(parsedDocstore.url);
   } else {
     // Local docstore
@@ -226,7 +231,7 @@ export function createDocStoreClient(docstoreIdStr: string): {
   const parsedDocstore = parseDocstoreId(docstoreIdStr);
   return {
     client: createDocStoreClientFromParsed(parsedDocstore),
-    docstoreId: parsedDocstore.id
+    docstoreId: parsedDocstore.id,
   };
 }
 
@@ -274,10 +279,8 @@ export async function startNostrExpert(
   const docstoreId = parsedDocstore.id;
 
   // Get API key from environment
-  const apiKey =
-    expertEnvVars.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
-  const baseURL =
-    expertEnvVars.OPENAI_BASE_URL || process.env.OPENAI_BASE_URL;
+  const apiKey = expertEnvVars.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+  const baseURL = expertEnvVars.OPENAI_BASE_URL || process.env.OPENAI_BASE_URL;
 
   // Create OpenAI interface instance
   const openai = createOpenAI({
@@ -329,12 +332,13 @@ export async function startNostrExpert(
  * @param options Command options
  */
 async function runNostrExpert(
+  db: DBInterface,
   expert: DBExpert,
   options: RunExpertCommandOptions
 ): Promise<void> {
   try {
     // Get wallet for the expert
-    const wallet = await getWalletForExpert(expert.wallet_id);
+    const wallet = await getWalletForExpert(db, expert.wallet_id);
     const nwcString = wallet.nwc;
 
     // Parse environment variables using dotenv
@@ -398,7 +402,7 @@ async function runNostrExpert(
       process.on("SIGINT", sigHandler);
       process.on("SIGTERM", sigHandler);
     });
-    
+
     await startNostrExpert(
       expert,
       pool,
@@ -422,12 +426,13 @@ async function runNostrExpert(
  * @param options Command options
  */
 async function runOpenRouterExpert(
+  db: DBInterface,
   expert: DBExpert,
   options: RunExpertCommandOptions
 ): Promise<void> {
   try {
     // Get wallet for the expert
-    const wallet = await getWalletForExpert(expert.wallet_id);
+    const wallet = await getWalletForExpert(db, expert.wallet_id);
     const nwcString = wallet.nwc;
 
     // Create payment manager
@@ -478,9 +483,11 @@ export async function runExpert(
   if (options.debug) enableAllDebug();
   else enableErrorDebug();
 
+  const db = await createDBClientForCommands(options);
+
   try {
     // Get expert by nickname or pubkey
-    const expert = await getExpertByNicknameOrPubkey(identifier, options);
+    const expert = await getExpertByNicknameOrPubkey(db, identifier, options);
     if (!expert) {
       throw new Error(
         `Expert with nickname or pubkey '${identifier}' not found`
@@ -491,9 +498,9 @@ export async function runExpert(
 
     // Run expert based on type
     if (expert.type === "nostr") {
-      await runNostrExpert(expert, options);
+      await runNostrExpert(db, expert, options);
     } else if (expert.type === "openrouter") {
-      await runOpenRouterExpert(expert, options);
+      await runOpenRouterExpert(db, expert, options);
     } else {
       throw new Error(`Unknown expert type: ${expert.type}`);
     }
@@ -522,7 +529,7 @@ export function registerRunCommand(program: Command): void {
         process.exit(1);
       }
     });
-    
+
   // Add remote options
   addRemoteOptions(command);
 }

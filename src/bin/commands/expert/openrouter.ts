@@ -11,7 +11,8 @@ import { getPublicKey } from "nostr-tools";
 import { bytesToHex } from "nostr-tools/utils";
 import { DBExpert } from "../../../db/interfaces.js";
 import { getWalletByNameOrDefault } from "../wallet/utils.js";
-import { ExpertCommandOptions, createExpertClient, addRemoteOptions } from "./index.js";
+import { ExpertCommandOptions, addRemoteOptions } from "./index.js";
+import { createDBClientForCommands } from "../utils.js";
 
 /**
  * Options for the OpenRouter experts command
@@ -39,7 +40,8 @@ export async function manageOpenRouterExperts(
 
   try {
     // Get the expert client
-    const expertClient = createExpertClient(options);
+    const db = await createDBClientForCommands(options);
+    const user_id = await db.getUserId();
 
     const openRouter = getOpenRouter();
 
@@ -56,11 +58,11 @@ export async function manageOpenRouterExperts(
     }
 
     // Get the wallet to use for experts
-    const wallet = await getWalletByNameOrDefault(options.wallet);
+    const wallet = await getWalletByNameOrDefault(db, options.wallet);
     debugExpert(`Using wallet: ${wallet.name} (ID: ${wallet.id})`);
 
     // Get all existing OpenRouter experts from the database
-    const allExperts = await expertClient.listExperts();
+    const allExperts = await db.listExperts();
     const openRouterExperts = allExperts.filter(
       (expert) => expert.type === "openrouter"
     );
@@ -101,7 +103,7 @@ export async function manageOpenRouterExperts(
           const existingExpert = existingExpertsByModel.get(modelId);
           if (existingExpert && !existingExpert.disabled) {
             debugExpert(`Disabling expert for inaccessible model ${modelId}`);
-            await expertClient.setExpertDisabled(existingExpert.pubkey, true);
+            await db.setExpertDisabled(existingExpert.pubkey, true);
           }
 
           continue;
@@ -127,7 +129,7 @@ export async function manageOpenRouterExperts(
           existingExpert.disabled = false; // Ensure expert is enabled
 
           // Update in database
-          await expertClient.updateExpert(existingExpert);
+          await db.updateExpert(existingExpert);
           debugExpert(`Updated expert for model ${modelId}`);
         } else {
           // Create new expert
@@ -143,6 +145,7 @@ export async function manageOpenRouterExperts(
 
           // Create expert object
           const expert: DBExpert = {
+            user_id,
             pubkey,
             wallet_id: wallet.id,
             type: "openrouter",
@@ -154,7 +157,7 @@ export async function manageOpenRouterExperts(
           };
 
           // Insert into database
-          await expertClient.insertExpert(expert);
+          await db.insertExpert(expert);
           debugExpert(
             `Created expert for model ${modelId} with pubkey ${pubkey}`
           );
@@ -169,7 +172,7 @@ export async function manageOpenRouterExperts(
     for (const [modelId, expert] of existingExpertsByModel.entries()) {
       if (!availableModelIds.has(modelId)) {
         debugExpert(`Disabling expert for unavailable model ${modelId}`);
-        await expertClient.setExpertDisabled(expert.pubkey, true);
+        await db.setExpertDisabled(expert.pubkey, true);
       }
     }
 
@@ -194,7 +197,7 @@ export async function manageOpenRouterExperts(
         }
 
         // Get all existing OpenRouter experts from the database
-        const currentExperts = (await expertClient.listExperts()).filter(
+        const currentExperts = (await db.listExperts()).filter(
           (expert) => expert.type === "openrouter"
         );
 
@@ -233,7 +236,7 @@ export async function manageOpenRouterExperts(
                 debugExpert(
                   `Disabling expert for inaccessible model ${modelId}`
                 );
-                await expertClient.setExpertDisabled(
+                await db.setExpertDisabled(
                   existingExpert.pubkey,
                   true
                 );
@@ -249,7 +252,7 @@ export async function manageOpenRouterExperts(
               // Enable expert if it was disabled
               if (existingExpert.disabled) {
                 debugExpert(`Re-enabling expert for model ${modelId}`);
-                await expertClient.setExpertDisabled(
+                await db.setExpertDisabled(
                   existingExpert.pubkey,
                   false
                 );
@@ -268,6 +271,7 @@ export async function manageOpenRouterExperts(
 
               // Create expert object
               const expert: DBExpert = {
+                user_id,
                 pubkey,
                 wallet_id: wallet.id,
                 type: "openrouter",
@@ -279,7 +283,7 @@ export async function manageOpenRouterExperts(
               };
 
               // Insert into database
-              await expertClient.insertExpert(expert);
+              await db.insertExpert(expert);
               debugExpert(
                 `Created expert for model ${modelId} with pubkey ${pubkey}`
               );
@@ -296,7 +300,7 @@ export async function manageOpenRouterExperts(
         for (const [modelId, expert] of currentExpertsByModel.entries()) {
           if (!availableModelIds.has(modelId)) {
             debugExpert(`Disabling expert for unavailable model ${modelId}`);
-            await expertClient.setExpertDisabled(expert.pubkey, true);
+            await db.setExpertDisabled(expert.pubkey, true);
           }
         }
 

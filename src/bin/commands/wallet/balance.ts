@@ -2,13 +2,15 @@ import { Command } from "commander";
 import { debugError } from "../../../common/debug.js";
 import { nwc } from "@getalby/sdk";
 import { getWalletByNameOrDefault } from "./utils.js";
-import { WalletCommandOptions } from "./client.js";
 import { addCommonOptions } from "./index.js";
+import { createDBClientForCommands } from "../utils.js";
 
 /**
  * Options for the balance command
  */
-interface BalanceOptions extends WalletCommandOptions {
+interface BalanceOptions {
+  remote?: boolean;
+  url?: string;
   wallet?: string;
 }
 
@@ -21,8 +23,10 @@ export async function executeBalanceCommand(
   options: BalanceOptions
 ): Promise<void> {
   try {
+    const db = await createDBClientForCommands(options);
+
     // Get the wallet to use
-    const wallet = await getWalletByNameOrDefault(options);
+    const wallet = await getWalletByNameOrDefault(db, options.wallet);
     
     // Create NWC client
     const client = new nwc.NWCClient({

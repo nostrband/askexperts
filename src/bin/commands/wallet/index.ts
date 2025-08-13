@@ -8,7 +8,6 @@ import { registerBalanceCommand } from "./balance.js";
 import { registerPayCommand } from "./pay.js";
 import { registerInvoiceCommand } from "./invoice.js";
 import { registerHistoryCommand } from "./history.js";
-import { registerServerCommand } from "./server.js";
 
 /**
  * Add debug option to a command
@@ -61,5 +60,4 @@ export function registerWalletCommands(program: Command): void {
   registerPayCommand(walletCommand);
   registerInvoiceCommand(walletCommand);
   registerHistoryCommand(walletCommand);
-  registerServerCommand(walletCommand);
 }

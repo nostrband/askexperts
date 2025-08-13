@@ -5,8 +5,9 @@ import { getPublicKey } from "nostr-tools";
 import { bytesToHex } from "nostr-tools/utils";
 import { debugError, enableAllDebug, enableErrorDebug } from "../../../common/debug.js";
 import { getWalletByNameOrDefault } from "../../commands/wallet/utils.js";
-import { ExpertCommandOptions, createExpertClient, addRemoteOptions } from "./index.js";
+import { ExpertCommandOptions, addRemoteOptions } from "./index.js";
 import { getCurrentUserId } from "../../../common/users.js";
+import { createDBClientForCommands } from "../utils.js";
 
 /**
  * Options for the create expert command
@@ -46,8 +47,10 @@ export async function createExpert(
       throw new Error('Type must be either "nostr" or "openai"');
     }
 
+    const db = await createDBClientForCommands(options);
+
     // Get wallet ID using the utility function
-    const wallet = await getWalletByNameOrDefault(options.wallet);
+    const wallet = await getWalletByNameOrDefault(db, options.wallet);
     const walletId = wallet.id;
 
     // Generate or use provided private key
@@ -90,8 +93,7 @@ export async function createExpert(
     };
 
     // Insert expert into database
-    const expertClient = createExpertClient(options);
-    const success = await expertClient.insertExpert(expert);
+    const success = await db.insertExpert(expert);
     if (!success) {
       throw new Error("Failed to insert expert into database");
     }

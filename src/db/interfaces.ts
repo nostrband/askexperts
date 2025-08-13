@@ -61,6 +61,8 @@ export interface DBInterface {
   setExpertDisabled(pubkey: string, disabled: boolean): Promise<boolean>;
   deleteExpert(pubkey: string): Promise<boolean>;
 
+  getUserId(): Promise<string>;
+
   // Resource cleanup
   [Symbol.dispose](): void;
 }

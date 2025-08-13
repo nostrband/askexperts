@@ -1,7 +1,12 @@
 import { Command } from "commander";
 import { debugError } from "../../../common/debug.js";
-import { WalletCommandOptions, createWalletClient } from "./client.js";
 import { addCommonOptions } from "./index.js";
+import { createDBClientForCommands } from "../utils.js";
+
+interface WalletCommandOptions {
+  remote?: boolean;
+  url?: string;
+}
 
 /**
  * Execute the list wallets command
@@ -11,10 +16,10 @@ import { addCommonOptions } from "./index.js";
 export async function executeListWalletsCommand(options: WalletCommandOptions = {}): Promise<void> {
   try {
     // Get the wallet client instance
-    const walletClient = createWalletClient(options);
+    const db = await createDBClientForCommands(options);
     
     // Get all wallets
-    const wallets = await walletClient.listWallets();
+    const wallets = await db.listWallets();
     
     if (wallets.length === 0) {
       console.log("No wallets found");

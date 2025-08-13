@@ -1,14 +1,16 @@
 import { Command } from "commander";
 import { debugError } from "../../../common/debug.js";
 import { createWallet } from "nwc-enclaved-utils";
-import { WalletCommandOptions, createWalletClient } from "./client.js";
 import { addCommonOptions } from "./index.js";
 import { getCurrentUserId } from "../../../common/users.js";
+import { createDBClientForCommands } from "../utils.js";
 
 /**
  * Options for the create wallet command
  */
-interface CreateWalletOptions extends WalletCommandOptions {
+interface CreateWalletOptions {
+  remote?: boolean;
+  url?: string;
   default?: boolean;
 }
 
@@ -30,10 +32,10 @@ export async function executeCreateWalletCommand(
     }
     
     // Get the wallet client instance
-    const walletClient = createWalletClient(options);
+    const db = await createDBClientForCommands(options);
     
     // Check if wallet with this name already exists
-    const existingWallet = await walletClient.getWalletByName(name);
+    const existingWallet = await db.getWalletByName(name);
     if (existingWallet) {
       throw new Error(`Wallet with name '${name}' already exists`);
     }
@@ -44,7 +46,7 @@ export async function executeCreateWalletCommand(
     const nwcString = wallet.nwcString;
     
     // Add the wallet to the database
-    const walletId = await walletClient.insertWallet({
+    const walletId = await db.insertWallet({
       user_id: getCurrentUserId(),
       name,
       nwc: nwcString,

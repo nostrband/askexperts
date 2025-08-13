@@ -1,7 +1,8 @@
 import { Command } from "commander";
 import { debugError, enableAllDebug, enableErrorDebug } from "../../../common/debug.js";
 import { getWalletByNameOrDefault } from "../../commands/wallet/utils.js";
-import { ExpertCommandOptions, createExpertClient, addRemoteOptions } from "./index.js";
+import { ExpertCommandOptions, addRemoteOptions } from "./index.js";
+import { createDBClientForCommands } from "../utils.js";
 
 /**
  * Options for the update expert command
@@ -30,10 +31,10 @@ export async function updateExpert(
     else enableErrorDebug();
 
     // Get expert client
-    const expertClient = createExpertClient(options);
+    const db = await createDBClientForCommands(options);
     
     // Get the expert
-    const expert = await expertClient.getExpert(pubkey);
+    const expert = await db.getExpert(pubkey);
     if (!expert) {
       throw new Error(`Expert with pubkey ${pubkey} not found`);
     }
@@ -43,7 +44,7 @@ export async function updateExpert(
 
     // Update wallet if specified
     if (options.wallet) {
-      const wallet = await getWalletByNameOrDefault(options.wallet);
+      const wallet = await getWalletByNameOrDefault(db, options.wallet);
       expert.wallet_id = wallet.id;
       changes = true;
     }
@@ -83,7 +84,7 @@ export async function updateExpert(
     }
 
     // Update expert in database
-    const success = await expertClient.updateExpert(expert);
+    const success = await db.updateExpert(expert);
     if (!success) {
       throw new Error("Failed to update expert in database");
     }

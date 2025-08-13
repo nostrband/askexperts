@@ -1,12 +1,14 @@
 import { Command } from "commander";
 import { debugError } from "../../../common/debug.js";
-import { WalletCommandOptions, createWalletClient } from "./client.js";
 import { addCommonOptions } from "./index.js";
+import { createDBClientForCommands } from "../utils.js";
 
 /**
  * Options for the update wallet command
  */
-interface UpdateWalletOptions extends WalletCommandOptions {
+interface UpdateWalletOptions {
+  remote?: boolean;
+  url?: string;
   nwc?: string;
   default?: boolean;
 }
@@ -29,10 +31,10 @@ export async function executeUpdateWalletCommand(
     }
     
     // Get the wallet client instance
-    const walletClient = createWalletClient(options);
+    const db = await createDBClientForCommands(options);
     
     // Check if wallet with this name exists
-    const existingWallet = await walletClient.getWalletByName(name);
+    const existingWallet = await db.getWalletByName(name);
     if (!existingWallet) {
       throw new Error(`Wallet with name '${name}' does not exist`);
     }
@@ -45,7 +47,7 @@ export async function executeUpdateWalletCommand(
     };
     
     // Save the updated wallet
-    const success = await walletClient.updateWallet(updatedWallet);
+    const success = await db.updateWallet(updatedWallet);
     
     if (success) {
       console.log(`Wallet '${name}' updated successfully`);

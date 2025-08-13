@@ -1,7 +1,8 @@
 import { Command } from "commander";
 import { debugError, enableAllDebug, enableErrorDebug } from "../../../common/debug.js";
 import readline from "readline";
-import { ExpertCommandOptions, createExpertClient, addRemoteOptions } from "./index.js";
+import { ExpertCommandOptions, addRemoteOptions } from "./index.js";
+import { createDBClientForCommands } from "../utils.js";
 
 /**
  * Options for the delete expert command
@@ -36,10 +37,10 @@ export async function deleteExpert(
     else enableErrorDebug();
 
     // Get expert client
-    const expertClient = createExpertClient(options);
+    const db = await createDBClientForCommands(options);
     
     // Get the expert
-    const expert = await expertClient.getExpert(pubkey);
+    const expert = await db.getExpert(pubkey);
     if (!expert) {
       throw new Error(`Expert with pubkey ${pubkey} not found`);
     }
@@ -66,7 +67,7 @@ export async function deleteExpert(
     }
 
     // Delete expert from database
-    const success = await expertClient.deleteExpert(pubkey);
+    const success = await db.deleteExpert(pubkey);
     if (!success) {
       throw new Error("Failed to delete expert from database");
     }

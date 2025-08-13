@@ -3,13 +3,15 @@ import { debugError } from "../../../common/debug.js";
 import { nwc } from "@getalby/sdk";
 import { parseBolt11 } from "../../../common/bolt11.js";
 import { getWalletByNameOrDefault } from "./utils.js";
-import { WalletCommandOptions } from "./client.js";
 import { addCommonOptions } from "./index.js";
+import { createDBClientForCommands } from "../utils.js";
 
 /**
  * Options for the pay command
  */
-interface PayOptions extends WalletCommandOptions {
+interface PayOptions {
+  remote?: boolean;
+  url?: string;
   wallet?: string;
   amount?: string;
 }
@@ -31,8 +33,10 @@ export async function executePayCommand(
       throw new Error("Invoice is required");
     }
     
+    const db = await createDBClientForCommands(options);
+
     // Get the wallet to use
-    const wallet = await getWalletByNameOrDefault(options);
+    const wallet = await getWalletByNameOrDefault(db, options.wallet);
     
     // Parse the invoice to get amount
     let amount: number | undefined;

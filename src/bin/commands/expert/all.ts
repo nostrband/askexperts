@@ -1,5 +1,4 @@
 import { Command } from "commander";
-import { getWalletClient } from "../../../wallet/index.js";
 import { DBExpert } from "../../../db/interfaces.js";
 import { SimplePool } from "nostr-tools";
 import { ChromaRagDB } from "../../../rag/index.js";
@@ -18,7 +17,8 @@ import {
   parseDocstoreIdsList,
   createDocStoreClientFromParsed
 } from "./run.js";
-import { ExpertCommandOptions, createExpertClient, addRemoteOptions } from "./index.js";
+import { ExpertCommandOptions, addRemoteOptions } from "./index.js";
+import { createDBClientForCommands } from "../utils.js";
 
 /**
  * Options for the all experts command
@@ -56,6 +56,8 @@ export async function runAllExperts(options: AllExpertsCommandOptions): Promise<
 
   try {
     debugExpert("Initializing shared resources...");
+
+    const db = await createDBClientForCommands(options);
 
     // Create a shared pool
     const pool = new SimplePool();
@@ -109,8 +111,7 @@ export async function runAllExperts(options: AllExpertsCommandOptions): Promise<
 
       try {
         // Get wallet for the expert using the wallet client
-        const walletClient = getWalletClient();
-        const wallet = await walletClient.getWallet(expert.wallet_id);
+        const wallet = await db.getWallet(expert.wallet_id);
         if (!wallet) {
           throw new Error(`Wallet with ID ${expert.wallet_id} not found for expert ${expert.nickname}`);
         }
@@ -194,8 +195,7 @@ export async function runAllExperts(options: AllExpertsCommandOptions): Promise<
 
     // Function to check for experts to start/stop
     async function checkExperts(): Promise<void> {
-      const expertClient = createExpertClient(options);
-      const experts = await expertClient.listExperts();
+      const experts = await db.listExperts();
       
       // Find experts to start (enabled and not already running)
       const expertsToStart = experts.filter(
