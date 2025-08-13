@@ -1,13 +1,14 @@
 import { DatabaseSync } from "node:sqlite";
-import { DBWallet, DBExpert } from "./interfaces.js";
+import { DBWallet, DBExpert, DBUser, DBInterface } from "./interfaces.js";
 import { debugDB, debugError } from "../common/debug.js";
 import { ExpertClient } from "../experts/ExpertClient.js";
 import { WalletClient } from "../wallet/WalletClient.js";
+import crypto from "crypto";
 
 /**
  * SQLite implementation of the database for experts, wallets, and docstore servers
  */
-export class DB implements ExpertClient, WalletClient {
+export class DB implements DBInterface, ExpertClient, WalletClient {
   private db: DatabaseSync;
 
   /**
@@ -33,11 +34,11 @@ export class DB implements ExpertClient, WalletClient {
     // Create wallets table with all columns and indexes
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS wallets (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT PRIMARY KEY,
         name TEXT NOT NULL UNIQUE,
         nwc TEXT NOT NULL,
         default_wallet BOOLEAN NOT NULL DEFAULT 0,
-        user_id TEXT NOT NULL DEFAULT ''
+        user_id TEXT NOT NULL
       )
     `);
     
@@ -49,15 +50,14 @@ export class DB implements ExpertClient, WalletClient {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS experts (
         pubkey TEXT PRIMARY KEY,
-        wallet_id INTEGER NOT NULL,
+        wallet_id TEXT NOT NULL,
         type TEXT NOT NULL,
         nickname TEXT NOT NULL UNIQUE,
         env TEXT NOT NULL,
         docstores TEXT NOT NULL,
         privkey TEXT,
         disabled BOOLEAN NOT NULL DEFAULT 0,
-        user_id TEXT NOT NULL DEFAULT '',
-        FOREIGN KEY (wallet_id) REFERENCES wallets(id)
+        user_id TEXT NOT NULL
       )
     `);
     
@@ -65,6 +65,18 @@ export class DB implements ExpertClient, WalletClient {
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_experts_wallet_id ON experts (wallet_id)");
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_experts_type ON experts (type)");
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_experts_user_id ON experts (user_id)");
+
+    // Create users table with all columns and indexes
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        pubkey TEXT NOT NULL UNIQUE,
+        privkey TEXT NOT NULL
+      )
+    `);
+    
+    // Create index for users
+    this.db.exec("CREATE INDEX IF NOT EXISTS idx_users_pubkey ON users (pubkey)");
   }
 
   /**
@@ -77,7 +89,7 @@ export class DB implements ExpertClient, WalletClient {
 
     const wallets = rows.map(
       (row: Record<string, any>): DBWallet => ({
-        id: Number(row.id || 0),
+        id: String(row.id || ""),
         name: String(row.name || ""),
         nwc: String(row.nwc || ""),
         default: Boolean(row.default || false),
@@ -93,7 +105,7 @@ export class DB implements ExpertClient, WalletClient {
    * @param ids - Array of wallet IDs to retrieve
    * @returns Promise resolving to an array of wallet objects matching the provided IDs
    */
-  async listWalletsByIds(ids: number[]): Promise<DBWallet[]> {
+  async listWalletsByIds(ids: string[]): Promise<DBWallet[]> {
     if (!ids.length) {
       return Promise.resolve([]);
     }
@@ -105,7 +117,7 @@ export class DB implements ExpertClient, WalletClient {
 
     const wallets = rows.map(
       (row: Record<string, any>): DBWallet => ({
-        id: Number(row.id || 0),
+        id: String(row.id || ""),
         name: String(row.name || ""),
         nwc: String(row.nwc || ""),
         default: Boolean(row.default || false),
@@ -121,7 +133,7 @@ export class DB implements ExpertClient, WalletClient {
    * @param id - ID of the wallet to get
    * @returns The wallet if found, null otherwise
    */
-  async getWallet(id: number): Promise<DBWallet | null> {
+  async getWallet(id: string): Promise<DBWallet | null> {
     const stmt = this.db.prepare("SELECT id, name, nwc, default_wallet as 'default' FROM wallets WHERE id = ?");
     const row = stmt.get(id);
 
@@ -130,7 +142,7 @@ export class DB implements ExpertClient, WalletClient {
     }
 
     const wallet = {
-      id: Number(row.id || 0),
+      id: String(row.id || ""),
       name: String(row.name || ""),
       nwc: String(row.nwc || ""),
       default: Boolean(row.default || false),
@@ -154,7 +166,7 @@ export class DB implements ExpertClient, WalletClient {
     }
 
     const wallet = {
-      id: Number(row.id || 0),
+      id: String(row.id || ""),
       name: String(row.name || ""),
       nwc: String(row.nwc || ""),
       default: Boolean(row.default || false),
@@ -177,7 +189,7 @@ export class DB implements ExpertClient, WalletClient {
     }
 
     const wallet = {
-      id: Number(row.id || 0),
+      id: String(row.id || ""),
       name: String(row.name || ""),
       nwc: String(row.nwc || ""),
       default: Boolean(row.default || false),
@@ -192,7 +204,7 @@ export class DB implements ExpertClient, WalletClient {
    * @param wallet - Wallet to insert (without id)
    * @returns ID of the inserted wallet
    */
-  async insertWallet(wallet: Omit<DBWallet, "id">): Promise<number> {
+  async insertWallet(wallet: Omit<DBWallet, "id">): Promise<string> {
     // Check if this is the first wallet, if so mark it as default
     const walletCount = this.db.prepare("SELECT COUNT(*) as count FROM wallets").get();
     const count = walletCount ? Number(walletCount.count) : 0;
@@ -205,18 +217,22 @@ export class DB implements ExpertClient, WalletClient {
     }
 
     const stmt = this.db.prepare(`
-      INSERT INTO wallets (name, nwc, default_wallet, user_id)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO wallets (id, name, nwc, default_wallet, user_id)
+      VALUES (?, ?, ?, ?, ?)
     `);
 
+    // Generate a unique string ID (UUID or similar)
+    const id = crypto.randomUUID();
+    
     const result = stmt.run(
+      id,
       wallet.name,
       wallet.nwc,
       wallet.default ? 1 : 0,
       wallet.user_id || ""
     );
 
-    return Promise.resolve(result.lastInsertRowid as number);
+    return Promise.resolve(id);
   }
 
   /**
@@ -252,7 +268,7 @@ export class DB implements ExpertClient, WalletClient {
    * @param id - ID of the wallet to delete
    * @returns true if wallet was deleted, false otherwise
    */
-  async deleteWallet(id: number): Promise<boolean> {
+  async deleteWallet(id: string): Promise<boolean> {
     // Check if there are any experts using this wallet
     const expertCount = this.db.prepare("SELECT COUNT(*) as count FROM experts WHERE wallet_id = ?").get(id);
     const count = expertCount ? Number(expertCount.count) : 0;
@@ -277,7 +293,7 @@ export class DB implements ExpertClient, WalletClient {
     const experts = rows.map(
       (row: Record<string, any>): DBExpert => ({
         pubkey: String(row.pubkey || ""),
-        wallet_id: Number(row.wallet_id || 0),
+        wallet_id: String(row.wallet_id || ""),
         type: String(row.type || ""),
         nickname: String(row.nickname || ""),
         env: String(row.env || ""),
@@ -309,7 +325,7 @@ export class DB implements ExpertClient, WalletClient {
     const experts = rows.map(
       (row: Record<string, any>): DBExpert => ({
         pubkey: String(row.pubkey || ""),
-        wallet_id: Number(row.wallet_id || 0),
+        wallet_id: String(row.wallet_id || ""),
         type: String(row.type || ""),
         nickname: String(row.nickname || ""),
         env: String(row.env || ""),
@@ -338,7 +354,7 @@ export class DB implements ExpertClient, WalletClient {
 
     const expert = {
       pubkey: String(row.pubkey || ""),
-      wallet_id: Number(row.wallet_id || 0),
+      wallet_id: String(row.wallet_id || ""),
       type: String(row.type || ""),
       nickname: String(row.nickname || ""),
       env: String(row.env || ""),
@@ -449,6 +465,129 @@ export class DB implements ExpertClient, WalletClient {
   async deleteExpert(pubkey: string): Promise<boolean> {
     const stmt = this.db.prepare("DELETE FROM experts WHERE pubkey = ?");
     const result = stmt.run(pubkey);
+
+    return Promise.resolve(result.changes > 0);
+  }
+
+  /**
+   * List all users
+   * @returns Promise resolving to an array of user objects
+   */
+  async listUsers(): Promise<DBUser[]> {
+    const stmt = this.db.prepare("SELECT * FROM users ORDER BY id ASC");
+    const rows = stmt.all();
+
+    const users = rows.map(
+      (row: Record<string, any>): DBUser => ({
+        id: String(row.id || ""),
+        pubkey: String(row.pubkey || ""),
+        privkey: String(row.privkey || "")
+      })
+    );
+    
+    return Promise.resolve(users);
+  }
+
+  /**
+   * Get a user by ID
+   * @param id - ID of the user to get
+   * @returns Promise resolving to the user if found, null otherwise
+   */
+  async getUser(id: string): Promise<DBUser | null> {
+    const stmt = this.db.prepare("SELECT * FROM users WHERE id = ?");
+    const row = stmt.get(id);
+
+    if (!row) {
+      return Promise.resolve(null);
+    }
+
+    const user = {
+      id: String(row.id || ""),
+      pubkey: String(row.pubkey || ""),
+      privkey: String(row.privkey || "")
+    };
+    
+    return Promise.resolve(user);
+  }
+
+  /**
+   * Get a user by pubkey
+   * @param pubkey - Pubkey of the user to get
+   * @returns Promise resolving to the user if found, null otherwise
+   */
+  async getUserByPubkey(pubkey: string): Promise<DBUser | null> {
+    const stmt = this.db.prepare("SELECT * FROM users WHERE pubkey = ?");
+    const row = stmt.get(pubkey);
+
+    if (!row) {
+      return Promise.resolve(null);
+    }
+
+    const user = {
+      id: String(row.id || ""),
+      pubkey: String(row.pubkey || ""),
+      privkey: String(row.privkey || "")
+    };
+    
+    return Promise.resolve(user);
+  }
+
+  /**
+   * Insert a new user
+   * @param user - User to insert (without id)
+   * @returns Promise resolving to the ID of the inserted user
+   */
+  async insertUser(user: Omit<DBUser, "id">): Promise<string> {
+    const stmt = this.db.prepare(`
+      INSERT INTO users (id, pubkey, privkey)
+      VALUES (?, ?, ?)
+    `);
+
+    // Generate a unique string ID (UUID)
+    const id = crypto.randomUUID();
+    
+    try {
+      stmt.run(
+        id,
+        user.pubkey,
+        user.privkey
+      );
+      return Promise.resolve(id);
+    } catch (error) {
+      debugError("Error inserting user:", error);
+      return Promise.reject(error);
+    }
+  }
+
+  /**
+   * Update an existing user
+   * @param user - User to update
+   * @returns Promise resolving to true if user was updated, false otherwise
+   */
+  async updateUser(user: DBUser): Promise<boolean> {
+    const stmt = this.db.prepare(`
+      UPDATE users
+      SET pubkey = ?, privkey = ?
+      WHERE id = ?
+    `);
+
+    const result = stmt.run(
+      user.pubkey,
+      user.privkey,
+      user.id
+    );
+
+    return Promise.resolve(result.changes > 0);
+  }
+
+  /**
+   * Delete a user
+   * @param id - ID of the user to delete
+   * @returns Promise resolving to true if user was deleted, false otherwise
+   */
+  async deleteUser(id: string): Promise<boolean> {
+    const stmt = this.db.prepare("DELETE FROM users WHERE id = ?");
+    const result = stmt.run(id);
 
     return Promise.resolve(result.changes > 0);
   }

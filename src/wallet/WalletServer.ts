@@ -225,14 +225,8 @@ export class WalletServer {
 
       // Check if we have listIds in the perms object
       if ((req as any).perms?.listIds !== undefined) {
-        // Convert string IDs to numbers for wallet IDs
-        const numericIds = (req as any).perms.listIds.map((id: string) =>
-          parseInt(id, 10)
-        );
-        // Filter out any NaN values that might result from invalid IDs
-        const validIds = numericIds.filter((id: number) => !isNaN(id));
-        // Use the listWalletsByIds method with the provided IDs
-        wallets = await this.walletClient.listWalletsByIds(validIds);
+        // Use the listWalletsByIds method with the provided string IDs
+        wallets = await this.walletClient.listWalletsByIds((req as any).perms.listIds);
       } else {
         // Use the regular listWallets method
         wallets = await this.walletClient.listWallets();
@@ -263,8 +257,8 @@ export class WalletServer {
     }
 
     try {
-      const id = parseInt(req.params.id, 10);
-      if (isNaN(id)) {
+      const id = req.params.id;
+      if (!id) {
         res.status(400).json({ error: "Invalid wallet ID" });
         return;
       }
@@ -411,8 +405,8 @@ export class WalletServer {
     }
 
     try {
-      const id = parseInt(req.params.id, 10);
-      if (isNaN(id)) {
+      const id = req.params.id;
+      if (!id) {
         res.status(400).json({ error: "Invalid wallet ID" });
         return;
       }
@@ -464,8 +458,8 @@ export class WalletServer {
     }
 
     try {
-      const id = parseInt(req.params.id, 10);
-      if (isNaN(id)) {
+      const id = req.params.id;
+      if (!id) {
         res.status(400).json({ error: "Invalid wallet ID" });
         return;
       }

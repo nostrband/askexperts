@@ -6,6 +6,7 @@ import { bytesToHex } from "nostr-tools/utils";
 import { debugError, enableAllDebug, enableErrorDebug } from "../../../common/debug.js";
 import { getWalletByNameOrDefault } from "../../commands/wallet/utils.js";
 import { ExpertCommandOptions, createExpertClient, addRemoteOptions } from "./index.js";
+import { getCurrentUserId } from "../../../common/users.js";
 
 /**
  * Options for the create expert command
@@ -78,6 +79,7 @@ export async function createExpert(
 
     // Create expert object
     const expert: DBExpert = {
+      user_id: getCurrentUserId(),
       pubkey,
       wallet_id: walletId,
       type,

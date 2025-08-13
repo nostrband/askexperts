@@ -16,6 +16,7 @@ import { registerDocstoreCommand } from "./commands/docstore/index.js";
 import { registerWalletCommands } from "./commands/wallet/index.js";
 import { registerStreamCommand } from "./commands/stream/index.js";
 import { registerRemoteCommands } from "./commands/remote/index.js";
+import { registerUserCommands } from "./commands/user/index.js";
 
 // Ensure the app directory exists
 if (!fs.existsSync(APP_DIR)) {
@@ -70,6 +71,7 @@ export function runCli(): void {
   registerWalletCommands(program);
   registerStreamCommand(program);
   registerRemoteCommands(program);
+  registerUserCommands(program);
 
   // Parse command line arguments
   program.parse();

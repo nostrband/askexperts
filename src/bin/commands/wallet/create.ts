@@ -3,6 +3,7 @@ import { debugError } from "../../../common/debug.js";
 import { createWallet } from "nwc-enclaved-utils";
 import { WalletCommandOptions, createWalletClient } from "./client.js";
 import { addCommonOptions } from "./index.js";
+import { getCurrentUserId } from "../../../common/users.js";
 
 /**
  * Options for the create wallet command
@@ -44,6 +45,7 @@ export async function executeCreateWalletCommand(
     
     // Add the wallet to the database
     const walletId = await walletClient.insertWallet({
+      user_id: getCurrentUserId(),
       name,
       nwc: nwcString,
       default: options.default || false

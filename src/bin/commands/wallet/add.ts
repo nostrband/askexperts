@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { debugError } from "../../../common/debug.js";
 import { WalletCommandOptions, createWalletClient } from "./client.js";
 import { addCommonOptions } from "./index.js";
+import { getCurrentUserId } from "../../../common/users.js";
 
 /**
  * Options for the add wallet command
@@ -43,6 +44,7 @@ export async function executeAddWalletCommand(
     
     // Add the wallet to the database
     const walletId = await walletClient.insertWallet({
+      user_id: getCurrentUserId(),
       name,
       nwc: options.nwc,
       default: options.default || false

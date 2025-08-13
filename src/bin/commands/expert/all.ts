@@ -77,7 +77,7 @@ export async function runAllExperts(options: AllExpertsCommandOptions): Promise<
     const runningExperts: Map<string, RunningExpert> = new Map();
     
     // Track payment managers by wallet ID
-    const paymentManagers: Map<number, LightningPaymentManager> = new Map();
+    const paymentManagers: Map<string, LightningPaymentManager> = new Map();
 
     // Create a promise that resolves when SIGINT/SIGTERM is received
     const globalStopPromise = new Promise<void>((resolve) => {

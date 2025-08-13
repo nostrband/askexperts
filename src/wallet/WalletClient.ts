@@ -16,14 +16,14 @@ export interface WalletClient {
    * @param ids - Array of wallet IDs to retrieve
    * @returns Promise resolving to an array of wallet objects matching the provided IDs
    */
-  listWalletsByIds(ids: number[]): Promise<DBWallet[]>;
+  listWalletsByIds(ids: string[]): Promise<DBWallet[]>;
 
   /**
    * Get a wallet by ID
    * @param id - ID of the wallet to get
    * @returns Promise resolving to the wallet if found, null otherwise
    */
-  getWallet(id: number): Promise<DBWallet | null>;
+  getWallet(id: string): Promise<DBWallet | null>;
 
   /**
    * Get a wallet by name
@@ -43,7 +43,7 @@ export interface WalletClient {
    * @param wallet - Wallet to insert (without id)
    * @returns Promise resolving to the ID of the inserted wallet
    */
-  insertWallet(wallet: Omit<DBWallet, "id">): Promise<number>;
+  insertWallet(wallet: Omit<DBWallet, "id">): Promise<string>;
 
   /**
    * Update an existing wallet
@@ -57,5 +57,5 @@ export interface WalletClient {
    * @param id - ID of the wallet to delete
    * @returns Promise resolving to true if wallet was deleted, false otherwise
    */
-  deleteWallet(id: number): Promise<boolean>;
+  deleteWallet(id: string): Promise<boolean>;
 }

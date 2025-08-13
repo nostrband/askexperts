@@ -12,7 +12,7 @@ import {
 } from "../../../common/debug.js";
 import { SimplePool } from "nostr-tools";
 import { ChromaRagDB, RagDB } from "../../../rag/index.js";
-import { createOpenAI, OpenaiInterface } from "../../../openai/index.js";
+import { createOpenAI } from "../../../openai/index.js";
 import { AskExpertsServer } from "../../../server/AskExpertsServer.js";
 import { LightningPaymentManager } from "../../../payments/LightningPaymentManager.js";
 import { DocStoreSQLite } from "../../../docstore/DocStoreSQLite.js";
@@ -58,7 +58,7 @@ async function getExpertByNicknameOrPubkey(identifier: string, options: RunExper
  * @returns The wallet
  * @throws Error if wallet not found
  */
-async function getWalletForExpert(walletId: number): Promise<DBWallet> {
+async function getWalletForExpert(walletId: string): Promise<DBWallet> {
   const walletClient = getWalletClient();
   const wallet = await walletClient.getWallet(walletId);
   if (!wallet) {

@@ -70,7 +70,7 @@ export class WalletRemoteClient implements WalletClient {
    * @param ids - Array of wallet IDs to retrieve
    * @returns Promise resolving to an array of wallet objects matching the provided IDs
    */
-  async listWalletsByIds(ids: number[]): Promise<DBWallet[]> {
+  async listWalletsByIds(ids: string[]): Promise<DBWallet[]> {
     try {
       if (!ids.length) {
         return [];
@@ -91,7 +91,7 @@ export class WalletRemoteClient implements WalletClient {
    * @param id - ID of the wallet to get
    * @returns Promise resolving to the wallet if found, null otherwise
    */
-  async getWallet(id: number): Promise<DBWallet | null> {
+  async getWallet(id: string): Promise<DBWallet | null> {
     try {
       const url = `${this.baseUrl}/wallets/${id}`;
       const headers = this.createHeaders('GET', url);
@@ -174,7 +174,7 @@ export class WalletRemoteClient implements WalletClient {
    * @param wallet - Wallet to insert (without id)
    * @returns Promise resolving to the ID of the inserted wallet
    */
-  async insertWallet(wallet: Omit<DBWallet, "id">): Promise<number> {
+  async insertWallet(wallet: Omit<DBWallet, "id">): Promise<string> {
     try {
       const url = `${this.baseUrl}/wallets`;
       const headers = this.createHeaders('POST', url);
@@ -233,7 +233,7 @@ export class WalletRemoteClient implements WalletClient {
    * @param id - ID of the wallet to delete
    * @returns Promise resolving to true if wallet was deleted, false otherwise
    */
-  async deleteWallet(id: number): Promise<boolean> {
+  async deleteWallet(id: string): Promise<boolean> {
     try {
       const url = `${this.baseUrl}/wallets/${id}`;
       const headers = this.createHeaders('DELETE', url);
