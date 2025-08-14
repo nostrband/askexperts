@@ -104,6 +104,7 @@ export class DocStoreSQLiteServer {
             headers: request.headers,
             method: request.method || 'GET',
             originalUrl: request.url || '/',
+            cookies: {},
             // Note: rawBody is not available in upgrade requests
           };
           

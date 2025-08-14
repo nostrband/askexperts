@@ -6,9 +6,10 @@ import type { DBWallet, DBExpert } from "./interfaces.js";
 import { parseAuthToken, AuthRequest } from "../common/auth.js";
 import { getDB } from "./utils.js";
 import { DB } from "./DB.js";
-import { hexToBytes } from "nostr-tools/utils";
+import { bytesToHex, hexToBytes } from "nostr-tools/utils";
 import { getPublicKey } from "nostr-tools";
 import { createWallet } from "nwc-enclaved-utils";
+import { generateRandomKeyPair } from "../common/crypto.js";
 
 /**
  * Interface for DB server permissions
@@ -103,6 +104,14 @@ export class DBServer {
     this.setupRoutes();
   }
 
+  public getApp() {
+    return this.app;
+  }
+
+  public getDB() {
+    return this.db;
+  }
+
   /**
    * Authentication middleware
    * Parses the auth token and checks permissions
@@ -118,6 +127,7 @@ export class DBServer {
         headers: req.headers,
         method: req.method,
         originalUrl: req.originalUrl,
+        cookies: req.cookies,
         rawBody: (req as any).rawBody,
       };
 
@@ -778,6 +788,19 @@ export class DBServer {
         message: message,
       });
     }
+  }
+
+  public async ensureExternalUser(user_id: string) {
+    // FIXME make it all a tx!!!
+    const user = await this.db.getUser(user_id);
+    debugServer(`External user request from ${user_id}, pubkey ${user?.pubkey}`);
+    if (user) return user.pubkey;
+
+    const { privateKey, publicKey } = generateRandomKeyPair();
+    const { nwcString } = await createWallet();
+    await this.addUser(publicKey, nwcString, bytesToHex(privateKey));
+    debugServer(`Created external user ${user_id} pubkey ${publicKey}`);
+    return publicKey;
   }
 
   public async addUser(pubkey: string, nwc: string, privkey?: string) {

@@ -15,6 +15,7 @@ export interface AuthRequest {
   };
   method: string;
   originalUrl: string;
+  cookies: any;
   rawBody?: Buffer;
 }
 
