@@ -2,9 +2,8 @@ import { Command } from "commander";
 import { DocStore, DocStoreClient, DocStoreSQLite, DocStoreWebSocketClient } from "../../../docstore/index.js";
 import fs from "fs";
 import path from "path";
-import { debugError, debugDocstore, enableAllDebug } from "../../../common/debug.js";
+import { debugError, debugDocstore } from "../../../common/debug.js";
 import { APP_DOCSTORE_PATH } from "../../../common/constants.js";
-import { RemoteClient } from "../../../remote/index.js";
 import { registerImportCommand } from "./import/index.js";
 import { registerCreateCommand } from "./create.js";
 import { registerListCommand } from "./ls.js";
@@ -16,6 +15,9 @@ import { registerGetCommand } from "./get.js";
 import { registerListDocsCommand } from "./list.js";
 import { registerSearchCommand } from "./search.js";
 import { registerServerCommand } from "./server.js";
+import { getCurrentUserId } from "../../../common/users.js";
+import { getDB } from "../../../db/index.js";
+import { hexToBytes } from "nostr-tools/utils";
 
 /**
  * Options for docstore commands
@@ -87,13 +89,21 @@ export async function createDocstoreClient(options: DocstoreCommandOptions): Pro
   if (options.remote) {
     // Use the provided URL or default to https://docstore.askexperts.io
     const serverUrl = options.url || "https://docstore.askexperts.io";
+
+    // Get the current user ID
+    const userId = getCurrentUserId();
     
-    // Create a RemoteClient to get the private key
-    const remoteClient = new RemoteClient();
-    const privateKey = remoteClient.getPrivateKey();
+    // Get the user's private key
+    const user = await getDB().getUser(userId);
+    if (!user) {
+      throw new Error(`User with ID ${userId} not found`);
+    }
+    
+    // Convert the private key string to Uint8Array
+    const privkey = hexToBytes(user.privkey);
     
     // Create a DocStoreWebSocketClient with the server URL and private key
-    return new DocStoreWebSocketClient(serverUrl, privateKey);
+    return new DocStoreWebSocketClient(serverUrl, privkey);
   } else {
     // Use local SQLite client
     const docstorePath = getDocstorePath();

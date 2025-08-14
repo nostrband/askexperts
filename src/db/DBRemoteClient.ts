@@ -1,6 +1,7 @@
 import type { DBInterface, DBWallet, DBExpert } from "./interfaces.js";
 import { debugDB, debugError } from "../common/debug.js";
 import { createAuthToken } from "../common/auth.js";
+import { bytesToHex } from "nostr-tools/utils";
 
 /**
  * Remote implementation of the DBInterface
@@ -29,15 +30,24 @@ export class DBRemoteClient implements DBInterface {
    * @param url - URL for the request
    * @returns Headers object with authentication if available
    */
-  private createHeaders(method: string, url: string): HeadersInit {
+  private createHeaders(
+    method: string,
+    url: string,
+    bodyString?: string
+  ): HeadersInit {
     const headers: HeadersInit = {
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
     };
 
     // Add authentication header if privateKey is provided
     if (this.privateKey) {
-      const authToken = createAuthToken(this.privateKey, url, method);
-      headers['Authorization'] = authToken;
+      const authToken = createAuthToken(
+        this.privateKey,
+        url,
+        method,
+        bodyString
+      );
+      headers["Authorization"] = authToken;
     }
 
     return headers;
@@ -50,15 +60,19 @@ export class DBRemoteClient implements DBInterface {
   async listWallets(): Promise<DBWallet[]> {
     try {
       const url = `${this.baseUrl}/wallets`;
-      const headers = this.createHeaders('GET', url);
-      
+      const headers = this.createHeaders("GET", url);
+
       const response = await fetch(url, { headers });
-      
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(`Failed to list wallets: ${response.status} ${response.statusText} - ${errorData.message || ''}`);
+        throw new Error(
+          `Failed to list wallets: ${response.status} ${
+            response.statusText
+          } - ${errorData.message || ""}`
+        );
       }
-      
+
       return await response.json();
     } catch (error) {
       debugError("Error in DBRemoteClient.listWallets:", error);
@@ -80,7 +94,7 @@ export class DBRemoteClient implements DBInterface {
       // For now, we'll fetch all wallets and filter them client-side
       // In a future implementation, this could be optimized with a dedicated endpoint
       const allWallets = await this.listWallets();
-      return allWallets.filter(wallet => ids.includes(wallet.id));
+      return allWallets.filter((wallet) => ids.includes(wallet.id));
     } catch (error) {
       debugError("Error in DBRemoteClient.listWalletsByIds:", error);
       throw error;
@@ -95,19 +109,23 @@ export class DBRemoteClient implements DBInterface {
   async getWallet(id: string): Promise<DBWallet | null> {
     try {
       const url = `${this.baseUrl}/wallets/${id}`;
-      const headers = this.createHeaders('GET', url);
-      
+      const headers = this.createHeaders("GET", url);
+
       const response = await fetch(url, { headers });
-      
+
       if (response.status === 404) {
         return null;
       }
-      
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(`Failed to get wallet: ${response.status} ${response.statusText} - ${errorData.message || ''}`);
+        throw new Error(
+          `Failed to get wallet: ${response.status} ${response.statusText} - ${
+            errorData.message || ""
+          }`
+        );
       }
-      
+
       return await response.json();
     } catch (error) {
       debugError(`Error in DBRemoteClient.getWallet(${id}):`, error);
@@ -123,19 +141,23 @@ export class DBRemoteClient implements DBInterface {
   async getWalletByName(name: string): Promise<DBWallet | null> {
     try {
       const url = `${this.baseUrl}/wallets/name/${encodeURIComponent(name)}`;
-      const headers = this.createHeaders('GET', url);
-      
+      const headers = this.createHeaders("GET", url);
+
       const response = await fetch(url, { headers });
-      
+
       if (response.status === 404) {
         return null;
       }
-      
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(`Failed to get wallet by name: ${response.status} ${response.statusText} - ${errorData.message || ''}`);
+        throw new Error(
+          `Failed to get wallet by name: ${response.status} ${
+            response.statusText
+          } - ${errorData.message || ""}`
+        );
       }
-      
+
       return await response.json();
     } catch (error) {
       debugError(`Error in DBRemoteClient.getWalletByName(${name}):`, error);
@@ -150,19 +172,23 @@ export class DBRemoteClient implements DBInterface {
   async getDefaultWallet(): Promise<DBWallet | null> {
     try {
       const url = `${this.baseUrl}/wallets/default`;
-      const headers = this.createHeaders('GET', url);
-      
+      const headers = this.createHeaders("GET", url);
+
       const response = await fetch(url, { headers });
-      
+
       if (response.status === 404) {
         return null;
       }
-      
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(`Failed to get default wallet: ${response.status} ${response.statusText} - ${errorData.message || ''}`);
+        throw new Error(
+          `Failed to get default wallet: ${response.status} ${
+            response.statusText
+          } - ${errorData.message || ""}`
+        );
       }
-      
+
       return await response.json();
     } catch (error) {
       debugError("Error in DBRemoteClient.getDefaultWallet:", error);
@@ -178,19 +204,24 @@ export class DBRemoteClient implements DBInterface {
   async insertWallet(wallet: Omit<DBWallet, "id">): Promise<string> {
     try {
       const url = `${this.baseUrl}/wallets`;
-      const headers = this.createHeaders('POST', url);
-      
+      const bodyString = JSON.stringify(wallet);
+      const headers = this.createHeaders("POST", url, bodyString);
+
       const response = await fetch(url, {
-        method: 'POST',
+        method: "POST",
         headers,
-        body: JSON.stringify(wallet),
+        body: bodyString,
       });
-      
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(`Failed to insert wallet: ${response.status} ${response.statusText} - ${errorData.message || ''}`);
+        throw new Error(
+          `Failed to insert wallet: ${response.status} ${
+            response.statusText
+          } - ${errorData.message || ""}`
+        );
       }
-      
+
       const result = await response.json();
       return result.id;
     } catch (error) {
@@ -207,20 +238,25 @@ export class DBRemoteClient implements DBInterface {
   async updateWallet(wallet: DBWallet): Promise<boolean> {
     try {
       const url = `${this.baseUrl}/wallets/${wallet.id}`;
-      const headers = this.createHeaders('PUT', url);
-      
+      const bodyString = JSON.stringify(wallet);
+      const headers = this.createHeaders("PUT", url, bodyString);
+
       const response = await fetch(url, {
-        method: 'PUT',
+        method: "PUT",
         headers,
-        body: JSON.stringify(wallet),
+        body: bodyString,
       });
-      
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        debugError(`Failed to update wallet: ${response.status} ${response.statusText} - ${errorData.message || ''}`);
+        debugError(
+          `Failed to update wallet: ${response.status} ${
+            response.statusText
+          } - ${errorData.message || ""}`
+        );
         return false;
       }
-      
+
       const result = await response.json();
       return result.success === true;
     } catch (error) {
@@ -237,19 +273,23 @@ export class DBRemoteClient implements DBInterface {
   async deleteWallet(id: string): Promise<boolean> {
     try {
       const url = `${this.baseUrl}/wallets/${id}`;
-      const headers = this.createHeaders('DELETE', url);
-      
+      const headers = this.createHeaders("DELETE", url);
+
       const response = await fetch(url, {
-        method: 'DELETE',
+        method: "DELETE",
         headers,
       });
-      
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        debugError(`Failed to delete wallet: ${response.status} ${response.statusText} - ${errorData.message || ''}`);
+        debugError(
+          `Failed to delete wallet: ${response.status} ${
+            response.statusText
+          } - ${errorData.message || ""}`
+        );
         return false;
       }
-      
+
       const result = await response.json();
       return result.success === true;
     } catch (error) {
@@ -265,15 +305,19 @@ export class DBRemoteClient implements DBInterface {
   async listExperts(): Promise<DBExpert[]> {
     try {
       const url = `${this.baseUrl}/experts`;
-      const headers = this.createHeaders('GET', url);
-      
+      const headers = this.createHeaders("GET", url);
+
       const response = await fetch(url, { headers });
-      
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(`Failed to list experts: ${response.status} ${response.statusText} - ${errorData.message || ''}`);
+        throw new Error(
+          `Failed to list experts: ${response.status} ${
+            response.statusText
+          } - ${errorData.message || ""}`
+        );
       }
-      
+
       return await response.json();
     } catch (error) {
       debugError("Error in DBRemoteClient.listExperts:", error);
@@ -295,7 +339,7 @@ export class DBRemoteClient implements DBInterface {
       // For now, we'll fetch all experts and filter them client-side
       // In a future implementation, this could be optimized with a dedicated endpoint
       const allExperts = await this.listExperts();
-      return allExperts.filter(expert => ids.includes(expert.pubkey));
+      return allExperts.filter((expert) => ids.includes(expert.pubkey));
     } catch (error) {
       debugError("Error in DBRemoteClient.listExpertsByIds:", error);
       throw error;
@@ -310,19 +354,23 @@ export class DBRemoteClient implements DBInterface {
   async getExpert(pubkey: string): Promise<DBExpert | null> {
     try {
       const url = `${this.baseUrl}/experts/${pubkey}`;
-      const headers = this.createHeaders('GET', url);
-      
+      const headers = this.createHeaders("GET", url);
+
       const response = await fetch(url, { headers });
-      
+
       if (response.status === 404) {
         return null;
       }
-      
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(`Failed to get expert: ${response.status} ${response.statusText} - ${errorData.message || ''}`);
+        throw new Error(
+          `Failed to get expert: ${response.status} ${response.statusText} - ${
+            errorData.message || ""
+          }`
+        );
       }
-      
+
       return await response.json();
     } catch (error) {
       debugError(`Error in DBRemoteClient.getExpert(${pubkey}):`, error);
@@ -338,24 +386,32 @@ export class DBRemoteClient implements DBInterface {
   async insertExpert(expert: DBExpert): Promise<boolean> {
     try {
       const url = `${this.baseUrl}/experts`;
-      const headers = this.createHeaders('POST', url);
-      
+      const bodyString = JSON.stringify(expert);
+      const headers = this.createHeaders("POST", url, bodyString);
+
       const response = await fetch(url, {
-        method: 'POST',
+        method: "POST",
         headers,
-        body: JSON.stringify(expert),
+        body: bodyString,
       });
-      
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        debugError(`Failed to insert expert: ${response.status} ${response.statusText} - ${errorData.message || ''}`);
+        debugError(
+          `Failed to insert expert: ${response.status} ${
+            response.statusText
+          } - ${errorData.message || ""}`
+        );
         return false;
       }
-      
+
       const result = await response.json();
       return result.success === true;
     } catch (error) {
-      debugError(`Error in DBRemoteClient.insertExpert(${expert.pubkey}):`, error);
+      debugError(
+        `Error in DBRemoteClient.insertExpert(${expert.pubkey}):`,
+        error
+      );
       return false;
     }
   }
@@ -368,24 +424,32 @@ export class DBRemoteClient implements DBInterface {
   async updateExpert(expert: DBExpert): Promise<boolean> {
     try {
       const url = `${this.baseUrl}/experts/${expert.pubkey}`;
-      const headers = this.createHeaders('PUT', url);
-      
+      const bodyString = JSON.stringify(expert);
+      const headers = this.createHeaders("PUT", url, bodyString);
+
       const response = await fetch(url, {
-        method: 'PUT',
+        method: "PUT",
         headers,
-        body: JSON.stringify(expert),
+        body: bodyString,
       });
-      
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        debugError(`Failed to update expert: ${response.status} ${response.statusText} - ${errorData.message || ''}`);
+        debugError(
+          `Failed to update expert: ${response.status} ${
+            response.statusText
+          } - ${errorData.message || ""}`
+        );
         return false;
       }
-      
+
       const result = await response.json();
       return result.success === true;
     } catch (error) {
-      debugError(`Error in DBRemoteClient.updateExpert(${expert.pubkey}):`, error);
+      debugError(
+        `Error in DBRemoteClient.updateExpert(${expert.pubkey}):`,
+        error
+      );
       return false;
     }
   }
@@ -399,24 +463,32 @@ export class DBRemoteClient implements DBInterface {
   async setExpertDisabled(pubkey: string, disabled: boolean): Promise<boolean> {
     try {
       const url = `${this.baseUrl}/experts/${pubkey}/disabled`;
-      const headers = this.createHeaders('PUT', url);
-      
+      const bodyString = JSON.stringify({ disabled });
+      const headers = this.createHeaders("PUT", url, bodyString);
+
       const response = await fetch(url, {
-        method: 'PUT',
+        method: "PUT",
         headers,
-        body: JSON.stringify({ disabled }),
+        body: bodyString,
       });
-      
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        debugError(`Failed to set expert disabled status: ${response.status} ${response.statusText} - ${errorData.message || ''}`);
+        debugError(
+          `Failed to set expert disabled status: ${response.status} ${
+            response.statusText
+          } - ${errorData.message || ""}`
+        );
         return false;
       }
-      
+
       const result = await response.json();
       return result.success === true;
     } catch (error) {
-      debugError(`Error in DBRemoteClient.setExpertDisabled(${pubkey}, ${disabled}):`, error);
+      debugError(
+        `Error in DBRemoteClient.setExpertDisabled(${pubkey}, ${disabled}):`,
+        error
+      );
       return false;
     }
   }
@@ -429,19 +501,23 @@ export class DBRemoteClient implements DBInterface {
   async deleteExpert(pubkey: string): Promise<boolean> {
     try {
       const url = `${this.baseUrl}/experts/${pubkey}`;
-      const headers = this.createHeaders('DELETE', url);
-      
+      const headers = this.createHeaders("DELETE", url);
+
       const response = await fetch(url, {
-        method: 'DELETE',
+        method: "DELETE",
         headers,
       });
-      
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        debugError(`Failed to delete expert: ${response.status} ${response.statusText} - ${errorData.message || ''}`);
+        debugError(
+          `Failed to delete expert: ${response.status} ${
+            response.statusText
+          } - ${errorData.message || ""}`
+        );
         return false;
       }
-      
+
       const result = await response.json();
       return result.success === true;
     } catch (error) {
@@ -457,19 +533,63 @@ export class DBRemoteClient implements DBInterface {
   async getUserId(): Promise<string> {
     try {
       const url = `${this.baseUrl}/whoami`;
-      const headers = this.createHeaders('GET', url);
-      
+      const headers = this.createHeaders("GET", url);
+
       const response = await fetch(url, { headers });
-      
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(`Failed to get user ID: ${response.status} ${response.statusText} - ${errorData.message || ''}`);
+        throw new Error(
+          `Failed to get user ID: ${response.status} ${response.statusText} - ${
+            errorData.message || ""
+          }`
+        );
       }
-      
+
       const result = await response.json();
       return result.user_id;
     } catch (error) {
       debugError("Error in DBRemoteClient.getUserId:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Sign up on the remote server
+   * This will create a new user if one doesn't exist for the current pubkey
+   *
+   * @returns Promise resolving to the user ID
+   */
+  async signup(uploadPrivkey?: boolean): Promise<string> {
+    try {
+      const url = `${this.baseUrl}/signup`;
+      const body: any = {};
+      if (uploadPrivkey) {
+        if (!this.privateKey) throw new Error("Can't signup without privkey");
+        body.privkey = bytesToHex(this.privateKey);
+      }
+      const bodyString = JSON.stringify(body);
+      const headers = this.createHeaders("POST", url, bodyString);
+
+      const response = await fetch(url, {
+        method: "POST",
+        headers,
+        body: bodyString,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(
+          `Failed to sign up: ${response.status} ${response.statusText} - ${
+            errorData.message || ""
+          }`
+        );
+      }
+
+      const result = await response.json();
+      return result.user_id;
+    } catch (error) {
+      debugError("Error in DBRemoteClient.signup:", error);
       throw error;
     }
   }

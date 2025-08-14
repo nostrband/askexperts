@@ -20,6 +20,29 @@ export function getDB(): DB {
   return dbInstance;
 }
 
+/**
+ * Create a DB remote client instance
+ * @param url URL for remote DB client
+ * @returns A DB remote client instance
+ */
+export async function createDBRemoteClient(
+  url: string
+): Promise<DBRemoteClient> {
+  // Get the current user ID
+  const userId = getCurrentUserId();
+
+  // Get the user's private key
+  const user = await getDB().getUser(userId);
+  if (!user) {
+    throw new Error(`User with ID ${userId} not found`);
+  }
+
+  // Convert the private key string to Uint8Array
+  const privkey = hexToBytes(user.privkey);
+
+  // Return a new DBRemoteClient instance
+  return new DBRemoteClient(url, privkey);
+}
 
 /**
  * Create a DB client instance
@@ -27,23 +50,8 @@ export function getDB(): DB {
  * @returns A DB client instance (DBClient if url is undefined, DBRemoteClient otherwise)
  */
 export async function createDBClient(url?: string): Promise<DBInterface> {
-  if (url) {
-    // Get the current user ID
-    const userId = getCurrentUserId();
-    
-    // Get the user's private key
-    const user = await getDB().getUser(userId);
-    if (!user) {
-      throw new Error(`User with ID ${userId} not found`);
-    }
-    
-    // Convert the private key string to Uint8Array
-    const privkey = hexToBytes(user.privkey);
-    
-    // Return a new DBRemoteClient instance
-    return new DBRemoteClient(url, privkey);
-  }
-  
+  if (url) return createDBRemoteClient(url);
+
   // Return a new DBClient instance
   return new DBClient();
 }

@@ -3,6 +3,7 @@ import { registerAddCommand } from "./add.js";
 import { registerListCommand } from "./list.js";
 import { registerWhoamiCommand } from "./whoami.js";
 import { registerSwitchCommand } from "./switch.js";
+import { registerSignupCommand } from "./signup.js";
 
 /**
  * Add debug option to a command
@@ -36,4 +37,5 @@ export function registerUserCommands(program: Command): void {
   registerListCommand(userCommand);
   registerWhoamiCommand(userCommand);
   registerSwitchCommand(userCommand);
+  registerSignupCommand(userCommand);
 }

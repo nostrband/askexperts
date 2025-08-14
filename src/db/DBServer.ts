@@ -1,13 +1,14 @@
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import * as http from "http";
-import { debugClient, debugError } from "../common/debug.js";
-import type { DBInterface } from "./interfaces.js";
+import { debugServer, debugError } from "../common/debug.js";
 import type { DBWallet, DBExpert } from "./interfaces.js";
 import { parseAuthToken, AuthRequest } from "../common/auth.js";
 import { getDB } from "./utils.js";
 import { DB } from "./DB.js";
-import { getCurrentUserId } from "../common/users.js";
+import { hexToBytes } from "nostr-tools/utils";
+import { getPublicKey } from "nostr-tools";
+import { createWallet } from "nwc-enclaved-utils";
 
 /**
  * Interface for DB server permissions
@@ -128,8 +129,11 @@ export class DBServer {
       // Store the pubkey in the request for later use
       (req as any).pubkey = pubkey;
 
+      // Check if this is the signup endpoint - skip permission check for it
+      const isSignupEndpoint = req.path.endsWith("/signup");
+
       // Check permissions if perms is provided
-      if (this.perms) {
+      if (this.perms && !isSignupEndpoint) {
         try {
           // Get user_id and store it in the request
           const user_id = await this.perms.getUserId(pubkey);
@@ -172,6 +176,9 @@ export class DBServer {
         : `${this.basePath}/`
       : "/";
 
+    // Signup endpoint
+    this.app.post(`${path}signup`, this.handleSignup.bind(this));
+
     // Health check endpoint
     this.app.get(`${path}health`, (req: Request, res: Response) => {
       if (this.stopped) res.status(503).json({ error: "Service unavailable" });
@@ -205,7 +212,10 @@ export class DBServer {
       `${path}experts/:pubkey/disabled`,
       this.handleSetExpertDisabled.bind(this)
     );
-    this.app.delete(`${path}experts/:pubkey`, this.handleDeleteExpert.bind(this));
+    this.app.delete(
+      `${path}experts/:pubkey`,
+      this.handleDeleteExpert.bind(this)
+    );
   }
 
   /**
@@ -594,7 +604,13 @@ export class DBServer {
 
     try {
       const expert = req.body as DBExpert;
-      if (!expert || !expert.pubkey || !expert.wallet_id || !expert.type || !expert.nickname) {
+      if (
+        !expert ||
+        !expert.pubkey ||
+        !expert.wallet_id ||
+        !expert.type ||
+        !expert.nickname
+      ) {
         res.status(400).json({ error: "Invalid expert data" });
         return;
       }
@@ -680,7 +696,10 @@ export class DBServer {
    * @param res - Express response object
    * @private
    */
-  private async handleSetExpertDisabled(req: Request, res: Response): Promise<void> {
+  private async handleSetExpertDisabled(
+    req: Request,
+    res: Response
+  ): Promise<void> {
     if (this.stopped) {
       res.status(503).json({ error: "Service unavailable" });
       return;
@@ -751,6 +770,92 @@ export class DBServer {
     }
   }
 
+  public async addUser(pubkey: string, nwc: string, privkey?: string) {
+    // FIXME create user and wallet as one tx
+
+    const newUser = {
+      pubkey,
+      privkey: privkey || "",
+    };
+    const user_id = await this.db.insertUser(newUser);
+    debugServer(`Created user ${user_id} pubkey ${pubkey}`);
+
+    // Create a default wallet named 'main'
+    await this.db.insertWallet({
+      user_id,
+      name: "main",
+      nwc,
+      default: true,
+    });
+    debugServer(`Created default wallet 'main' for new user ${user_id}`);
+
+    return user_id;
+  }
+
+  /**
+   * Handles signup requests
+   * Gets user ID by pubkey or creates a new user if it doesn't exist
+   *
+   * @param req - Express request object
+   * @param res - Express response object
+   * @private
+   */
+  private async handleSignup(req: Request, res: Response): Promise<void> {
+    if (this.stopped) {
+      res.status(503).json({ error: "Service unavailable" });
+      return;
+    }
+
+    try {
+      const pubkey = (req as any).pubkey;
+      if (!pubkey) {
+        res.status(400).json({ error: "Missing pubkey" });
+        return;
+      }
+
+      if (req.body.privkey) {
+        const privkey = hexToBytes(req.body.privkey);
+        if (pubkey !== getPublicKey(privkey)) {
+          res.status(400).json({ error: "Wrong privkey" });
+          return;
+        }
+      }
+
+      let user_id: string;
+
+      // Try to get user by pubkey
+      // If no perms interface is provided, check directly in the database
+      const user = await this.db.getUserByPubkey(pubkey);
+      if (user) {
+        user_id = user.id;
+      } else {
+        // User doesn't exist, create a new one
+
+        // Create wallet first
+        let nwc: string;
+        try {
+          const { nwcString } = await createWallet();
+          nwc = nwcString;
+        } catch (e) {
+          debugError("Failed to create wallet", e);
+          res.status(500).json({ error: "Failed to create user wallet" });
+          return;
+        }
+
+        user_id = await this.addUser(pubkey, nwc, req.body.privkey);
+      }
+
+      res.status(200).json({ user_id });
+    } catch (error) {
+      debugError("Error handling signup request:", error);
+      const message = error instanceof Error ? error.message : String(error);
+      res.status(500).json({
+        error: "Internal server error",
+        message: message,
+      });
+    }
+  }
+
   /**
    * Starts the server
    *
@@ -760,7 +865,7 @@ export class DBServer {
     if (this.server) throw new Error("Already started");
     this.stopped = false;
     this.server = this.app.listen(this.port);
-    debugClient(
+    debugServer(
       `DB Server running at http://localhost:${this.port}${this.basePath}`
     );
   }

@@ -13,6 +13,7 @@ export const debugRelay = debug(`${BASE_NAMESPACE}:relay`);
 export const debugMCP = debug(`${BASE_NAMESPACE}:mcp`);
 export const debugExpert = debug(`${BASE_NAMESPACE}:expert`);
 export const debugClient = debug(`${BASE_NAMESPACE}:client`);
+export const debugServer = debug(`${BASE_NAMESPACE}:server`);
 export const debugDocstore = debug(`${BASE_NAMESPACE}:docstore`);
 export const debugDB = debug(`${BASE_NAMESPACE}:db`);
 export const debugCompression = debug(`${BASE_NAMESPACE}:compression`);
