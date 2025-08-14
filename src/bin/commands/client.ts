@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { AskExpertsSmartClient } from "../../client/index.js";
 import { debugMCP, debugError, enableAllDebug, enableErrorDebug } from '../../common/debug.js';
 import { getWalletByNameOrDefault } from "./wallet/utils.js";
+import { createDBClientForCommands } from "./utils.js";
 
 /**
  * Options for the client command
@@ -14,6 +15,8 @@ export interface ClientCommandOptions {
   maxAmount?: string;
   requirements?: string;
   debug?: boolean;
+  remote?: boolean;
+  url?: string;
 }
 
 /**
@@ -23,8 +26,11 @@ export interface ClientCommandOptions {
  * @param options Command line options
  */
 export async function executeClientCommand(question: string, options: ClientCommandOptions): Promise<void> {
+
+  const db = await createDBClientForCommands(options);
+
   // Get wallet from database using the provided wallet name or default
-  const wallet = await getWalletByNameOrDefault(options.wallet);
+  const wallet = await getWalletByNameOrDefault(db, options.wallet);
   const nwcString = wallet.nwc;
   
   // Try to get OpenAI API key from options or environment variables
@@ -99,7 +105,7 @@ export function registerClientCommand(program: Command): void {
     .argument("<question>", "The question to ask experts")
     .option("-w, --wallet <name>", "Wallet name to use for payments (uses default if not specified)")
     .option(
-      "-r, --relays <items>",
+      "--relays <items>",
       "Comma-separated list of discovery relays",
       commaSeparatedList
     )
@@ -108,7 +114,7 @@ export function registerClientCommand(program: Command): void {
       "OpenAI API key"
     )
     .option(
-      "-u, --openai-base-url <string>",
+      "-o, --openai-base-url <string>",
       "OpenAI base URL"
     )
     .option(
@@ -120,6 +126,8 @@ export function registerClientCommand(program: Command): void {
       "-q, --requirements <string>",
       "Additional requirements for the experts that should be selected"
     )
+    .option("-r, --remote", "Use remote wallet client")
+    .option("-u, --url <url>", "URL of remote wallet server (default: https://api.askexperts.io)")
     .option("-d, --debug", "Enable debug logging")
     .action(async (question, options) => {
       if (options.debug) enableAllDebug();

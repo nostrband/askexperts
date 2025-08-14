@@ -26,7 +26,7 @@ export interface ExpertCommandOptions {
 export function addRemoteOptions(cmd: Command): Command {
   return cmd
     .option("-r, --remote", "Use remote client")
-    .option("-u, --url <url>", "URL of remote server (default: https://expertapi.askexperts.io)");
+    .option("-u, --url <url>", "URL of remote server (default: https://api.askexperts.io)");
 }
 
 /**

@@ -1,14 +1,12 @@
 import { DatabaseSync } from "node:sqlite";
 import { DBWallet, DBExpert, DBUser, DBInterface } from "./interfaces.js";
 import { debugDB, debugError } from "../common/debug.js";
-import { ExpertClient } from "../experts/ExpertClient.js";
-import { WalletClient } from "../wallet/WalletClient.js";
 import crypto from "crypto";
 
 /**
  * SQLite implementation of the database for experts, wallets, and docstore servers
  */
-export class DB implements ExpertClient, WalletClient {
+export class DB {
   private db: DatabaseSync;
 
   /**

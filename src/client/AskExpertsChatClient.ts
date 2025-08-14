@@ -9,14 +9,12 @@ import { FORMAT_OPENAI, FORMAT_TEXT, METHOD_LIGHTNING } from "../common/constant
 import { debugError, debugClient } from "../common/debug.js";
 import { Expert, Prompt, Quote, Proof } from "../common/types.js";
 import { parseBolt11 } from "../common/bolt11.js";
-import { getWalletByNameOrDefault } from "../bin/commands/wallet/utils.js";
-import { DBWallet } from "../db/interfaces.js";
 
 /**
  * Options for the chat client
  */
 export interface ChatClientOptions {
-  wallet?: string;
+  nwcString: string;
   relays?: string[];
   maxAmount?: string;
   debug?: boolean;
@@ -50,52 +48,22 @@ export class AskExpertsChatClient {
   constructor(private expertPubkey: string, options: ChatClientOptions) {
     this.options = options;
     
-    // Get wallet from database using the provided wallet name or default
-    const walletPromise = getWalletByNameOrDefault(options.wallet);
+    // Initialize properties
+    this.initializeProperties(options);
     
-    // Initialize properties that don't depend on the wallet
-    this.initializeNonWalletProperties(options);
+    // Create the payment manager with the provided NWC string
+    const paymentManager = new LightningPaymentManager(options.nwcString);
     
-    // Finish initialization asynchronously
-    this.initializeWithWallet(walletPromise);
-  }
-  
-  /**
-   * Initialize properties that don't depend on the wallet
-   * @param options Client options
-   */
-  private initializeNonWalletProperties(options: ChatClientOptions): void {
-    // Parse max amount
-    this.maxAmountSats = options.maxAmount
-      ? parseInt(options.maxAmount, 10)
-      : 100;
-    if (isNaN(this.maxAmountSats) || this.maxAmountSats <= 0) {
-      throw new Error("Maximum amount must be a positive number.");
+    // Try to get discovery relays from options or environment variables
+    let discoveryRelays: string[] | undefined = this.options.relays;
+    if (!discoveryRelays && process.env.DISCOVERY_RELAYS) {
+      discoveryRelays = process.env.DISCOVERY_RELAYS.split(",").map((relay) =>
+        relay.trim()
+      );
     }
-  }
-  
-  /**
-   * Complete initialization with the wallet
-   * @param walletPromise Promise that resolves to the wallet
-   */
-  private async initializeWithWallet(walletPromise: Promise<DBWallet>): Promise<void> {
-    try {
-      const wallet = await walletPromise;
-      const nwcString = wallet.nwc;
 
-      // Try to get discovery relays from options or environment variables
-      let discoveryRelays: string[] | undefined = this.options.relays;
-      if (!discoveryRelays && process.env.DISCOVERY_RELAYS) {
-        discoveryRelays = process.env.DISCOVERY_RELAYS.split(",").map((relay) =>
-          relay.trim()
-        );
-      }
-
-      // Create the payment manager
-      const paymentManager = new LightningPaymentManager(nwcString);
-
-      // Initialize the paying client
-      this.client = new AskExpertsPayingClient(paymentManager, {
+    // Initialize the paying client
+    this.client = new AskExpertsPayingClient(paymentManager, {
       maxAmountSats: this.maxAmountSats,
       discoveryRelays,
       onPaid: async (prompt: Prompt, quote: Quote, proof: Proof): Promise<void> => {
@@ -120,9 +88,19 @@ export class AskExpertsChatClient {
         }
       }
     });
-    } catch (error) {
-      debugError("Error initializing wallet:", error);
-      throw error;
+  }
+  
+  /**
+   * Initialize properties that don't depend on the wallet
+   * @param options Client options
+   */
+  private initializeProperties(options: ChatClientOptions): void {
+    // Parse max amount
+    this.maxAmountSats = options.maxAmount
+      ? parseInt(options.maxAmount, 10)
+      : 100;
+    if (isNaN(this.maxAmountSats) || this.maxAmountSats <= 0) {
+      throw new Error("Maximum amount must be a positive number.");
     }
   }
 

@@ -3,6 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { debugMCP, debugError, enableAllDebug, enableErrorDebug } from '../../common/debug.js';
 import { Command } from "commander";
 import { getWalletByNameOrDefault } from "./wallet/utils.js";
+import { createDBClientForCommands } from './utils.js';
 
 /**
  * Options for the Smart MCP server command
@@ -12,6 +13,8 @@ export interface SmartMcpCommandOptions {
   relays?: string[];
   openaiApiKey?: string;
   openaiBaseUrl?: string;
+  remote?: boolean;
+  url?: string;
 }
 
 /**
@@ -20,8 +23,11 @@ export interface SmartMcpCommandOptions {
  * @param options Command line options
  */
 export async function startSmartMcpServer(options: SmartMcpCommandOptions): Promise<void> {
+
+  const db = await createDBClientForCommands(options);
+
   // Get wallet from database using the provided wallet name or default
-  const wallet = await getWalletByNameOrDefault(options.wallet);
+  const wallet = await getWalletByNameOrDefault(db, options.wallet);
   const nwcString = wallet.nwc;
   
   // Try to get OpenAI API key from options or environment variables
@@ -105,7 +111,7 @@ export function registerSmartMcpCommand(program: Command): void {
     .description("Launch the stdio Smart MCP server with LLM capabilities")
     .option("-w, --wallet <name>", "Wallet name to use for payments (uses default if not specified)")
     .option(
-      "-r, --relays <items>",
+      "--relays <items>",
       "Comma-separated list of discovery relays",
       commaSeparatedList
     )
@@ -114,9 +120,11 @@ export function registerSmartMcpCommand(program: Command): void {
       "OpenAI API key"
     )
     .option(
-      "-u, --openai-base-url <string>",
+      "-o, --openai-base-url <string>",
       "OpenAI base URL"
     )
+    .option("-r, --remote", "Use remote wallet client")
+    .option("-u, --url <url>", "URL of remote wallet server (default: https://api.askexperts.io)")
     .option("-d, --debug", "Enable debug logging")
     .action(async (options) => {
       if (options.debug) enableAllDebug();

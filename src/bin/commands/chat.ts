@@ -9,7 +9,8 @@ import * as readline from "readline";
 import { DBExpert } from "../../db/interfaces.js";
 import * as fs from "fs";
 import * as path from "path";
-import { getExpertClient } from "../../experts/ExpertRemoteClient.js";
+import { getWalletByNameOrDefault } from "./wallet/utils.js";
+import { createDBClientForCommands } from "./utils.js";
 
 /**
  * Options for the chat command
@@ -21,6 +22,8 @@ export interface ChatCommandOptions {
   debug?: boolean;
   stream?: boolean;
   stdin?: boolean;
+  remote?: boolean;
+  url?: string;
 }
 
 /**
@@ -34,14 +37,15 @@ export async function executeChatCommand(
   options: ChatCommandOptions
 ): Promise<void> {
   try {
+    const db = await createDBClientForCommands(options);
+
     // Check if the identifier is a pubkey or a nickname
     let expertPubkey = expertIdentifier;
     let foundByNickname = false;
     
     // Try to find expert by nickname if it doesn't look like a pubkey
     if (!expertIdentifier.startsWith('npub') && expertIdentifier.length !== 64) {
-      const expertClient = getExpertClient();
-      const experts = await expertClient.listExperts();
+      const experts = await db.listExperts();
       const expertByNickname = experts.find((expert: DBExpert) =>
         expert.nickname.toLowerCase() === expertIdentifier.toLowerCase()
       );
@@ -56,8 +60,22 @@ export async function executeChatCommand(
       }
     }
     
-    // Create the chat client
-    const chatClient = new AskExpertsChatClient(expertPubkey, options);
+    // Get the wallet and NWC string
+    const wallet = await getWalletByNameOrDefault(db, options.wallet);
+    const nwcString = wallet.nwc;
+    
+    if (!nwcString) {
+      throw new Error(`Wallet ${options.wallet || 'default'} does not have an NWC string configured.`);
+    }
+    
+    // Create the chat client with the NWC string
+    const chatClient = new AskExpertsChatClient(expertPubkey, {
+      nwcString,
+      relays: options.relays,
+      maxAmount: options.maxAmount,
+      debug: options.debug,
+      stream: options.stream
+    });
     
     // Initialize the client and fetch expert profile
     const expert = await chatClient.initialize();
@@ -269,7 +287,7 @@ export function registerChatCommand(program: Command): void {
       "Wallet name to use for payments (uses default if not specified)"
     )
     .option(
-      "-r, --relays <items>",
+      "--relays <items>",
       "Comma-separated list of discovery relays",
       commaSeparatedList
     )
@@ -281,6 +299,8 @@ export function registerChatCommand(program: Command): void {
     .option("-d, --debug", "Enable debug logging")
     .option("-s, --stream", "Enable streaming")
     .option("--stdin", "Read first message from stdin and exit after reply")
+    .option("-r, --remote", "Use remote wallet client")
+    .option("-u, --url <url>", "URL of remote wallet server (default: https://api.askexperts.io)")
     .action(async (expertIdentifier, options) => {
       if (options.debug) enableAllDebug();
       else enableErrorDebug();

@@ -150,7 +150,7 @@ export function registerHttpCommand(program: Command): void {
       "OpenAI API key (required if -u is set)"
     )
     .option(
-      "-u, --openai-base-url <string>",
+      "-o, --openai-base-url <string>",
       "OpenAI base URL (custom URL for 'smart' type)"
     )
     .option("-d, --debug", "Enable debug logging")

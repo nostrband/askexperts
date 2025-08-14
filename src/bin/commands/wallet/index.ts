@@ -25,7 +25,7 @@ const addDebugOption = (cmd: Command): Command =>
 const addRemoteOptions = (cmd: Command): Command =>
   cmd
     .option("-r, --remote", "Use remote wallet client")
-    .option("-u, --url <url>", "URL of remote wallet server (default: https://walletapi.askexperts.io)");
+    .option("-u, --url <url>", "URL of remote server (default: https://api.askexperts.io)");
 
 /**
  * Add common options to a command

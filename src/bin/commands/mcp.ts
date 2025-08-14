@@ -3,6 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { enableAllDebug, enableErrorDebug, debugMCP, debugError } from '../../common/debug.js';
 import { Command } from "commander";
 import { getWalletByNameOrDefault } from "./wallet/utils.js";
+import { createDBClientForCommands } from './utils.js';
 
 /**
  * Options for the MCP server command
@@ -10,6 +11,8 @@ import { getWalletByNameOrDefault } from "./wallet/utils.js";
 export interface McpCommandOptions {
   wallet?: string;
   relays?: string[];
+  remote?: boolean;
+  url?: string;
 }
 
 /**
@@ -19,8 +22,10 @@ export interface McpCommandOptions {
  */
 export async function startMcpServer(options: McpCommandOptions): Promise<void> {
 
+  const db = await createDBClientForCommands(options);
+
   // Get wallet from database using the provided wallet name or default
-  const wallet = await getWalletByNameOrDefault(options.wallet);
+  const wallet = await getWalletByNameOrDefault(db, options.wallet);
   const nwcString = wallet.nwc;
   
   // Try to get discovery relays from options or environment variables
@@ -88,11 +93,13 @@ export function registerMcpCommand(program: Command): void {
     .description("Launch the stdio MCP server")
     .option("-w, --wallet <name>", "Wallet name to use for payments (uses default if not specified)")
     .option(
-      "-r, --relays <items>",
+      "--relays <items>",
       "Comma-separated list of discovery relays",
       commaSeparatedList
     )
-    .option("-d, --debug", "Enable debug logging")
+    .option("-r, --remote", "Use remote wallet client")
+    .option("-u, --url <url>", "URL of remote wallet server (default: https://api.askexperts.io)")
+     .option("-d, --debug", "Enable debug logging")
     .action(async (options) => {
       if (options.debug) enableAllDebug();
       else enableErrorDebug();

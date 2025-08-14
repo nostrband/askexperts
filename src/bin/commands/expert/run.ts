@@ -1,5 +1,4 @@
 import { Command } from "commander";
-import { getWalletClient } from "../../../wallet/index.js";
 import { DBExpert, DBInterface, DBWallet } from "../../../db/interfaces.js";
 import { NostrExpert } from "../../../experts/NostrExpert.js";
 import { OpenaiProxyExpertBase } from "../../../experts/OpenaiProxyExpertBase.js";

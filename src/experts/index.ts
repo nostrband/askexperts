@@ -2,5 +2,6 @@
  * Experts module for ExpertServer and ExpertRemoteClient
  */
 
-export { ExpertServer } from './ExpertServer.js';
-export { ExpertRemoteClient } from './ExpertRemoteClient.js';
+export { OpenaiProxyExpert } from './OpenaiProxyExpert.js';
+export { OpenaiProxyExpertBase } from './OpenaiProxyExpertBase.js';
+export { NostrExpert } from './NostrExpert.js';
