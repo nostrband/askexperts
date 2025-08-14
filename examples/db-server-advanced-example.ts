@@ -1,6 +1,7 @@
 import { DBServer } from "../src/db/index.js";
 import type { DBServerPerms } from "../src/db/index.js";
 import { Request } from "express";
+import { parseAuthToken, AuthRequest } from "../src/common/auth.js";
 
 /**
  * Example implementation of DBServerPerms interface
@@ -28,6 +29,17 @@ class ExamplePermissions implements DBServerPerms {
    */
   async getUserId(pubkey: string): Promise<string> {
     throw new Error(`User not found for pubkey: ${pubkey}`);
+  }
+
+  /**
+   * Parse and validate a NIP-98 authentication token
+   * @param origin - Origin URL for validation
+   * @param req - Request object with headers and other properties
+   * @returns Public key if token is valid, empty string otherwise
+   */
+  async parseAuthToken(origin: string, req: AuthRequest): Promise<string> {
+    // For this example, we'll just use the global parseAuthToken function
+    return parseAuthToken(origin, req);
   }
 }
 

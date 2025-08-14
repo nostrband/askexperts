@@ -105,6 +105,16 @@ export class DBClient implements DBInterface {
   }
 
   /**
+   * List experts with timestamp newer than the provided timestamp
+   * @param timestamp - Only return experts with timestamp newer than this
+   * @param limit - Maximum number of experts to return (default: 1000)
+   * @returns Promise resolving to an array of expert objects
+   */
+  async listExpertsAfter(timestamp: number, limit = 1000): Promise<DBExpert[]> {
+    return this.db.listExpertsAfter(timestamp, limit);
+  }
+
+  /**
    * Get an expert by pubkey
    * @param pubkey - Pubkey of the expert to get
    * @returns Promise resolving to the expert if found, null otherwise

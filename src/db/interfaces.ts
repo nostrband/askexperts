@@ -35,6 +35,7 @@ export interface DBExpert {
   privkey?: string;
   disabled?: boolean;
   user_id: string;
+  timestamp?: number;
 }
 
 /**
@@ -55,6 +56,7 @@ export interface DBInterface {
   // Expert methods
   listExperts(): Promise<DBExpert[]>;
   listExpertsByIds(ids: string[]): Promise<DBExpert[]>;
+  listExpertsAfter(timestamp: number, limit?: number): Promise<DBExpert[]>;
   getExpert(pubkey: string): Promise<DBExpert | null>;
   insertExpert(expert: DBExpert): Promise<boolean>;
   updateExpert(expert: DBExpert): Promise<boolean>;

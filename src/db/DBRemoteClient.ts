@@ -347,6 +347,35 @@ export class DBRemoteClient implements DBInterface {
   }
 
   /**
+   * List experts with timestamp newer than the provided timestamp
+   * @param timestamp - Only return experts with timestamp newer than this
+   * @param limit - Maximum number of experts to return (default: 1000)
+   * @returns Promise resolving to an array of expert objects
+   */
+  async listExpertsAfter(timestamp: number, limit = 1000): Promise<DBExpert[]> {
+    try {
+      const url = `${this.baseUrl}/experts/after/${timestamp}?limit=${limit}`;
+      const headers = this.createHeaders("GET", url);
+
+      const response = await fetch(url, { headers });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(
+          `Failed to list experts after timestamp: ${response.status} ${
+            response.statusText
+          } - ${errorData.message || ""}`
+        );
+      }
+
+      return await response.json();
+    } catch (error) {
+      debugError(`Error in DBRemoteClient.listExpertsAfter(${timestamp}):`, error);
+      throw error;
+    }
+  }
+
+  /**
    * Get an expert by pubkey
    * @param pubkey - Pubkey of the expert to get
    * @returns Promise resolving to the expert if found, null otherwise

@@ -28,6 +28,14 @@ export interface DBServerPerms {
    * @returns Promise that resolves with the user ID
    */
   getUserId(pubkey: string): Promise<string>;
+  
+  /**
+   * Parse and validate a NIP-98 authentication token
+   * @param origin - Origin URL for validation
+   * @param req - Request object with headers and other properties
+   * @returns Public key if token is valid, empty string otherwise
+   */
+  parseAuthToken(origin: string, req: AuthRequest): Promise<string>;
 }
 
 /**
@@ -114,7 +122,9 @@ export class DBServer {
       };
 
       // Parse the auth token
-      const pubkey = await parseAuthToken(this.serverOrigin, authReq);
+      const pubkey = this.perms
+        ? await this.perms.parseAuthToken(this.serverOrigin, authReq)
+        : await parseAuthToken(this.serverOrigin, authReq);
 
       // If pubkey is empty, authentication failed
       if (!pubkey) {

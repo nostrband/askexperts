@@ -55,7 +55,8 @@ export class DB {
         docstores TEXT NOT NULL,
         privkey TEXT,
         disabled BOOLEAN NOT NULL DEFAULT 0,
-        user_id TEXT NOT NULL
+        user_id TEXT NOT NULL,
+        timestamp INTEGER
       )
     `);
     
@@ -63,6 +64,22 @@ export class DB {
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_experts_wallet_id ON experts (wallet_id)");
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_experts_type ON experts (type)");
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_experts_user_id ON experts (user_id)");
+    
+    // Migration: Add timestamp column if it doesn't exist
+    try {
+      // Check if timestamp column exists
+      const hasTimestampColumn = this.db.prepare("SELECT timestamp FROM experts LIMIT 1").get();
+    } catch (error) {
+      // Column doesn't exist, add it
+      this.db.exec("ALTER TABLE experts ADD COLUMN timestamp INTEGER");
+      
+      // Initialize timestamp for existing records to current time
+      const currentTime = Date.now();
+      this.db.exec(`UPDATE experts SET timestamp = ${currentTime}`);
+
+      // Add the index
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_experts_timestamp ON experts (timestamp)");
+    }
 
     // Create users table with all columns and indexes
     this.db.exec(`
@@ -306,6 +323,36 @@ export class DB {
   }
 
   /**
+   * List experts with timestamp newer than the provided timestamp
+   * @param timestamp - Only return experts with timestamp newer than this
+   * @param limit - Maximum number of experts to return (default: 1000)
+   * @returns Promise resolving to an array of expert objects
+   */
+  async listExpertsAfter(timestamp: number, limit = 1000): Promise<DBExpert[]> {
+    const stmt = this.db.prepare(
+      "SELECT * FROM experts WHERE timestamp > ? ORDER BY timestamp ASC LIMIT ?"
+    );
+    const rows = stmt.all(timestamp, limit);
+
+    const experts = rows.map(
+      (row: Record<string, any>): DBExpert => ({
+        pubkey: String(row.pubkey || ""),
+        wallet_id: String(row.wallet_id || ""),
+        type: String(row.type || ""),
+        nickname: String(row.nickname || ""),
+        env: String(row.env || ""),
+        docstores: String(row.docstores || ""),
+        privkey: row.privkey ? String(row.privkey) : undefined,
+        disabled: Boolean(row.disabled || false),
+        user_id: String(row.user_id || ""),
+        timestamp: row.timestamp ? Number(row.timestamp) : undefined,
+      })
+    );
+    
+    return Promise.resolve(experts);
+  }
+
+  /**
    * List experts by specific IDs
    * @param ids - Array of expert pubkeys to retrieve
    * @returns Promise resolving to an array of expert objects matching the provided IDs
@@ -314,6 +361,7 @@ export class DB {
     if (!ids.length) {
       return Promise.resolve([]);
     }
+  
 
     // Create placeholders for the SQL query (?, ?, ?, etc.)
     const placeholders = ids.map(() => '?').join(',');
@@ -377,9 +425,12 @@ export class DB {
       throw new Error(`Wallet with ID ${expert.wallet_id} does not exist`);
     }
 
+    // Generate timestamp in the DB class
+    const timestamp = Date.now();
+
     const stmt = this.db.prepare(`
-      INSERT INTO experts (pubkey, wallet_id, type, nickname, env, docstores, privkey, disabled, user_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO experts (pubkey, wallet_id, type, nickname, env, docstores, privkey, disabled, user_id, timestamp)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     try {
@@ -392,7 +443,8 @@ export class DB {
         expert.docstores,
         expert.privkey || null,
         expert.disabled ? 1 : 0,
-        expert.user_id || ""
+        expert.user_id || "",
+        timestamp
       );
       return Promise.resolve(true);
     } catch (error) {
@@ -413,9 +465,12 @@ export class DB {
       throw new Error(`Wallet with ID ${expert.wallet_id} does not exist`);
     }
 
+    // Generate timestamp in the DB class
+    const timestamp = Date.now();
+
     const stmt = this.db.prepare(`
       UPDATE experts
-      SET wallet_id = ?, type = ?, nickname = ?, env = ?, docstores = ?, privkey = ?, disabled = ?, user_id = ?
+      SET wallet_id = ?, type = ?, nickname = ?, env = ?, docstores = ?, privkey = ?, disabled = ?, user_id = ?, timestamp = ?
       WHERE pubkey = ?
     `);
 
@@ -428,6 +483,7 @@ export class DB {
       expert.privkey || null,
       expert.disabled ? 1 : 0,
       expert.user_id || "",
+      timestamp,
       expert.pubkey
     );
 
@@ -441,14 +497,18 @@ export class DB {
    * @returns Promise resolving to true if expert was updated, false otherwise
    */
   async setExpertDisabled(pubkey: string, disabled: boolean): Promise<boolean> {
+    // Generate timestamp in the DB class
+    const timestamp = Date.now();
+    
     const stmt = this.db.prepare(`
       UPDATE experts
-      SET disabled = ?
+      SET disabled = ?, timestamp = ?
       WHERE pubkey = ?
     `);
 
     const result = stmt.run(
       disabled ? 1 : 0,
+      timestamp,
       pubkey
     );
 
