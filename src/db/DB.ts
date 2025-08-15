@@ -86,12 +86,26 @@ export class DB {
       CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
         pubkey TEXT NOT NULL UNIQUE,
-        privkey TEXT NOT NULL
+        privkey TEXT NOT NULL,
+        user_id_ext TEXT DEFAULT ''
       )
     `);
     
     // Create index for users
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_users_pubkey ON users (pubkey)");
+    this.db.exec("CREATE INDEX IF NOT EXISTS idx_users_user_id_ext ON users (user_id_ext)");
+    
+    // Migration: Add user_id_ext column if it doesn't exist
+    try {
+      // Check if user_id_ext column exists
+      const hasUserIdExtColumn = this.db.prepare("SELECT user_id_ext FROM users LIMIT 1").get();
+    } catch (error) {
+      // Column doesn't exist, add it
+      this.db.exec("ALTER TABLE users ADD COLUMN user_id_ext TEXT DEFAULT ''");
+      
+      // Add the index
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_users_user_id_ext ON users (user_id_ext)");
+    }
   }
 
   /**
@@ -539,7 +553,8 @@ export class DB {
       (row: Record<string, any>): DBUser => ({
         id: String(row.id || ""),
         pubkey: String(row.pubkey || ""),
-        privkey: String(row.privkey || "")
+        privkey: String(row.privkey || ""),
+        user_id_ext: String(row.user_id_ext || "")
       })
     );
     
@@ -562,7 +577,8 @@ export class DB {
     const user = {
       id: String(row.id || ""),
       pubkey: String(row.pubkey || ""),
-      privkey: String(row.privkey || "")
+      privkey: String(row.privkey || ""),
+      user_id_ext: String(row.user_id_ext || "")
     };
     
     return Promise.resolve(user);
@@ -584,7 +600,35 @@ export class DB {
     const user = {
       id: String(row.id || ""),
       pubkey: String(row.pubkey || ""),
-      privkey: String(row.privkey || "")
+      privkey: String(row.privkey || ""),
+      user_id_ext: String(row.user_id_ext || "")
+    };
+    
+    return Promise.resolve(user);
+  }
+
+  /**
+   * Get a user by external ID
+   * @param user_id_ext - External ID of the user to get
+   * @returns Promise resolving to the user if found, null otherwise
+   */
+  async getUserByExtId(user_id_ext: string): Promise<DBUser | null> {
+    if (!user_id_ext) {
+      return Promise.resolve(null);
+    }
+    
+    const stmt = this.db.prepare("SELECT * FROM users WHERE user_id_ext = ?");
+    const row = stmt.get(user_id_ext);
+
+    if (!row) {
+      return Promise.resolve(null);
+    }
+
+    const user = {
+      id: String(row.id || ""),
+      pubkey: String(row.pubkey || ""),
+      privkey: String(row.privkey || ""),
+      user_id_ext: String(row.user_id_ext || "")
     };
     
     return Promise.resolve(user);
@@ -597,8 +641,8 @@ export class DB {
    */
   async insertUser(user: Omit<DBUser, "id">): Promise<string> {
     const stmt = this.db.prepare(`
-      INSERT INTO users (id, pubkey, privkey)
-      VALUES (?, ?, ?)
+      INSERT INTO users (id, pubkey, privkey, user_id_ext)
+      VALUES (?, ?, ?, ?)
     `);
 
     // Generate a unique string ID (UUID)
@@ -608,7 +652,8 @@ export class DB {
       stmt.run(
         id,
         user.pubkey,
-        user.privkey
+        user.privkey,
+        user.user_id_ext || ""
       );
       return Promise.resolve(id);
     } catch (error) {
@@ -625,13 +670,14 @@ export class DB {
   async updateUser(user: DBUser): Promise<boolean> {
     const stmt = this.db.prepare(`
       UPDATE users
-      SET pubkey = ?, privkey = ?
+      SET pubkey = ?, privkey = ?, user_id_ext = ?
       WHERE id = ?
     `);
 
     const result = stmt.run(
       user.pubkey,
       user.privkey,
+      user.user_id_ext || "",
       user.id
     );
 

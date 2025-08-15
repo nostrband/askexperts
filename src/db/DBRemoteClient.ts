@@ -7,21 +7,34 @@ import { bytesToHex } from "nostr-tools/utils";
  * Remote implementation of the DBInterface
  * Uses fetch to communicate with a DBServer instance
  */
+/**
+ * Configuration options for DBRemoteClient
+ */
+export interface DBRemoteClientOptions {
+  /** URL of the DBServer (e.g., 'http://localhost:3000/api') */
+  url: string;
+  /** Optional private key for authentication (as Uint8Array) */
+  privateKey?: Uint8Array;
+  /** Optional token for bearer authentication */
+  token?: string;
+}
+
 export class DBRemoteClient implements DBInterface {
   private baseUrl: string;
   private privateKey?: Uint8Array;
+  private token?: string;
 
   /**
    * Creates a new DBRemoteClient instance
-   * @param url - URL of the DBServer (e.g., 'http://localhost:3000/api')
-   * @param privateKey - Optional private key for authentication (as Uint8Array)
+   * @param options - Configuration options for the client
    */
-  constructor(url: string, privateKey?: Uint8Array) {
+  constructor(options: DBRemoteClientOptions) {
     // Ensure the URL doesn't end with a slash
-    this.baseUrl = url.endsWith("/") ? url.slice(0, -1) : url;
-    this.privateKey = privateKey;
+    this.baseUrl = options.url.endsWith("/") ? options.url.slice(0, -1) : options.url;
+    this.privateKey = options.privateKey;
+    this.token = options.token;
 
-    debugDB(`Connecting to remote DB server at ${url}`);
+    debugDB(`Connecting to remote DB server at ${options.url}`);
   }
 
   /**
@@ -39,8 +52,12 @@ export class DBRemoteClient implements DBInterface {
       "Content-Type": "application/json",
     };
 
-    // Add authentication header if privateKey is provided
-    if (this.privateKey) {
+    // Add token-based authentication if token is provided
+    if (this.token) {
+      headers["Authorization"] = `Bearer ${this.token}`;
+    }
+    // Otherwise use privateKey-based authentication if available
+    else if (this.privateKey) {
       const authToken = createAuthToken(
         this.privateKey,
         url,

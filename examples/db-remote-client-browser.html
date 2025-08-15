@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DBRemoteClient Browser Example</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      line-height: 1.6;
+    }
+    h1 {
+      color: #333;
+    }
+    button {
+      background-color: #4CAF50;
+      border: none;
+      color: white;
+      padding: 10px 20px;
+      text-align: center;
+      text-decoration: none;
+      display: inline-block;
+      font-size: 16px;
+      margin: 10px 2px;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    input[type=text] {
+      width: 100%;
+      padding: 12px 20px;
+      margin: 8px 0;
+      box-sizing: border-box;
+      border: 2px solid #ccc;
+      border-radius: 4px;
+    }
+    .card {
+      box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2);
+      transition: 0.3s;
+      border-radius: 5px;
+      padding: 20px;
+      margin: 20px 0;
+      background-color: #f9f9f9;
+    }
+    .log {
+      background-color: #f1f1f1;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 10px;
+      margin-top: 20px;
+      height: 300px;
+      overflow-y: auto;
+      font-family: monospace;
+    }
+    .log p {
+      margin: 5px 0;
+    }
+    .wallet-card {
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 10px;
+      margin: 10px 0;
+      background-color: white;
+    }
+  </style>
+</head>
+<body>
+  <h1>DBRemoteClient Browser Example</h1>
+  
+  <div class="card">
+    <h2>Connect to DB Server</h2>
+    <div>
+      <label for="serverUrl">Server URL:</label>
+      <input type="text" id="serverUrl" value="http://localhost:3100/api/db">
+    </div>
+    <button id="connectBtn">Connect</button>
+  </div>
+  
+  <div class="card">
+    <h2>List Wallets</h2>
+    <div id="wallets-container"></div>
+    <button id="listWalletsBtn" disabled>List Wallets</button>
+  </div>
+  
+  <div class="card">
+    <h2>List Experts</h2>
+    <div id="experts-container"></div>
+    <button id="listExpertsBtn" disabled>List Experts</button>
+  </div>
+  
+  <div class="log" id="log"></div>
+
+  <!-- Import the client from the browser build -->
+  <script type="module">
+    // In a real application, you would import from the package
+    // import { DBRemoteClient } from 'askexperts/db';
+    
+    // For this example, we'll import from the local build
+    import { DBRemoteClient } from '../dist/db/index.js';
+    
+    // Store state
+    let client;
+    
+    // DOM elements
+    const connectBtn = document.getElementById('connectBtn');
+    const listWalletsBtn = document.getElementById('listWalletsBtn');
+    const listExpertsBtn = document.getElementById('listExpertsBtn');
+    const walletsContainer = document.getElementById('wallets-container');
+    const expertsContainer = document.getElementById('experts-container');
+    const logElement = document.getElementById('log');
+    
+    // Log to the UI
+    function log(message) {
+      const p = document.createElement('p');
+      p.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
+      logElement.appendChild(p);
+      logElement.scrollTop = logElement.scrollHeight;
+    }
+    
+    // Connect to the DB server
+    async function connect() {
+      try {
+        const serverUrl = document.getElementById('serverUrl').value;
+        
+        if (!serverUrl) {
+          log('Error: Server URL is required');
+          return;
+        }
+        
+        log(`Connecting to DB server at: ${serverUrl}`);
+        
+        // Create a new DBRemoteClient instance
+        client = new DBRemoteClient({ url: serverUrl });
+        
+        log('DBRemoteClient initialized');
+        
+        // Enable the buttons
+        listWalletsBtn.disabled = false;
+        listExpertsBtn.disabled = false;
+        
+      } catch (error) {
+        log(`Error connecting to DB server: ${error.message}`);
+        console.error(error);
+      }
+    }
+    
+    // List wallets
+    async function listWallets() {
+      try {
+        log('Listing wallets...');
+        
+        // Call the listWallets method
+        const wallets = await client.listWallets();
+        
+        log(`Found ${wallets.length} wallets`);
+        
+        // Display wallets
+        walletsContainer.innerHTML = '';
+        wallets.forEach((wallet, index) => {
+          const walletCard = document.createElement('div');
+          walletCard.className = 'wallet-card';
+          walletCard.innerHTML = `
+            <h3>Wallet #${index + 1}</h3>
+            <p><strong>ID:</strong> ${wallet.id}</p>
+            <p><strong>Name:</strong> ${wallet.name}</p>
+            <p><strong>Default:</strong> ${wallet.is_default ? 'Yes' : 'No'}</p>
+          `;
+          walletsContainer.appendChild(walletCard);
+        });
+        
+      } catch (error) {
+        log(`Error listing wallets: ${error.message}`);
+        console.error(error);
+      }
+    }
+    
+    // List experts
+    async function listExperts() {
+      try {
+        log('Listing experts...');
+        
+        // Call the listExperts method
+        const experts = await client.listExperts();
+        
+        log(`Found ${experts.length} experts`);
+        
+        // Display experts
+        expertsContainer.innerHTML = '';
+        experts.forEach((expert, index) => {
+          const expertCard = document.createElement('div');
+          expertCard.className = 'wallet-card';
+          expertCard.innerHTML = `
+            <h3>Expert #${index + 1}</h3>
+            <p><strong>Pubkey:</strong> ${expert.pubkey.substring(0, 10)}...</p>
+            <p><strong>Disabled:</strong> ${expert.disabled ? 'Yes' : 'No'}</p>
+            <p><strong>Timestamp:</strong> ${new Date(expert.timestamp * 1000).toLocaleString()}</p>
+          `;
+          expertsContainer.appendChild(expertCard);
+        });
+        
+      } catch (error) {
+        log(`Error listing experts: ${error.message}`);
+        console.error(error);
+      }
+    }
+    
+    // Event listeners
+    connectBtn.addEventListener('click', connect);
+    listWalletsBtn.addEventListener('click', listWallets);
+    listExpertsBtn.addEventListener('click', listExperts);
+    
+    // Initialize
+    log('Page loaded. Click "Connect" to connect to the DB server.');
+  </script>
+</body>
+</html>

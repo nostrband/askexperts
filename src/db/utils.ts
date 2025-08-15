@@ -40,8 +40,8 @@ export async function createDBRemoteClient(
   // Convert the private key string to Uint8Array
   const privkey = hexToBytes(user.privkey);
 
-  // Return a new DBRemoteClient instance
-  return new DBRemoteClient(url, privkey);
+  // Return a new DBRemoteClient instance with the new object-based constructor
+  return new DBRemoteClient({ url, privateKey: privkey });
 }
 
 /**

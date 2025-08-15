@@ -1,6 +1,6 @@
 {
   "name": "askexperts",
-  "version": "0.7.6",
+  "version": "0.7.8",
   "description": "AskExperts SDK: build and use AI experts - ask them questions and pay with bitcoin on an open protocol",
   "main": "dist/index.js",
   "type": "module",
@@ -14,6 +14,7 @@
     "build:client:browser": "esbuild src/client/index.ts --bundle --platform=browser --target=es2020 --format=esm --outfile=dist/client/index.browser.js --external:stream --external:events --external:zlib --external:util --external:crypto --external:fs --external:path --external:os --external:http --external:https --external:net --external:tls --external:child_process --external:worker_threads --external:readline --external:assert --external:buffer --external:../proxy/* --external:../mcp/AskExpertsHttp* --external:../bin/* --external:../expert/*",
     "build:client:index": "echo \"export * from './index.node.js';\" > dist/client/index.js",
     "build:client:files": "cp -r dist/src/client/* dist/client/",
+    "build:db:browser": "esbuild src/db/browser.ts --bundle --platform=browser --target=es2020 --format=esm --outfile=dist/db/browser.js --external:stream --external:events --external:zlib --external:util --external:crypto --external:fs --external:path --external:os --external:http --external:https --external:net --external:tls --external:child_process --external:worker_threads --external:readline --external:assert --external:buffer",
     "start": "tsx src/index.ts",
     "dev": "tsx --watch src/index.ts",
     "expert": "tsx examples/expert-example.ts",
@@ -30,7 +31,7 @@
     "build:payments": "mkdir -p dist/payments && cp -r dist/src/payments/* dist/payments/",
     "build:common": "mkdir -p dist/common && cp -r dist/src/common/* dist/common/",
     "build:bin": "mkdir -p dist/bin && cp -r dist/src/bin/* dist/bin/",
-    "build:db": "mkdir -p dist/db && cp -r dist/src/db/* dist/db/",
+    "build:db": "mkdir -p dist/db && cp -r dist/src/db/* dist/db/ && npm run build:db:browser",
     "build:remote": "mkdir -p dist/remote && cp -r dist/src/remote/* dist/remote/",
     "build:stream": "mkdir -p dist/stream && cp -r dist/src/stream/* dist/stream/",
     "build:wallet": "mkdir -p dist/wallet && cp -r dist/src/wallet/* dist/wallet/"
@@ -103,6 +104,8 @@
       "default": "./dist/common/index.js"
     },
     "./db": {
+      "node": "./dist/db/index.js",
+      "browser": "./dist/db/browser.js",
       "default": "./dist/db/index.js"
     },
     "./remote": {

@@ -9,6 +9,7 @@ export interface DBUser {
   id: string;
   pubkey: string;
   privkey: string;
+  user_id_ext?: string;
 }
 
 /**

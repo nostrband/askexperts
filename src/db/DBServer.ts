@@ -129,6 +129,7 @@ export class DBServer {
         originalUrl: req.originalUrl,
         cookies: req.cookies,
         rawBody: (req as any).rawBody,
+        req,
       };
 
       // Parse the auth token
@@ -790,28 +791,29 @@ export class DBServer {
     }
   }
 
-  public async ensureExternalUser(user_id: string) {
+  public async ensureExternalUser(user_id_ext: string) {
     // FIXME make it all a tx!!!
-    const user = await this.db.getUser(user_id);
-    debugServer(`External user request from ${user_id}, pubkey ${user?.pubkey}`);
+    const user = await this.db.getUserByExtId(user_id_ext);
+    debugServer(`External user request with external ID ${user_id_ext}, pubkey ${user?.pubkey}`);
     if (user) return user.pubkey;
 
     const { privateKey, publicKey } = generateRandomKeyPair();
     const { nwcString } = await createWallet();
-    await this.addUser(publicKey, nwcString, bytesToHex(privateKey));
-    debugServer(`Created external user ${user_id} pubkey ${publicKey}`);
+    await this.addUser(publicKey, nwcString, bytesToHex(privateKey), user_id_ext);
+    debugServer(`Created external user with external ID ${user_id_ext} pubkey ${publicKey}`);
     return publicKey;
   }
 
-  public async addUser(pubkey: string, nwc: string, privkey?: string) {
+  public async addUser(pubkey: string, nwc: string, privkey?: string, user_id_ext?: string) {
     // FIXME create user and wallet as one tx
 
     const newUser = {
       pubkey,
       privkey: privkey || "",
+      user_id_ext
     };
     const user_id = await this.db.insertUser(newUser);
-    debugServer(`Created user ${user_id} pubkey ${pubkey}`);
+    debugServer(`Created user ${user_id} pubkey ${pubkey}${user_id_ext ? ` with external ID ${user_id_ext}` : ''}`);
 
     // Create a default wallet named 'main'
     await this.db.insertWallet({
@@ -875,7 +877,7 @@ export class DBServer {
           return;
         }
 
-        user_id = await this.addUser(pubkey, nwc, req.body.privkey);
+        user_id = await this.addUser(pubkey, nwc, req.body.privkey, req.body.user_id_ext);
       }
 
       res.status(200).json({ user_id });

@@ -4,6 +4,7 @@
 import { getPublicKey, finalizeEvent, verifyEvent } from "nostr-tools";
 import { bytesToHex } from "nostr-tools/utils";
 import { sha256 } from "@noble/hashes/sha2";
+import { Request } from "express";
 
 /**
  * Interface for HTTP requests with authorization headers
@@ -17,6 +18,7 @@ export interface AuthRequest {
   originalUrl: string;
   cookies: any;
   rawBody?: Buffer;
+  req?: Request;
 }
 
 

@@ -7,3 +7,4 @@ export type { DBExpert, DBWallet, DBInterface } from './interfaces.js';
 export { getDB } from './utils.js';
 export { DBServer } from './DBServer.js';
 export type { DBServerPerms } from './DBServer.js';
+export { DBRemoteClient } from './DBRemoteClient.js';
