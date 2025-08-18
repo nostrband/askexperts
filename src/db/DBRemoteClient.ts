@@ -11,18 +11,21 @@ import { bytesToHex } from "nostr-tools/utils";
  * Configuration options for DBRemoteClient
  */
 export interface DBRemoteClientOptions {
-  /** URL of the DBServer (e.g., 'http://localhost:3000/api') */
-  url: string;
+  /** URL of the DBServer, default 'https://api.askexperts.io' */
+  url?: string;
   /** Optional private key for authentication (as Uint8Array) */
   privateKey?: Uint8Array;
-  /** Optional token for bearer authentication */
-  token?: string;
+  /**
+   * Optional token for bearer authentication
+   * Can be a string or a callback function that returns a Promise<string>
+   */
+  token?: string | (() => Promise<string>);
 }
 
 export class DBRemoteClient implements DBInterface {
   private baseUrl: string;
   private privateKey?: Uint8Array;
-  private token?: string;
+  #token?: string | (() => Promise<string>);
 
   /**
    * Creates a new DBRemoteClient instance
@@ -30,9 +33,10 @@ export class DBRemoteClient implements DBInterface {
    */
   constructor(options: DBRemoteClientOptions) {
     // Ensure the URL doesn't end with a slash
-    this.baseUrl = options.url.endsWith("/") ? options.url.slice(0, -1) : options.url;
+    this.baseUrl = options.url || 'https://api.askexperts.io' ;
+    this.baseUrl = this.baseUrl.endsWith("/") ? this.baseUrl.slice(0, -1) : this.baseUrl;
     this.privateKey = options.privateKey;
-    this.token = options.token;
+    this.#token = options.token;
 
     debugDB(`Connecting to remote DB server at ${options.url}`);
   }
@@ -43,18 +47,23 @@ export class DBRemoteClient implements DBInterface {
    * @param url - URL for the request
    * @returns Headers object with authentication if available
    */
-  private createHeaders(
+  private async createHeaders(
     method: string,
     url: string,
     bodyString?: string
-  ): HeadersInit {
+  ): Promise<HeadersInit> {
     const headers: HeadersInit = {
       "Content-Type": "application/json",
     };
 
     // Add token-based authentication if token is provided
-    if (this.token) {
-      headers["Authorization"] = `Bearer ${this.token}`;
+    if (this.#token) {
+      // If token is a callback function, call it to get the actual token
+      const tokenValue = typeof this.#token === 'function'
+        ? await this.#token()
+        : this.#token;
+      
+      headers["Authorization"] = `Bearer ${tokenValue}`;
     }
     // Otherwise use privateKey-based authentication if available
     else if (this.privateKey) {
@@ -70,6 +79,14 @@ export class DBRemoteClient implements DBInterface {
     return headers;
   }
 
+  get token(): string | (() => Promise<string>) | undefined {
+    return this.#token;
+  }
+
+  set token(value: string | (() => Promise<string>) | undefined) {
+    this.#token = value;
+  }
+
   /**
    * List all wallets
    * @returns Promise resolving to an array of wallet objects
@@ -77,7 +94,7 @@ export class DBRemoteClient implements DBInterface {
   async listWallets(): Promise<DBWallet[]> {
     try {
       const url = `${this.baseUrl}/wallets`;
-      const headers = this.createHeaders("GET", url);
+      const headers = await this.createHeaders("GET", url);
 
       const response = await fetch(url, { headers });
 
@@ -126,7 +143,7 @@ export class DBRemoteClient implements DBInterface {
   async getWallet(id: string): Promise<DBWallet | null> {
     try {
       const url = `${this.baseUrl}/wallets/${id}`;
-      const headers = this.createHeaders("GET", url);
+      const headers = await this.createHeaders("GET", url);
 
       const response = await fetch(url, { headers });
 
@@ -158,7 +175,7 @@ export class DBRemoteClient implements DBInterface {
   async getWalletByName(name: string): Promise<DBWallet | null> {
     try {
       const url = `${this.baseUrl}/wallets/name/${encodeURIComponent(name)}`;
-      const headers = this.createHeaders("GET", url);
+      const headers = await this.createHeaders("GET", url);
 
       const response = await fetch(url, { headers });
 
@@ -189,7 +206,7 @@ export class DBRemoteClient implements DBInterface {
   async getDefaultWallet(): Promise<DBWallet | null> {
     try {
       const url = `${this.baseUrl}/wallets/default`;
-      const headers = this.createHeaders("GET", url);
+      const headers = await this.createHeaders("GET", url);
 
       const response = await fetch(url, { headers });
 
@@ -222,7 +239,7 @@ export class DBRemoteClient implements DBInterface {
     try {
       const url = `${this.baseUrl}/wallets`;
       const bodyString = JSON.stringify(wallet);
-      const headers = this.createHeaders("POST", url, bodyString);
+      const headers = await this.createHeaders("POST", url, bodyString);
 
       const response = await fetch(url, {
         method: "POST",
@@ -256,7 +273,7 @@ export class DBRemoteClient implements DBInterface {
     try {
       const url = `${this.baseUrl}/wallets/${wallet.id}`;
       const bodyString = JSON.stringify(wallet);
-      const headers = this.createHeaders("PUT", url, bodyString);
+      const headers = await this.createHeaders("PUT", url, bodyString);
 
       const response = await fetch(url, {
         method: "PUT",
@@ -290,7 +307,7 @@ export class DBRemoteClient implements DBInterface {
   async deleteWallet(id: string): Promise<boolean> {
     try {
       const url = `${this.baseUrl}/wallets/${id}`;
-      const headers = this.createHeaders("DELETE", url);
+      const headers = await this.createHeaders("DELETE", url);
 
       const response = await fetch(url, {
         method: "DELETE",
@@ -322,7 +339,7 @@ export class DBRemoteClient implements DBInterface {
   async listExperts(): Promise<DBExpert[]> {
     try {
       const url = `${this.baseUrl}/experts`;
-      const headers = this.createHeaders("GET", url);
+      const headers = await this.createHeaders("GET", url);
 
       const response = await fetch(url, { headers });
 
@@ -372,7 +389,7 @@ export class DBRemoteClient implements DBInterface {
   async listExpertsAfter(timestamp: number, limit = 1000): Promise<DBExpert[]> {
     try {
       const url = `${this.baseUrl}/experts/after/${timestamp}?limit=${limit}`;
-      const headers = this.createHeaders("GET", url);
+      const headers = await this.createHeaders("GET", url);
 
       const response = await fetch(url, { headers });
 
@@ -400,7 +417,7 @@ export class DBRemoteClient implements DBInterface {
   async getExpert(pubkey: string): Promise<DBExpert | null> {
     try {
       const url = `${this.baseUrl}/experts/${pubkey}`;
-      const headers = this.createHeaders("GET", url);
+      const headers = await this.createHeaders("GET", url);
 
       const response = await fetch(url, { headers });
 
@@ -433,7 +450,7 @@ export class DBRemoteClient implements DBInterface {
     try {
       const url = `${this.baseUrl}/experts`;
       const bodyString = JSON.stringify(expert);
-      const headers = this.createHeaders("POST", url, bodyString);
+      const headers = await this.createHeaders("POST", url, bodyString);
 
       const response = await fetch(url, {
         method: "POST",
@@ -471,7 +488,7 @@ export class DBRemoteClient implements DBInterface {
     try {
       const url = `${this.baseUrl}/experts/${expert.pubkey}`;
       const bodyString = JSON.stringify(expert);
-      const headers = this.createHeaders("PUT", url, bodyString);
+      const headers = await this.createHeaders("PUT", url, bodyString);
 
       const response = await fetch(url, {
         method: "PUT",
@@ -510,7 +527,7 @@ export class DBRemoteClient implements DBInterface {
     try {
       const url = `${this.baseUrl}/experts/${pubkey}/disabled`;
       const bodyString = JSON.stringify({ disabled });
-      const headers = this.createHeaders("PUT", url, bodyString);
+      const headers = await this.createHeaders("PUT", url, bodyString);
 
       const response = await fetch(url, {
         method: "PUT",
@@ -547,7 +564,7 @@ export class DBRemoteClient implements DBInterface {
   async deleteExpert(pubkey: string): Promise<boolean> {
     try {
       const url = `${this.baseUrl}/experts/${pubkey}`;
-      const headers = this.createHeaders("DELETE", url);
+      const headers = await this.createHeaders("DELETE", url);
 
       const response = await fetch(url, {
         method: "DELETE",
@@ -579,7 +596,7 @@ export class DBRemoteClient implements DBInterface {
   async getUserId(): Promise<string> {
     try {
       const url = `${this.baseUrl}/whoami`;
-      const headers = this.createHeaders("GET", url);
+      const headers = await this.createHeaders("GET", url);
 
       const response = await fetch(url, { headers });
 
@@ -615,7 +632,7 @@ export class DBRemoteClient implements DBInterface {
         body.privkey = bytesToHex(this.privateKey);
       }
       const bodyString = JSON.stringify(body);
-      const headers = this.createHeaders("POST", url, bodyString);
+      const headers = await this.createHeaders("POST", url, bodyString);
 
       const response = await fetch(url, {
         method: "POST",

@@ -29,7 +29,7 @@ export interface DBServerPerms {
    * @returns Promise that resolves with the user ID
    */
   getUserId(pubkey: string): Promise<string>;
-  
+
   /**
    * Parse and validate a NIP-98 authentication token
    * @param origin - Origin URL for validation
@@ -159,6 +159,7 @@ export class DBServer {
           // Get user_id and store it in the request
           const user_id = await this.perms.getUserId(pubkey);
           (req as any).user_id = user_id;
+          debugServer(`Request by user ${user_id} to ${req.path}`);
 
           const permsResult = await this.perms.checkPerms(user_id, req);
           // Store the perms result in the request for later use
@@ -211,14 +212,14 @@ export class DBServer {
 
     // Wallet endpoints
     this.app.get(`${path}wallets`, this.handleListWallets.bind(this));
+    this.app.get(
+      `${path}wallets/default`,
+      this.handleGetDefaultWallet.bind(this)
+    );
     this.app.get(`${path}wallets/:id`, this.handleGetWallet.bind(this));
     this.app.get(
       `${path}wallets/name/:name`,
       this.handleGetWalletByName.bind(this)
-    );
-    this.app.get(
-      `${path}wallets/default`,
-      this.handleGetDefaultWallet.bind(this)
     );
     this.app.post(`${path}wallets`, this.handleInsertWallet.bind(this));
     this.app.put(`${path}wallets/:id`, this.handleUpdateWallet.bind(this));
@@ -279,14 +280,15 @@ export class DBServer {
 
     try {
       let wallets;
+      const user_id = (req as any).user_id;
 
       // Check if we have listIds in the perms object
       if ((req as any).perms?.listIds !== undefined) {
         // Use the listWalletsByIds method with the provided string IDs
         wallets = await this.db.listWalletsByIds((req as any).perms.listIds);
       } else {
-        // Use the regular listWallets method
-        wallets = await this.db.listWallets();
+        // Use the regular listWallets method with user_id if available
+        wallets = await this.db.listWallets(user_id);
       }
 
       res.status(200).json(wallets);
@@ -320,7 +322,8 @@ export class DBServer {
         return;
       }
 
-      const wallet = await this.db.getWallet(id);
+      const user_id = (req as any).user_id;
+      const wallet = await this.db.getWallet(id, user_id);
       if (!wallet) {
         res.status(404).json({ error: "Wallet not found" });
         return;
@@ -360,7 +363,8 @@ export class DBServer {
         return;
       }
 
-      const wallet = await this.db.getWalletByName(name);
+      const user_id = (req as any).user_id;
+      const wallet = await this.db.getWalletByName(name, user_id);
       if (!wallet) {
         res.status(404).json({ error: "Wallet not found" });
         return;
@@ -394,7 +398,8 @@ export class DBServer {
     }
 
     try {
-      const wallet = await this.db.getDefaultWallet();
+      const user_id = (req as any).user_id;
+      const wallet = await this.db.getDefaultWallet(user_id);
       if (!wallet) {
         res.status(404).json({ error: "Default wallet not found" });
         return;
@@ -521,7 +526,8 @@ export class DBServer {
         return;
       }
 
-      const success = await this.db.deleteWallet(id);
+      const user_id = (req as any).user_id;
+      const success = await this.db.deleteWallet(id, user_id);
       if (success) {
         res.status(200).json({ success: true });
       } else {
@@ -552,14 +558,15 @@ export class DBServer {
 
     try {
       let experts;
+      const user_id = (req as any).user_id;
 
       // Check if we have listIds in the perms object
       if ((req as any).perms?.listIds !== undefined) {
         // Use the listExpertsByIds method with the provided string IDs
         experts = await this.db.listExpertsByIds((req as any).perms.listIds);
       } else {
-        // Use the regular listExperts method
-        experts = await this.db.listExperts();
+        // Use the regular listExperts method with user_id if available
+        experts = await this.db.listExperts(user_id);
       }
 
       res.status(200).json(experts);
@@ -593,7 +600,8 @@ export class DBServer {
         return;
       }
 
-      const expert = await this.db.getExpert(pubkey);
+      const user_id = (req as any).user_id;
+      const expert = await this.db.getExpert(pubkey, user_id);
       if (!expert) {
         res.status(404).json({ error: "Expert not found" });
         return;
@@ -739,7 +747,12 @@ export class DBServer {
         return;
       }
 
-      const success = await this.db.setExpertDisabled(pubkey, !!disabled);
+      const user_id = (req as any).user_id;
+      const success = await this.db.setExpertDisabled(
+        pubkey,
+        !!disabled,
+        user_id
+      );
       if (success) {
         res.status(200).json({ success: true });
       } else {
@@ -775,7 +788,8 @@ export class DBServer {
         return;
       }
 
-      const success = await this.db.deleteExpert(pubkey);
+      const user_id = (req as any).user_id;
+      const success = await this.db.deleteExpert(pubkey, user_id);
       if (success) {
         res.status(200).json({ success: true });
       } else {
@@ -794,26 +808,44 @@ export class DBServer {
   public async ensureExternalUser(user_id_ext: string) {
     // FIXME make it all a tx!!!
     const user = await this.db.getUserByExtId(user_id_ext);
-    debugServer(`External user request with external ID ${user_id_ext}, pubkey ${user?.pubkey}`);
+    debugServer(
+      `External user request with external ID ${user_id_ext}, pubkey ${user?.pubkey}`
+    );
     if (user) return user.pubkey;
 
     const { privateKey, publicKey } = generateRandomKeyPair();
     const { nwcString } = await createWallet();
-    await this.addUser(publicKey, nwcString, bytesToHex(privateKey), user_id_ext);
-    debugServer(`Created external user with external ID ${user_id_ext} pubkey ${publicKey}`);
+    await this.addUser(
+      publicKey,
+      nwcString,
+      bytesToHex(privateKey),
+      user_id_ext
+    );
+    debugServer(
+      `Created external user with external ID ${user_id_ext} pubkey ${publicKey}`
+    );
     return publicKey;
   }
 
-  public async addUser(pubkey: string, nwc: string, privkey?: string, user_id_ext?: string) {
+  public async addUser(
+    pubkey: string,
+    nwc: string,
+    privkey?: string,
+    user_id_ext?: string
+  ) {
     // FIXME create user and wallet as one tx
 
     const newUser = {
       pubkey,
       privkey: privkey || "",
-      user_id_ext
+      user_id_ext,
     };
     const user_id = await this.db.insertUser(newUser);
-    debugServer(`Created user ${user_id} pubkey ${pubkey}${user_id_ext ? ` with external ID ${user_id_ext}` : ''}`);
+    debugServer(
+      `Created user ${user_id} pubkey ${pubkey}${
+        user_id_ext ? ` with external ID ${user_id_ext}` : ""
+      }`
+    );
 
     // Create a default wallet named 'main'
     await this.db.insertWallet({
@@ -877,7 +909,12 @@ export class DBServer {
           return;
         }
 
-        user_id = await this.addUser(pubkey, nwc, req.body.privkey, req.body.user_id_ext);
+        user_id = await this.addUser(
+          pubkey,
+          nwc,
+          req.body.privkey,
+          req.body.user_id_ext
+        );
       }
 
       res.status(200).json({ user_id });

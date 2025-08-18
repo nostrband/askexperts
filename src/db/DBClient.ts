@@ -9,6 +9,7 @@ import { getCurrentUserId } from "../common/users.js";
  */
 export class DBClient implements DBInterface {
   private db: DB;
+  #user_id?: string;
 
   /**
    * Creates a new DBClient instance
@@ -17,12 +18,18 @@ export class DBClient implements DBInterface {
     this.db = getDB();
   }
 
+  private user_id() {
+    if (!this.#user_id)
+      this.#user_id = getCurrentUserId();
+    return this.#user_id;
+  }
+
   /**
    * List all wallets
    * @returns Promise resolving to an array of wallet objects
    */
   async listWallets(): Promise<DBWallet[]> {
-    return this.db.listWallets();
+    return this.db.listWallets(this.user_id());
   }
 
   /**
@@ -40,7 +47,7 @@ export class DBClient implements DBInterface {
    * @returns Promise resolving to the wallet if found, null otherwise
    */
   async getWallet(id: string): Promise<DBWallet | null> {
-    return this.db.getWallet(id);
+    return this.db.getWallet(id, this.user_id());
   }
 
   /**
@@ -49,7 +56,7 @@ export class DBClient implements DBInterface {
    * @returns Promise resolving to the wallet if found, null otherwise
    */
   async getWalletByName(name: string): Promise<DBWallet | null> {
-    return this.db.getWalletByName(name);
+    return this.db.getWalletByName(name, this.user_id());
   }
 
   /**
@@ -57,7 +64,7 @@ export class DBClient implements DBInterface {
    * @returns Promise resolving to the default wallet if found, null otherwise
    */
   async getDefaultWallet(): Promise<DBWallet | null> {
-    return this.db.getDefaultWallet();
+    return this.db.getDefaultWallet(this.user_id());
   }
 
   /**
@@ -84,7 +91,7 @@ export class DBClient implements DBInterface {
    * @returns Promise resolving to true if wallet was deleted, false otherwise
    */
   async deleteWallet(id: string): Promise<boolean> {
-    return this.db.deleteWallet(id);
+    return this.db.deleteWallet(id, this.user_id());
   }
 
   /**
@@ -92,7 +99,7 @@ export class DBClient implements DBInterface {
    * @returns Promise resolving to an array of expert objects
    */
   async listExperts(): Promise<DBExpert[]> {
-    return this.db.listExperts();
+    return this.db.listExperts(this.user_id());
   }
 
   /**
@@ -111,7 +118,7 @@ export class DBClient implements DBInterface {
    * @returns Promise resolving to an array of expert objects
    */
   async listExpertsAfter(timestamp: number, limit = 1000): Promise<DBExpert[]> {
-    return this.db.listExpertsAfter(timestamp, limit);
+    return this.db.listExpertsAfter(timestamp, limit, this.user_id());
   }
 
   /**
@@ -120,7 +127,7 @@ export class DBClient implements DBInterface {
    * @returns Promise resolving to the expert if found, null otherwise
    */
   async getExpert(pubkey: string): Promise<DBExpert | null> {
-    return this.db.getExpert(pubkey);
+    return this.db.getExpert(pubkey, this.user_id());
   }
 
   /**
@@ -148,7 +155,7 @@ export class DBClient implements DBInterface {
    * @returns Promise resolving to true if expert was updated, false otherwise
    */
   async setExpertDisabled(pubkey: string, disabled: boolean): Promise<boolean> {
-    return this.db.setExpertDisabled(pubkey, disabled);
+    return this.db.setExpertDisabled(pubkey, disabled, this.user_id());
   }
 
   /**
@@ -157,7 +164,7 @@ export class DBClient implements DBInterface {
    * @returns Promise resolving to true if expert was deleted, false otherwise
    */
   async deleteExpert(pubkey: string): Promise<boolean> {
-    return this.db.deleteExpert(pubkey);
+    return this.db.deleteExpert(pubkey, this.user_id());
   }
 
   /**
@@ -165,7 +172,7 @@ export class DBClient implements DBInterface {
    * @returns Promise resolving to the current user ID
    */
   async getUserId(): Promise<string> {
-    return getCurrentUserId();
+    return this.user_id();
   }
 
   /**

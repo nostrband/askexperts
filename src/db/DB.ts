@@ -23,11 +23,10 @@ export class DB {
    * Initialize the database by creating required tables if they don't exist
    */
   private initDatabase(): void {
-
     // Allow concurrent readers
-    this.db.exec('PRAGMA journal_mode = WAL;');
+    this.db.exec("PRAGMA journal_mode = WAL;");
     // Wait up to 3 seconds for locks
-    this.db.exec('PRAGMA busy_timeout = 3000;');
+    this.db.exec("PRAGMA busy_timeout = 3000;");
 
     // Create wallets table with all columns and indexes
     this.db.exec(`
@@ -39,10 +38,14 @@ export class DB {
         user_id TEXT NOT NULL
       )
     `);
-    
+
     // Create index for wallets that can't be included in the CREATE TABLE
-    this.db.exec("CREATE INDEX IF NOT EXISTS idx_wallets_default ON wallets (default_wallet)");
-    this.db.exec("CREATE INDEX IF NOT EXISTS idx_wallets_user_id ON wallets (user_id)");
+    this.db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_wallets_default ON wallets (default_wallet)"
+    );
+    this.db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_wallets_user_id ON wallets (user_id)"
+    );
 
     // Create experts table with all columns and indexes
     this.db.exec(`
@@ -59,26 +62,36 @@ export class DB {
         timestamp INTEGER
       )
     `);
-    
+
     // Create indexes for experts that can't be included in the CREATE TABLE
-    this.db.exec("CREATE INDEX IF NOT EXISTS idx_experts_wallet_id ON experts (wallet_id)");
-    this.db.exec("CREATE INDEX IF NOT EXISTS idx_experts_type ON experts (type)");
-    this.db.exec("CREATE INDEX IF NOT EXISTS idx_experts_user_id ON experts (user_id)");
-    
+    this.db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_experts_wallet_id ON experts (wallet_id)"
+    );
+    this.db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_experts_type ON experts (type)"
+    );
+    this.db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_experts_user_id ON experts (user_id)"
+    );
+
     // Migration: Add timestamp column if it doesn't exist
     try {
       // Check if timestamp column exists
-      const hasTimestampColumn = this.db.prepare("SELECT timestamp FROM experts LIMIT 1").get();
+      const hasTimestampColumn = this.db
+        .prepare("SELECT timestamp FROM experts LIMIT 1")
+        .get();
     } catch (error) {
       // Column doesn't exist, add it
       this.db.exec("ALTER TABLE experts ADD COLUMN timestamp INTEGER");
-      
+
       // Initialize timestamp for existing records to current time
       const currentTime = Date.now();
       this.db.exec(`UPDATE experts SET timestamp = ${currentTime}`);
 
       // Add the index
-      this.db.exec("CREATE INDEX IF NOT EXISTS idx_experts_timestamp ON experts (timestamp)");
+      this.db.exec(
+        "CREATE INDEX IF NOT EXISTS idx_experts_timestamp ON experts (timestamp)"
+      );
     }
 
     // Create users table with all columns and indexes
@@ -90,31 +103,52 @@ export class DB {
         user_id_ext TEXT DEFAULT ''
       )
     `);
-    
+
     // Create index for users
-    this.db.exec("CREATE INDEX IF NOT EXISTS idx_users_pubkey ON users (pubkey)");
-    this.db.exec("CREATE INDEX IF NOT EXISTS idx_users_user_id_ext ON users (user_id_ext)");
-    
+    this.db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_users_pubkey ON users (pubkey)"
+    );
+    this.db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_users_user_id_ext ON users (user_id_ext)"
+    );
+
     // Migration: Add user_id_ext column if it doesn't exist
     try {
       // Check if user_id_ext column exists
-      const hasUserIdExtColumn = this.db.prepare("SELECT user_id_ext FROM users LIMIT 1").get();
+      const hasUserIdExtColumn = this.db
+        .prepare("SELECT user_id_ext FROM users LIMIT 1")
+        .get();
     } catch (error) {
       // Column doesn't exist, add it
       this.db.exec("ALTER TABLE users ADD COLUMN user_id_ext TEXT DEFAULT ''");
-      
+
       // Add the index
-      this.db.exec("CREATE INDEX IF NOT EXISTS idx_users_user_id_ext ON users (user_id_ext)");
+      this.db.exec(
+        "CREATE INDEX IF NOT EXISTS idx_users_user_id_ext ON users (user_id_ext)"
+      );
     }
   }
 
   /**
    * List all wallets
+   * @param user_id - Optional user ID to filter wallets by
    * @returns Array of wallet objects
    */
-  async listWallets(): Promise<DBWallet[]> {
-    const stmt = this.db.prepare("SELECT id, name, nwc, default_wallet as 'default' FROM wallets ORDER BY id ASC");
-    const rows = stmt.all();
+  async listWallets(user_id?: string): Promise<DBWallet[]> {
+    let stmt;
+    let rows;
+
+    if (user_id) {
+      stmt = this.db.prepare(
+        "SELECT id, name, nwc, default_wallet as 'default', user_id FROM wallets WHERE user_id = ? ORDER BY id ASC"
+      );
+      rows = stmt.all(user_id);
+    } else {
+      stmt = this.db.prepare(
+        "SELECT id, name, nwc, default_wallet as 'default', user_id FROM wallets ORDER BY id ASC"
+      );
+      rows = stmt.all();
+    }
 
     const wallets = rows.map(
       (row: Record<string, any>): DBWallet => ({
@@ -125,7 +159,7 @@ export class DB {
         user_id: String(row.user_id || ""),
       })
     );
-    
+
     return Promise.resolve(wallets);
   }
 
@@ -140,8 +174,10 @@ export class DB {
     }
 
     // Create placeholders for the SQL query (?, ?, ?, etc.)
-    const placeholders = ids.map(() => '?').join(',');
-    const stmt = this.db.prepare(`SELECT id, name, nwc, default_wallet as 'default' FROM wallets WHERE id IN (${placeholders}) ORDER BY id ASC`);
+    const placeholders = ids.map(() => "?").join(",");
+    const stmt = this.db.prepare(
+      `SELECT id, name, nwc, default_wallet as 'default', user_id FROM wallets WHERE id IN (${placeholders}) ORDER BY id ASC`
+    );
     const rows = stmt.all(...ids);
 
     const wallets = rows.map(
@@ -153,18 +189,31 @@ export class DB {
         user_id: String(row.user_id || ""),
       })
     );
-    
+
     return Promise.resolve(wallets);
   }
 
   /**
    * Get a wallet by ID
    * @param id - ID of the wallet to get
+   * @param user_id - Optional user ID to filter by
    * @returns The wallet if found, null otherwise
    */
-  async getWallet(id: string): Promise<DBWallet | null> {
-    const stmt = this.db.prepare("SELECT id, name, nwc, default_wallet as 'default' FROM wallets WHERE id = ?");
-    const row = stmt.get(id);
+  async getWallet(id: string, user_id?: string): Promise<DBWallet | null> {
+    let stmt;
+    let row;
+
+    if (user_id) {
+      stmt = this.db.prepare(
+        "SELECT id, name, nwc, default_wallet as 'default', user_id FROM wallets WHERE id = ? AND user_id = ?"
+      );
+      row = stmt.get(id, user_id);
+    } else {
+      stmt = this.db.prepare(
+        "SELECT id, name, nwc, default_wallet as 'default', user_id FROM wallets WHERE id = ?"
+      );
+      row = stmt.get(id);
+    }
 
     if (!row) {
       return Promise.resolve(null);
@@ -177,18 +226,34 @@ export class DB {
       default: Boolean(row.default || false),
       user_id: String(row.user_id || ""),
     };
-    
+
     return Promise.resolve(wallet);
   }
 
   /**
    * Get a wallet by name
    * @param name - Name of the wallet to get
+   * @param user_id - Optional user ID to filter by
    * @returns The wallet if found, null otherwise
    */
-  async getWalletByName(name: string): Promise<DBWallet | null> {
-    const stmt = this.db.prepare("SELECT id, name, nwc, default_wallet as 'default' FROM wallets WHERE name = ?");
-    const row = stmt.get(name);
+  async getWalletByName(
+    name: string,
+    user_id?: string
+  ): Promise<DBWallet | null> {
+    let stmt;
+    let row;
+
+    if (user_id) {
+      stmt = this.db.prepare(
+        "SELECT id, name, nwc, default_wallet as 'default', user_id FROM wallets WHERE name = ? AND user_id = ?"
+      );
+      row = stmt.get(name, user_id);
+    } else {
+      stmt = this.db.prepare(
+        "SELECT id, name, nwc, default_wallet as 'default', user_id FROM wallets WHERE name = ?"
+      );
+      row = stmt.get(name);
+    }
 
     if (!row) {
       return Promise.resolve(null);
@@ -201,17 +266,30 @@ export class DB {
       default: Boolean(row.default || false),
       user_id: String(row.user_id || ""),
     };
-    
+
     return Promise.resolve(wallet);
   }
 
   /**
    * Get the default wallet
+   * @param user_id - Optional user ID to filter by
    * @returns The default wallet if found, null otherwise
    */
-  async getDefaultWallet(): Promise<DBWallet | null> {
-    const stmt = this.db.prepare("SELECT id, name, nwc, default_wallet as 'default' FROM wallets WHERE default_wallet = 1 LIMIT 1");
-    const row = stmt.get();
+  async getDefaultWallet(user_id?: string): Promise<DBWallet | null> {
+    let stmt;
+    let row;
+
+    if (user_id) {
+      stmt = this.db.prepare(
+        "SELECT id, name, nwc, default_wallet as 'default', user_id FROM wallets WHERE default_wallet = 1 AND user_id = ? LIMIT 1"
+      );
+      row = stmt.get(user_id);
+    } else {
+      stmt = this.db.prepare(
+        "SELECT id, name, nwc, default_wallet as 'default', user_id FROM wallets WHERE default_wallet = 1 LIMIT 1"
+      );
+      row = stmt.get();
+    }
 
     if (!row) {
       return Promise.resolve(null);
@@ -224,7 +302,7 @@ export class DB {
       default: Boolean(row.default || false),
       user_id: String(row.user_id || ""),
     };
-    
+
     return Promise.resolve(wallet);
   }
 
@@ -235,13 +313,19 @@ export class DB {
    */
   async insertWallet(wallet: Omit<DBWallet, "id">): Promise<string> {
     // Check if this is the first wallet, if so mark it as default
-    const walletCount = this.db.prepare("SELECT COUNT(*) as count FROM wallets").get();
+    const walletCount = this.db
+      .prepare("SELECT COUNT(*) as count FROM wallets WHERE user_id = ?")
+      .get(wallet.user_id);
     const count = walletCount ? Number(walletCount.count) : 0;
     const isFirstWallet = count === 0;
-    
-    // If this wallet is set as default or it's the first wallet, unset any existing default wallet
+
+    // If this wallet is set as default, unset any existing default wallet
     if (wallet.default || isFirstWallet) {
-      this.db.prepare("UPDATE wallets SET default_wallet = 0 WHERE default_wallet = 1").run();
+      this.db
+        .prepare(
+          "UPDATE wallets SET default_wallet = 0 WHERE default_wallet = 1 AND user_id = ?"
+        )
+        .run(wallet.user_id);
       wallet.default = true;
     }
 
@@ -252,13 +336,13 @@ export class DB {
 
     // Generate a unique string ID (UUID or similar)
     const id = crypto.randomUUID();
-    
+
     const result = stmt.run(
       id,
       wallet.name,
       wallet.nwc,
       wallet.default ? 1 : 0,
-      wallet.user_id || ""
+      wallet.user_id
     );
 
     return Promise.resolve(id);
@@ -272,21 +356,26 @@ export class DB {
   async updateWallet(wallet: DBWallet): Promise<boolean> {
     // If this wallet is set as default, unset any existing default wallet
     if (wallet.default) {
-      this.db.prepare("UPDATE wallets SET default_wallet = 0 WHERE default_wallet = 1 AND id != ?").run(wallet.id);
+      this.db
+        .prepare(
+          "UPDATE wallets SET default_wallet = 0 WHERE default_wallet = 1 AND id != ? AND user_id = ?"
+        )
+        .run(wallet.id, wallet.user_id);
     }
 
     const stmt = this.db.prepare(`
       UPDATE wallets
       SET name = ?, nwc = ?, default_wallet = ?, user_id = ?
-      WHERE id = ?
+      WHERE id = ? AND user_id = ?
     `);
 
     const result = stmt.run(
       wallet.name,
       wallet.nwc,
       wallet.default ? 1 : 0,
-      wallet.user_id || "",
-      wallet.id
+      wallet.user_id,
+      wallet.id,
+      wallet.user_id
     );
 
     return Promise.resolve(result.changes > 0);
@@ -295,29 +384,57 @@ export class DB {
   /**
    * Delete a wallet
    * @param id - ID of the wallet to delete
+   * @param user_id - Optional user ID to filter by
    * @returns true if wallet was deleted, false otherwise
    */
-  async deleteWallet(id: string): Promise<boolean> {
+  async deleteWallet(id: string, user_id?: string): Promise<boolean> {
     // Check if there are any experts using this wallet
-    const expertCount = this.db.prepare("SELECT COUNT(*) as count FROM experts WHERE wallet_id = ?").get(id);
+    const expertCount = this.db
+      .prepare("SELECT COUNT(*) as count FROM experts WHERE wallet_id = ?")
+      .get(id);
     const count = expertCount ? Number(expertCount.count) : 0;
     if (count > 0) {
-      return Promise.reject(new Error(`Cannot delete wallet with ID ${id} because it is used by ${count} experts`));
+      return Promise.reject(
+        new Error(
+          `Cannot delete wallet with ID ${id} because it is used by ${count} experts`
+        )
+      );
     }
 
-    const stmt = this.db.prepare("DELETE FROM wallets WHERE id = ?");
-    const result = stmt.run(id);
+    let stmt;
+    let result;
+
+    if (user_id) {
+      stmt = this.db.prepare(
+        "DELETE FROM wallets WHERE id = ? AND user_id = ?"
+      );
+      result = stmt.run(id, user_id);
+    } else {
+      stmt = this.db.prepare("DELETE FROM wallets WHERE id = ?");
+      result = stmt.run(id);
+    }
 
     return Promise.resolve(result.changes > 0);
   }
 
   /**
    * List all experts
+   * @param user_id - Optional user ID to filter experts by
    * @returns Promise resolving to an array of expert objects
    */
-  async listExperts(): Promise<DBExpert[]> {
-    const stmt = this.db.prepare("SELECT * FROM experts ORDER BY pubkey ASC");
-    const rows = stmt.all();
+  async listExperts(user_id?: string): Promise<DBExpert[]> {
+    let stmt;
+    let rows;
+
+    if (user_id) {
+      stmt = this.db.prepare(
+        "SELECT * FROM experts WHERE user_id = ? ORDER BY pubkey ASC"
+      );
+      rows = stmt.all(user_id);
+    } else {
+      stmt = this.db.prepare("SELECT * FROM experts ORDER BY pubkey ASC");
+      rows = stmt.all();
+    }
 
     const experts = rows.map(
       (row: Record<string, any>): DBExpert => ({
@@ -332,7 +449,7 @@ export class DB {
         user_id: String(row.user_id || ""),
       })
     );
-    
+
     return Promise.resolve(experts);
   }
 
@@ -340,13 +457,28 @@ export class DB {
    * List experts with timestamp newer than the provided timestamp
    * @param timestamp - Only return experts with timestamp newer than this
    * @param limit - Maximum number of experts to return (default: 1000)
+   * @param user_id - Optional user ID to filter experts by
    * @returns Promise resolving to an array of expert objects
    */
-  async listExpertsAfter(timestamp: number, limit = 1000): Promise<DBExpert[]> {
-    const stmt = this.db.prepare(
-      "SELECT * FROM experts WHERE timestamp > ? ORDER BY timestamp ASC LIMIT ?"
-    );
-    const rows = stmt.all(timestamp, limit);
+  async listExpertsAfter(
+    timestamp: number,
+    limit = 1000,
+    user_id?: string
+  ): Promise<DBExpert[]> {
+    let stmt;
+    let rows;
+
+    if (user_id) {
+      stmt = this.db.prepare(
+        "SELECT * FROM experts WHERE timestamp > ? AND user_id = ? ORDER BY timestamp ASC LIMIT ?"
+      );
+      rows = stmt.all(timestamp, user_id, limit);
+    } else {
+      stmt = this.db.prepare(
+        "SELECT * FROM experts WHERE timestamp > ? ORDER BY timestamp ASC LIMIT ?"
+      );
+      rows = stmt.all(timestamp, limit);
+    }
 
     const experts = rows.map(
       (row: Record<string, any>): DBExpert => ({
@@ -362,7 +494,7 @@ export class DB {
         timestamp: row.timestamp ? Number(row.timestamp) : undefined,
       })
     );
-    
+
     return Promise.resolve(experts);
   }
 
@@ -375,11 +507,12 @@ export class DB {
     if (!ids.length) {
       return Promise.resolve([]);
     }
-  
 
     // Create placeholders for the SQL query (?, ?, ?, etc.)
-    const placeholders = ids.map(() => '?').join(',');
-    const stmt = this.db.prepare(`SELECT * FROM experts WHERE pubkey IN (${placeholders}) ORDER BY pubkey ASC`);
+    const placeholders = ids.map(() => "?").join(",");
+    const stmt = this.db.prepare(
+      `SELECT * FROM experts WHERE pubkey IN (${placeholders}) ORDER BY pubkey ASC`
+    );
     const rows = stmt.all(...ids);
 
     const experts = rows.map(
@@ -395,18 +528,29 @@ export class DB {
         user_id: String(row.user_id || ""),
       })
     );
-    
+
     return Promise.resolve(experts);
   }
 
   /**
    * Get an expert by pubkey
    * @param pubkey - Pubkey of the expert to get
+   * @param user_id - Optional user ID to filter by
    * @returns Promise resolving to the expert if found, null otherwise
    */
-  async getExpert(pubkey: string): Promise<DBExpert | null> {
-    const stmt = this.db.prepare("SELECT * FROM experts WHERE pubkey = ?");
-    const row = stmt.get(pubkey);
+  async getExpert(pubkey: string, user_id?: string): Promise<DBExpert | null> {
+    let stmt;
+    let row;
+
+    if (user_id) {
+      stmt = this.db.prepare(
+        "SELECT * FROM experts WHERE pubkey = ? AND user_id = ?"
+      );
+      row = stmt.get(pubkey, user_id);
+    } else {
+      stmt = this.db.prepare("SELECT * FROM experts WHERE pubkey = ?");
+      row = stmt.get(pubkey);
+    }
 
     if (!row) {
       return Promise.resolve(null);
@@ -423,7 +567,7 @@ export class DB {
       disabled: Boolean(row.disabled || false),
       user_id: String(row.user_id || ""),
     };
-    
+
     return Promise.resolve(expert);
   }
 
@@ -434,7 +578,7 @@ export class DB {
    */
   async insertExpert(expert: DBExpert): Promise<boolean> {
     // Check if wallet exists - now using the async getWallet method
-    const wallet = await this.getWallet(expert.wallet_id);
+    const wallet = await this.getWallet(expert.wallet_id, expert.user_id);
     if (!wallet) {
       throw new Error(`Wallet with ID ${expert.wallet_id} does not exist`);
     }
@@ -474,7 +618,7 @@ export class DB {
    */
   async updateExpert(expert: DBExpert): Promise<boolean> {
     // Check if wallet exists - now using the async getWallet method
-    const wallet = await this.getWallet(expert.wallet_id);
+    const wallet = await this.getWallet(expert.wallet_id, expert.user_id);
     if (!wallet) {
       throw new Error(`Wallet with ID ${expert.wallet_id} does not exist`);
     }
@@ -508,23 +652,37 @@ export class DB {
    * Set the disabled status of an expert
    * @param pubkey - Pubkey of the expert to update
    * @param disabled - Whether the expert should be disabled
+   * @param user_id - Optional user ID to filter by
    * @returns Promise resolving to true if expert was updated, false otherwise
    */
-  async setExpertDisabled(pubkey: string, disabled: boolean): Promise<boolean> {
+  async setExpertDisabled(
+    pubkey: string,
+    disabled: boolean,
+    user_id?: string
+  ): Promise<boolean> {
     // Generate timestamp in the DB class
     const timestamp = Date.now();
-    
-    const stmt = this.db.prepare(`
-      UPDATE experts
-      SET disabled = ?, timestamp = ?
-      WHERE pubkey = ?
-    `);
 
-    const result = stmt.run(
-      disabled ? 1 : 0,
-      timestamp,
-      pubkey
-    );
+    let stmt;
+    let result;
+
+    if (user_id) {
+      stmt = this.db.prepare(`
+        UPDATE experts
+        SET disabled = ?, timestamp = ?
+        WHERE pubkey = ? AND user_id = ?
+      `);
+
+      result = stmt.run(disabled ? 1 : 0, timestamp, pubkey, user_id);
+    } else {
+      stmt = this.db.prepare(`
+        UPDATE experts
+        SET disabled = ?, timestamp = ?
+        WHERE pubkey = ?
+      `);
+
+      result = stmt.run(disabled ? 1 : 0, timestamp, pubkey);
+    }
 
     return Promise.resolve(result.changes > 0);
   }
@@ -532,11 +690,22 @@ export class DB {
   /**
    * Delete an expert
    * @param pubkey - Pubkey of the expert to delete
+   * @param user_id - Optional user ID to filter by
    * @returns Promise resolving to true if expert was deleted, false otherwise
    */
-  async deleteExpert(pubkey: string): Promise<boolean> {
-    const stmt = this.db.prepare("DELETE FROM experts WHERE pubkey = ?");
-    const result = stmt.run(pubkey);
+  async deleteExpert(pubkey: string, user_id?: string): Promise<boolean> {
+    let stmt;
+    let result;
+
+    if (user_id) {
+      stmt = this.db.prepare(
+        "DELETE FROM experts WHERE pubkey = ? AND user_id = ?"
+      );
+      result = stmt.run(pubkey, user_id);
+    } else {
+      stmt = this.db.prepare("DELETE FROM experts WHERE pubkey = ?");
+      result = stmt.run(pubkey);
+    }
 
     return Promise.resolve(result.changes > 0);
   }
@@ -554,10 +723,10 @@ export class DB {
         id: String(row.id || ""),
         pubkey: String(row.pubkey || ""),
         privkey: String(row.privkey || ""),
-        user_id_ext: String(row.user_id_ext || "")
+        user_id_ext: String(row.user_id_ext || ""),
       })
     );
-    
+
     return Promise.resolve(users);
   }
 
@@ -578,9 +747,9 @@ export class DB {
       id: String(row.id || ""),
       pubkey: String(row.pubkey || ""),
       privkey: String(row.privkey || ""),
-      user_id_ext: String(row.user_id_ext || "")
+      user_id_ext: String(row.user_id_ext || ""),
     };
-    
+
     return Promise.resolve(user);
   }
 
@@ -601,9 +770,9 @@ export class DB {
       id: String(row.id || ""),
       pubkey: String(row.pubkey || ""),
       privkey: String(row.privkey || ""),
-      user_id_ext: String(row.user_id_ext || "")
+      user_id_ext: String(row.user_id_ext || ""),
     };
-    
+
     return Promise.resolve(user);
   }
 
@@ -616,7 +785,7 @@ export class DB {
     if (!user_id_ext) {
       return Promise.resolve(null);
     }
-    
+
     const stmt = this.db.prepare("SELECT * FROM users WHERE user_id_ext = ?");
     const row = stmt.get(user_id_ext);
 
@@ -628,9 +797,9 @@ export class DB {
       id: String(row.id || ""),
       pubkey: String(row.pubkey || ""),
       privkey: String(row.privkey || ""),
-      user_id_ext: String(row.user_id_ext || "")
+      user_id_ext: String(row.user_id_ext || ""),
     };
-    
+
     return Promise.resolve(user);
   }
 
@@ -647,14 +816,9 @@ export class DB {
 
     // Generate a unique string ID (UUID)
     const id = crypto.randomUUID();
-    
+
     try {
-      stmt.run(
-        id,
-        user.pubkey,
-        user.privkey,
-        user.user_id_ext || ""
-      );
+      stmt.run(id, user.pubkey, user.privkey, user.user_id_ext || "");
       return Promise.resolve(id);
     } catch (error) {
       debugError("Error inserting user:", error);
