@@ -7,6 +7,8 @@ import { registerRunCommand } from "./run.js";
 import { registerAllCommand } from "./all.js";
 import { registerLsCommand } from "./ls.js";
 import { registerSearchCommand } from "./search.js";
+import { registerSchedulerCommand } from "./scheduler.js";
+import { registerWorkerCommand } from "./worker.js";
 
 /**
  * Common options for expert commands
@@ -49,4 +51,6 @@ export function registerExpertCommand(program: Command): void {
   registerAllCommand(expertCommand);
   registerLsCommand(expertCommand);
   registerSearchCommand(expertCommand);
+  registerSchedulerCommand(expertCommand);
+  registerWorkerCommand(expertCommand);
 }

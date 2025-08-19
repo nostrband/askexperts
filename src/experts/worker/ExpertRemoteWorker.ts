@@ -1,0 +1,397 @@
+import WebSocket from "ws";
+import { SimplePool } from "nostr-tools";
+import { ExpertWorker } from "./ExpertWorker.js";
+import { DBExpert } from "../../db/interfaces.js";
+import {
+  WorkerToSchedulerMessage,
+  SchedulerToWorkerMessage,
+  SchedulerToWorkerMessages,
+} from "../scheduler/interfaces.js";
+import { debugError, debug } from "../../common/debug.js";
+import { generateUUID } from "../../common/uuid.js";
+
+// Create a debug function for the worker
+const debugWorker = debug("askexperts:remoteworker");
+
+/**
+ * Configuration options for ExpertRemoteWorker
+ */
+export interface ExpertRemoteWorkerOptions {
+  /** URL of the scheduler to connect to */
+  schedulerUrl: string;
+  /** SimplePool instance for Nostr communication */
+  pool: SimplePool;
+  /** Host for RAG database */
+  ragHost?: string;
+  /** Port for RAG database */
+  ragPort?: number;
+  /** Reconnection delay in milliseconds (default: 5000) */
+  reconnectDelay?: number;
+}
+
+/**
+ * ExpertRemoteWorker class for connecting to an ExpertScheduler
+ * and running experts as directed
+ */
+export class ExpertRemoteWorker {
+  private options: ExpertRemoteWorkerOptions;
+  private worker: ExpertWorker;
+  private socket: WebSocket | null = null;
+  private reconnectTimer: NodeJS.Timeout | null = null;
+  private connected: boolean = false;
+  private stopping: boolean = false;
+
+  // Worker ID
+  private workerId: string;
+
+  /**
+   * Create a new ExpertRemoteWorker
+   *
+   * @param options Configuration options
+   */
+  constructor(options: ExpertRemoteWorkerOptions) {
+    this.options = {
+      reconnectDelay: 5000,
+      ...options,
+    };
+
+    // Generate a unique worker ID
+    this.workerId = generateUUID();
+
+    // Create ExpertWorker instance
+    this.worker = new ExpertWorker(
+      options.pool,
+      options.ragHost,
+      options.ragPort
+    );
+
+    debugWorker(
+      `ExpertRemoteWorker initialized with ID ${this.workerId} and scheduler URL: ${options.schedulerUrl}`
+    );
+  }
+
+  /**
+   * Start the worker
+   */
+  public async start(): Promise<void> {
+    this.stopping = false;
+    await this.connect();
+  }
+
+  /**
+   * Stop the worker
+   */
+  public async stop(): Promise<void> {
+    this.stopping = true;
+
+    // Clear reconnect timer if it exists
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
+    // Close WebSocket connection if it exists
+    if (this.socket) {
+      this.socket.close();
+      this.socket = null;
+    }
+
+    // Dispose the worker
+    await this.worker[Symbol.asyncDispose]();
+
+    debugWorker("ExpertRemoteWorker stopped");
+  }
+
+  /**
+   * Connect to the scheduler
+   */
+  private async connect(): Promise<void> {
+    if (this.stopping) {
+      return;
+    }
+
+    try {
+      debugWorker(`Connecting to scheduler at ${this.options.schedulerUrl}`);
+
+      // Create WebSocket connection
+      this.socket = new WebSocket(this.options.schedulerUrl);
+
+      // Set up event handlers
+      this.socket.on("open", this.handleOpen.bind(this));
+      this.socket.on("message", this.handleMessage.bind(this));
+      this.socket.on("close", this.handleClose.bind(this));
+      this.socket.on("error", this.handleError.bind(this));
+    } catch (error) {
+      debugError("Error connecting to scheduler:", error);
+      this.scheduleReconnect();
+    }
+  }
+
+  /**
+   * Handle WebSocket open event
+   */
+  private async handleOpen() {
+    debugWorker("Connected to scheduler");
+    this.connected = true;
+
+    // Send list of running experts
+    this.sendExpertsList();
+
+    // Request a job
+    this.requestJob();
+  }
+
+  /**
+   * Handle WebSocket message event
+   *
+   * @param data Message data
+   */
+  private handleMessage(data: WebSocket.Data): void {
+    try {
+      const message = JSON.parse(data.toString()) as SchedulerToWorkerMessage;
+
+      debugWorker(`Received ${message.type} message from scheduler`);
+
+      // Handle message based on type
+      switch (message.type) {
+        case "job":
+          this.handleJobMessage(message.data);
+          break;
+
+        case "no_job":
+          this.handleNoJobMessage();
+          break;
+
+        case "stop":
+          this.handleStopMessage(message.data.expert);
+          break;
+
+        default:
+          debugError(`Unknown message type: ${(message as any).type}`);
+      }
+    } catch (error) {
+      debugError("Error parsing scheduler message:", error);
+    }
+  }
+
+  /**
+   * Handle WebSocket close event
+   */
+  private handleClose(): void {
+    if (this.connected) {
+      debugWorker("Disconnected from scheduler");
+      this.connected = false;
+    }
+
+    if (!this.stopping) {
+      this.scheduleReconnect();
+    }
+  }
+
+  /**
+   * Handle WebSocket error event
+   *
+   * @param error Error object
+   */
+  private handleError(error: Error): void {
+    debugError("WebSocket error:", error);
+
+    // Close the connection if it's still open
+    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+      this.socket.close();
+    }
+  }
+
+  /**
+   * Schedule a reconnection attempt
+   */
+  private scheduleReconnect(): void {
+    if (this.stopping) {
+      return;
+    }
+
+    // Clear any existing reconnect timer
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+    }
+
+    // Set a new reconnect timer
+    this.reconnectTimer = setTimeout(() => {
+      debugWorker("Attempting to reconnect to scheduler");
+      this.connect();
+    }, this.options.reconnectDelay);
+
+    debugWorker(`Scheduled reconnect in ${this.options.reconnectDelay}ms`);
+  }
+
+  /**
+   * Send a message to the scheduler
+   *
+   * @param message Message to send
+   */
+  private sendMessage(message: WorkerToSchedulerMessage): void {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      debugError("Cannot send message, not connected to scheduler");
+      return;
+    }
+
+    try {
+      this.socket.send(JSON.stringify(message));
+    } catch (error) {
+      debugError("Error sending message to scheduler:", error);
+    }
+  }
+
+  /**
+   * Send a list of running experts to the scheduler
+   */
+  private sendExpertsList(): void {
+    const runningExperts = this.worker.getRunningExpertPubkeys();
+
+    debugWorker(
+      `Sending list of ${runningExperts.length} running experts to scheduler`
+    );
+
+    const message: WorkerToSchedulerMessage = {
+      type: "experts",
+      data: {
+        workerId: this.workerId,
+        experts: runningExperts,
+      },
+    };
+
+    this.sendMessage(message);
+  }
+
+  /**
+   * Request a job from the scheduler
+   */
+  private requestJob(): void {
+    debugWorker("Requesting job from scheduler");
+
+    const message: WorkerToSchedulerMessage = {
+      type: "need_job",
+      data: {
+        workerId: this.workerId,
+      },
+    };
+
+    this.sendMessage(message);
+  }
+
+  /**
+   * Handle a job message from the scheduler
+   *
+   * @param job Job data
+   */
+  private async handleJobMessage(
+    job: SchedulerToWorkerMessages["job"]
+  ): Promise<void> {
+    debugWorker(`Received job for expert ${job.expert}`);
+
+    try {
+      // Check if the expert is already running
+      const runningExperts = this.worker.getRunningExpertPubkeys();
+      const existingExpert = runningExperts.includes(job.expert);
+      if (existingExpert) {
+        debugWorker(
+          `Expert ${job.expert} is already running, not starting again`
+        );
+      } else {
+        // Create DBExpert object
+        const expert: DBExpert = {
+          pubkey: job.expert,
+          wallet_id: job.wallet_id,
+          type: job.type,
+          nickname: job.nickname,
+          env: job.env,
+          docstores: job.docstores,
+          privkey: job.privkey,
+          user_id: job.user_id,
+        };
+
+        // Start the expert using the NWC string from the job message
+        await this.worker.startExpert(expert, job.nwc_string);
+      }
+      // Send started message
+      const message: WorkerToSchedulerMessage = {
+        type: "started",
+        data: {
+          workerId: this.workerId,
+          expert: job.expert,
+        },
+      };
+      this.sendMessage(message);
+
+      // A small pause to avoid event-storming the relays etc
+      if (!existingExpert) await new Promise((ok) => setTimeout(ok, 1000));
+
+      // Request another job
+      this.requestJob();
+    } catch (error) {
+      debugError(`Error starting expert ${job.expert}:`, error);
+
+      // Request another job
+      this.requestJob();
+    }
+  }
+
+  /**
+   * Handle a no_job message from the scheduler
+   */
+  private handleNoJobMessage(): void {
+    debugWorker("No jobs available from scheduler");
+
+    // Request another job after a delay
+    setTimeout(() => {
+      this.requestJob();
+    }, 5000); // 5 second delay
+  }
+
+  /**
+   * Handle a stop message from the scheduler
+   *
+   * @param expertPubkey Expert pubkey to stop
+   */
+  private async handleStopMessage(expertPubkey: string) {
+    debugWorker(`Received stop message for expert ${expertPubkey}`);
+
+    try {
+      // Stop the expert
+      const stopped = await this.worker.stopExpert(expertPubkey);
+
+      if (stopped) {
+        // Send stopped message
+        const message: WorkerToSchedulerMessage = {
+          type: "stopped",
+          data: {
+            workerId: this.workerId,
+            expert: expertPubkey,
+          },
+        };
+
+        this.sendMessage(message);
+      } else {
+        debugError(`Expert ${expertPubkey} was not running, cannot stop`);
+      }
+    } catch (error) {
+      debugError(`Error stopping expert ${expertPubkey}:`, error);
+    }
+  }
+
+  /**
+   * Resource cleanup
+   */
+  [Symbol.dispose](): void {
+    this.stop().catch((error) => {
+      debugError("Error stopping remote worker:", error);
+    });
+  }
+
+  /**
+   * Async resource cleanup
+   */
+  async [Symbol.asyncDispose](): Promise<void> {
+    await this.stop();
+  }
+}

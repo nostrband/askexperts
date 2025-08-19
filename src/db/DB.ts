@@ -108,9 +108,6 @@ export class DB {
     this.db.exec(
       "CREATE INDEX IF NOT EXISTS idx_users_pubkey ON users (pubkey)"
     );
-    this.db.exec(
-      "CREATE INDEX IF NOT EXISTS idx_users_user_id_ext ON users (user_id_ext)"
-    );
 
     // Migration: Add user_id_ext column if it doesn't exist
     try {

@@ -142,11 +142,12 @@ export class ExpertWorker {
    * @param pubkey The pubkey of the expert to stop
    * @returns True if the expert was running and is now stopped, false otherwise
    */
-  public stopExpert(pubkey: string): boolean {
+  public async stopExpert(pubkey: string): Promise<boolean> {
     const expert = this.runningExperts.get(pubkey);
     if (expert) {
       debugExpert(`Stopping expert ${pubkey}...`);
       expert.stopFn();
+      await expert.disposed;
       this.runningExperts.delete(pubkey);
       return true;
     }
