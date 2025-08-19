@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { DocStore, DocStoreClient, DocStoreSQLite, DocStoreWebSocketClient } from "../../../docstore/index.js";
+import { DocStore, DocStoreClient, DocStoreLocalClient, DocStoreWebSocketClient } from "../../../docstore/index.js";
 import fs from "fs";
 import path from "path";
 import { debugError, debugDocstore } from "../../../common/debug.js";
@@ -103,11 +103,14 @@ export async function createDocstoreClient(options: DocstoreCommandOptions): Pro
     const privkey = hexToBytes(user.privkey);
     
     // Create a DocStoreWebSocketClient with the server URL and private key
-    return new DocStoreWebSocketClient(serverUrl, privkey);
+    return new DocStoreWebSocketClient({
+      url: serverUrl,
+      privateKey: privkey
+    });
   } else {
     // Use local SQLite client
     const docstorePath = getDocstorePath();
-    return new DocStoreSQLite(docstorePath);
+    return new DocStoreLocalClient(docstorePath);
   }
 }
 

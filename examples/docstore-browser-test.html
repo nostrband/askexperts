@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DocStoreWebSocketClient Browser Test</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      line-height: 1.6;
+    }
+    h1 {
+      color: #333;
+    }
+    button {
+      background-color: #4CAF50;
+      border: none;
+      color: white;
+      padding: 10px 20px;
+      text-align: center;
+      text-decoration: none;
+      display: inline-block;
+      font-size: 16px;
+      margin: 10px 2px;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    .card {
+      box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2);
+      transition: 0.3s;
+      border-radius: 5px;
+      padding: 20px;
+      margin: 20px 0;
+      background-color: #f9f9f9;
+    }
+    .log {
+      background-color: #f1f1f1;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 10px;
+      margin-top: 20px;
+      height: 300px;
+      overflow-y: auto;
+      font-family: monospace;
+    }
+    .log p {
+      margin: 5px 0;
+    }
+    pre {
+      background-color: #f5f5f5;
+      padding: 10px;
+      border-radius: 4px;
+      overflow-x: auto;
+    }
+  </style>
+</head>
+<body>
+  <h1>DocStoreWebSocketClient Browser Test</h1>
+  
+  <div class="card">
+    <h2>Connection</h2>
+    <div>
+      <label for="wsUrl">WebSocket URL:</label>
+      <input type="text" id="wsUrl" value="ws://localhost:8080" style="width: 100%; padding: 8px; margin: 8px 0;">
+    </div>
+    <button id="connectBtn">Connect</button>
+    <button id="disconnectBtn" disabled>Disconnect</button>
+  </div>
+  
+  <div class="card">
+    <h2>Operations</h2>
+    <button id="listDocstoresBtn" disabled>List Docstores</button>
+    <button id="createDocstoreBtn" disabled>Create Test Docstore</button>
+    <button id="getDocstoreBtn" disabled>Get Docstore</button>
+    <button id="addDocBtn" disabled>Add Document</button>
+    <button id="getDocBtn" disabled>Get Document</button>
+    <button id="deleteDocBtn" disabled>Delete Document</button>
+    <button id="deleteDocstoreBtn" disabled>Delete Docstore</button>
+  </div>
+  
+  <div class="card">
+    <h2>Results</h2>
+    <pre id="results">No results yet</pre>
+  </div>
+  
+  <div class="log" id="log"></div>
+
+  <script type="module">
+    // Import the DocStoreWebSocketClient from the browser build
+    import { DocStoreWebSocketClient } from '../dist/docstore/browser.js';
+    
+    // DOM elements
+    const connectBtn = document.getElementById('connectBtn');
+    const disconnectBtn = document.getElementById('disconnectBtn');
+    const listDocstoresBtn = document.getElementById('listDocstoresBtn');
+    const createDocstoreBtn = document.getElementById('createDocstoreBtn');
+    const getDocstoreBtn = document.getElementById('getDocstoreBtn');
+    const addDocBtn = document.getElementById('addDocBtn');
+    const getDocBtn = document.getElementById('getDocBtn');
+    const deleteDocBtn = document.getElementById('deleteDocBtn');
+    const deleteDocstoreBtn = document.getElementById('deleteDocstoreBtn');
+    const resultsElement = document.getElementById('results');
+    const logElement = document.getElementById('log');
+    const wsUrlInput = document.getElementById('wsUrl');
+    
+    // State
+    let client = null;
+    let docstoreId = null;
+    let docId = 'test-doc-1';
+    
+    // Log to the UI
+    function log(message) {
+      const p = document.createElement('p');
+      p.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
+      logElement.appendChild(p);
+      logElement.scrollTop = logElement.scrollHeight;
+    }
+    
+    // Display results
+    function showResults(data) {
+      resultsElement.textContent = typeof data === 'object' 
+        ? JSON.stringify(data, null, 2) 
+        : String(data);
+    }
+    
+    // Connect to the server
+    async function connect() {
+      try {
+        const url = wsUrlInput.value.trim();
+        if (!url) {
+          log('Error: WebSocket URL is required');
+          return;
+        }
+        
+        log(`Connecting to ${url}...`);
+        
+        // Create a new client
+        client = new DocStoreWebSocketClient({
+          url: url
+        });
+        
+        // Wait for the connection to be established
+        await client.waitForConnection();
+        
+        log('Connected successfully!');
+        
+        // Update UI
+        connectBtn.disabled = true;
+        disconnectBtn.disabled = false;
+        listDocstoresBtn.disabled = false;
+        createDocstoreBtn.disabled = false;
+        
+      } catch (error) {
+        log(`Error connecting: ${error.message}`);
+        console.error(error);
+      }
+    }
+    
+    // Disconnect from the server
+    function disconnect() {
+      try {
+        if (client) {
+          client.close();
+          client = null;
+          log('Disconnected from server');
+          
+          // Update UI
+          connectBtn.disabled = false;
+          disconnectBtn.disabled = true;
+          listDocstoresBtn.disabled = true;
+          createDocstoreBtn.disabled = true;
+          getDocstoreBtn.disabled = true;
+          addDocBtn.disabled = true;
+          getDocBtn.disabled = true;
+          deleteDocBtn.disabled = true;
+          deleteDocstoreBtn.disabled = true;
+          
+          showResults('No results');
+        }
+      } catch (error) {
+        log(`Error disconnecting: ${error.message}`);
+        console.error(error);
+      }
+    }
+    
+    // List docstores
+    async function listDocstores() {
+      try {
+        if (!client) {
+          log('Error: Not connected');
+          return;
+        }
+        
+        log('Listing docstores...');
+        const docstores = await client.listDocstores();
+        log(`Found ${docstores.length} docstores`);
+        
+        showResults(docstores);
+        
+      } catch (error) {
+        log(`Error listing docstores: ${error.message}`);
+        console.error(error);
+      }
+    }
+    
+    // Create a test docstore
+    async function createDocstore() {
+      try {
+        if (!client) {
+          log('Error: Not connected');
+          return;
+        }
+        
+        const name = 'browser-test-docstore';
+        const model = 'test-model';
+        const vectorSize = 2;
+        
+        log(`Creating docstore "${name}"...`);
+        docstoreId = await client.createDocstore(name, model, vectorSize);
+        log(`Created docstore with ID: ${docstoreId}`);
+        
+        showResults({ id: docstoreId, name, model, vector_size: vectorSize });
+        
+        // Enable other buttons
+        getDocstoreBtn.disabled = false;
+        addDocBtn.disabled = false;
+        deleteDocstoreBtn.disabled = false;
+        
+      } catch (error) {
+        log(`Error creating docstore: ${error.message}`);
+        console.error(error);
+      }
+    }
+    
+    // Get docstore
+    async function getDocstore() {
+      try {
+        if (!client || !docstoreId) {
+          log('Error: Not connected or no docstore created');
+          return;
+        }
+        
+        log(`Getting docstore with ID: ${docstoreId}...`);
+        const docstore = await client.getDocstore(docstoreId);
+        log('Retrieved docstore');
+        
+        showResults(docstore);
+        
+      } catch (error) {
+        log(`Error getting docstore: ${error.message}`);
+        console.error(error);
+      }
+    }
+    
+    // Add a document
+    async function addDoc() {
+      try {
+        if (!client || !docstoreId) {
+          log('Error: Not connected or no docstore created');
+          return;
+        }
+        
+        const doc = {
+          id: docId,
+          docstore_id: docstoreId,
+          timestamp: Math.floor(Date.now() / 1000),
+          type: 'test',
+          content: 'This is a test document created from the browser',
+          metadata: { source: 'browser-test' },
+          vector: [1.0, 2.0]
+        };
+        
+        log(`Adding document with ID: ${docId}...`);
+        await client.add(doc);
+        log('Document added successfully');
+        
+        showResults(doc);
+        
+        // Enable get and delete buttons
+        getDocBtn.disabled = false;
+        deleteDocBtn.disabled = false;
+        
+      } catch (error) {
+        log(`Error adding document: ${error.message}`);
+        console.error(error);
+      }
+    }
+    
+    // Get a document
+    async function getDoc() {
+      try {
+        if (!client || !docstoreId) {
+          log('Error: Not connected or no docstore created');
+          return;
+        }
+        
+        log(`Getting document with ID: ${docId}...`);
+        const doc = await client.get(docstoreId, docId);
+        log('Retrieved document');
+        
+        showResults(doc);
+        
+      } catch (error) {
+        log(`Error getting document: ${error.message}`);
+        console.error(error);
+      }
+    }
+    
+    // Delete a document
+    async function deleteDoc() {
+      try {
+        if (!client || !docstoreId) {
+          log('Error: Not connected or no docstore created');
+          return;
+        }
+        
+        log(`Deleting document with ID: ${docId}...`);
+        const result = await client.delete(docstoreId, docId);
+        log(`Document deleted: ${result}`);
+        
+        showResults({ deleted: result });
+        
+        // Disable document buttons
+        getDocBtn.disabled = true;
+        deleteDocBtn.disabled = true;
+        
+      } catch (error) {
+        log(`Error deleting document: ${error.message}`);
+        console.error(error);
+      }
+    }
+    
+    // Delete the docstore
+    async function deleteDocstore() {
+      try {
+        if (!client || !docstoreId) {
+          log('Error: Not connected or no docstore created');
+          return;
+        }
+        
+        log(`Deleting docstore with ID: ${docstoreId}...`);
+        const result = await client.deleteDocstore(docstoreId);
+        log(`Docstore deleted: ${result}`);
+        
+        showResults({ deleted: result });
+        
+        // Disable buttons
+        getDocstoreBtn.disabled = true;
+        addDocBtn.disabled = true;
+        getDocBtn.disabled = true;
+        deleteDocBtn.disabled = true;
+        deleteDocstoreBtn.disabled = true;
+        
+        // Reset state
+        docstoreId = null;
+        
+      } catch (error) {
+        log(`Error deleting docstore: ${error.message}`);
+        console.error(error);
+      }
+    }
+    
+    // Event listeners
+    connectBtn.addEventListener('click', connect);
+    disconnectBtn.addEventListener('click', disconnect);
+    listDocstoresBtn.addEventListener('click', listDocstores);
+    createDocstoreBtn.addEventListener('click', createDocstore);
+    getDocstoreBtn.addEventListener('click', getDocstore);
+    addDocBtn.addEventListener('click', addDoc);
+    getDocBtn.addEventListener('click', getDoc);
+    deleteDocBtn.addEventListener('click', deleteDoc);
+    deleteDocstoreBtn.addEventListener('click', deleteDocstore);
+    
+    // Log initial message
+    log('DocStoreWebSocketClient Browser Test initialized');
+    log('Click "Connect" to start');
+  </script>
+</body>
+</html>

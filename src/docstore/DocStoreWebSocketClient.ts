@@ -1,6 +1,5 @@
-import WebSocket from 'ws';
 import { Doc, DocStore, DocStoreClient, MessageType, Subscription } from './interfaces.js';
-import crypto from 'crypto';
+import { generateUUID } from '../common/uuid.js';
 import { createAuthToken } from '../common/auth.js';
 import { debugDocstore, debugError } from '../common/debug.js';
 
@@ -12,11 +11,25 @@ interface SerializableDoc extends Omit<Doc, 'embeddings'> {
 }
 
 /**
+ * Configuration options for DocStoreWebSocketClient
+ */
+export interface DocStoreWebSocketClientOptions {
+  /** WebSocket URL to connect to */
+  url: string;
+  /** Optional private key for authentication (as Uint8Array) */
+  privateKey?: Uint8Array;
+  /** Optional token for bearer authentication */
+  token?: string;
+  /** Optional WebSocket instance to use instead of creating a new one */
+  webSocket?: WebSocket;
+}
+
+/**
  * WebSocket client for DocStoreSQLiteServer
  * Implements the DocStoreClient interface
  */
 export class DocStoreWebSocketClient implements DocStoreClient {
-  private ws: any; // Using any type for WebSocket to avoid type conflicts
+  private ws: WebSocket; // WebSocket instance
   private messageCallbacks: Map<string, (response: any) => void> = new Map();
   private subscriptionCallbacks: Map<string, (doc?: Doc) => Promise<void>> = new Map();
   private docBuffers: Map<string, Doc[]> = new Map();
@@ -25,60 +38,162 @@ export class DocStoreWebSocketClient implements DocStoreClient {
   private connectPromise: Promise<void>;
   private connectResolve!: () => void;
   private connectReject!: (error: Error) => void;
+  private privateKey?: Uint8Array;
+  private token?: string;
+  private url: string;
+  private authenticated: boolean = false;
+  private messageHandler: (event: MessageEvent) => void;
+  private openHandler: () => void;
+  private closeHandler: () => void;
+  private errorHandler: (event: Event) => void;
 
   /**
    * Creates a new DocStoreWebSocketClient
-   * @param url - WebSocket URL to connect to
-   * @param privateKey - Optional private key for authentication (as Uint8Array)
+   * @param options - Configuration options for the client
    */
-  constructor(url: string, privateKey?: Uint8Array) {
+  constructor(options: DocStoreWebSocketClientOptions | string) {
+    // Handle legacy constructor format (url string)
+    let url: string;
+    let privateKey: Uint8Array | undefined;
+    let token: string | undefined;
+    let customWebSocket: WebSocket | undefined;
+    
+    if (typeof options === 'string') {
+      // Legacy format: constructor(url, privateKey?, token?)
+      url = options;
+      // Note: We can't access the other parameters in this legacy format
+      // This is just for backward compatibility with code that passes only the URL
+    } else {
+      // New format: constructor(options)
+      url = options.url;
+      privateKey = options.privateKey;
+      token = options.token;
+      customWebSocket = options.webSocket;
+    }
+    
     // Initialize connection promise
     this.connectPromise = new Promise<void>((resolve, reject) => {
       this.connectResolve = resolve;
       this.connectReject = reject;
     });
 
-    // Create connection options
-    const options: WebSocket.ClientOptions = {};
+    // Store authentication info for later use
+    this.privateKey = privateKey;
+    this.token = token;
+    this.url = url;
     
-    // If privateKey is provided, add authorization header with NIP-98 token
-    if (privateKey) {
-      const authToken = createAuthToken(privateKey, url, 'GET');
-      options.headers = {
-        'Authorization': authToken
-      };
-    }
-
-    // Connect to the WebSocket server with options
-    this.ws = new WebSocket(url, options);
-
-    // Set up event handlers
-    this.ws.on('open', () => {
+    // Create event handlers
+    this.openHandler = async () => {
       debugDocstore('Connected to DocStoreSQLiteServer');
       this.connected = true;
+      
+      // If authentication is needed, send auth message
+      if (this.token || this.privateKey) {
+        try {
+          await this.sendAuthMessage();
+        } catch (error) {
+          debugError('Authentication error:', error);
+          this.connectReject(new Error('Authentication failed'));
+          return;
+        }
+      }
+      
       this.connectResolve();
-    });
+    };
 
-    this.ws.on('message', (data: Buffer) => {
+    this.messageHandler = (event: MessageEvent) => {
       try {
-        const message = JSON.parse(data.toString());
+        const data = typeof event.data === 'string' ? event.data : new TextDecoder().decode(event.data);
+        const message = JSON.parse(data);
         this.handleMessage(message);
       } catch (error) {
         debugError('Error parsing message:', error);
       }
-    });
+    };
 
-    this.ws.on('close', () => {
+    this.closeHandler = () => {
       debugDocstore('Disconnected from DocStoreSQLiteServer');
       this.connected = false;
-    });
+    };
 
-    this.ws.on('error', (error: Error) => {
-      debugError('WebSocket error:', error);
+    this.errorHandler = (event: Event) => {
+      debugError('WebSocket error:', event);
       if (!this.connected) {
-        this.connectReject(error);
+        this.connectReject(new Error('WebSocket connection error'));
+      }
+    };
+    
+    // Connect to the WebSocket server
+    if (customWebSocket) {
+      // Use the provided WebSocket instance
+      this.ws = customWebSocket;
+    } else {
+      // Create a new WebSocket instance
+      this.ws = typeof globalThis.WebSocket !== 'undefined'
+        ? new globalThis.WebSocket(url)
+        : new WebSocket(url);
+    }
+
+    // Set up event handlers
+    this.ws.onopen = this.openHandler;
+    this.ws.onmessage = this.messageHandler;
+    this.ws.onclose = this.closeHandler;
+    this.ws.onerror = this.errorHandler;
+  }
+  
+  /**
+   * Send authentication message after connection
+   * @returns Promise that resolves when authentication is successful
+   */
+  private async sendAuthMessage(): Promise<void> {
+    // Generate a unique message ID
+    const id = generateUUID();
+    
+    // Create headers object
+    const headers: Record<string, string> = {};
+    
+    // Add authorization header based on token or privateKey
+    if (this.token) {
+      headers['authorization'] = `Bearer ${this.token}`;
+    } else if (this.privateKey) {
+      const authToken = createAuthToken(this.privateKey, this.url, 'GET');
+      headers['authorization'] = authToken;
+    }
+    
+    // Create a promise for the auth response
+    const authPromise = new Promise<void>((resolve, reject) => {
+      // Set a timeout to reject the promise if no response is received
+      const timeout = setTimeout(() => {
+        this.messageCallbacks.delete(id);
+        reject(new Error('Timeout waiting for authentication response'));
+      }, 30000); // 30 second timeout
+      
+      // Set up the callback to resolve the promise
+      this.messageCallbacks.set(id, (response) => {
+        clearTimeout(timeout);
+        if (response.error) {
+          reject(new Error(`Authentication error: ${response.error.message}`));
+        } else {
+          this.authenticated = true;
+          debugDocstore('Authentication successful');
+          resolve();
+        }
+      });
+    });
+    
+    // Send the auth message
+    const authMessage = JSON.stringify({
+      id,
+      type: MessageType.AUTH,
+      method: 'auth',
+      params: {
+        headers
       }
     });
+    this.ws.send(authMessage);
+    
+    // Wait for the auth response
+    return authPromise;
   }
 
   /**
@@ -138,9 +253,14 @@ export class DocStoreWebSocketClient implements DocStoreClient {
     if (!this.connected) {
       await this.waitForConnection();
     }
+    
+    // Make sure we're authenticated if authentication was required
+    if ((this.token || this.privateKey) && !this.authenticated) {
+      throw new Error('Not authenticated');
+    }
 
     // Generate a unique message ID
-    const id = crypto.randomUUID();
+    const id = generateUUID();
 
     // Create a promise for the response
     const responsePromise = new Promise<any>((resolve, reject) => {
@@ -162,12 +282,13 @@ export class DocStoreWebSocketClient implements DocStoreClient {
     });
 
     // Send the message
-    this.ws.send(JSON.stringify({
+    const messageStr = JSON.stringify({
       id,
       type,
       method,
       params
-    }));
+    });
+    this.ws.send(messageStr);
 
     // Wait for the response
     return responsePromise;
@@ -189,29 +310,31 @@ export class DocStoreWebSocketClient implements DocStoreClient {
     onDoc: (doc?: Doc) => Promise<void>
   ): Promise<Subscription> {
     // Generate a unique subscription ID
-    const subscriptionId = crypto.randomUUID();
+    const subscriptionId = generateUUID();
 
     // Store the callback
     this.subscriptionCallbacks.set(subscriptionId, onDoc);
 
     // Send the subscription message
-    this.ws.send(JSON.stringify({
+    const subscriptionMessage = JSON.stringify({
       id: subscriptionId,
       type: MessageType.SUBSCRIPTION,
       method: 'subscribe',
       params: options
-    }));
+    });
+    this.ws.send(subscriptionMessage);
 
     // Return a subscription object with a close method
     return Promise.resolve({
       close: () => {
         // Send an end message to terminate the subscription
-        this.ws.send(JSON.stringify({
+        const endMessage = JSON.stringify({
           id: subscriptionId,
           type: MessageType.END,
           method: 'subscribe',
           params: {}
-        }));
+        });
+        this.ws.send(endMessage);
 
         // Remove the callback
         this.subscriptionCallbacks.delete(subscriptionId);
@@ -427,9 +550,6 @@ export class DocStoreWebSocketClient implements DocStoreClient {
   }
 
   /**
-   * Close the WebSocket connection
-   */
-  /**
    * Enqueue a document for processing by a subscription
    * @param subId - Subscription ID
    * @param doc - Document to process, or undefined to signal end of feed
@@ -518,6 +638,11 @@ export class DocStoreWebSocketClient implements DocStoreClient {
     this.messageCallbacks.clear();
     this.docBuffers.clear();
     this.processingSubscriptions.clear();
- }
-
+    
+    // Clean up event handlers
+    this.ws.onopen = null;
+    this.ws.onmessage = null;
+    this.ws.onclose = null;
+    this.ws.onerror = null;
+  }
 }

@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DocStoreWebSocketClient Browser Auth Example</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      line-height: 1.6;
+    }
+    h1 {
+      color: #333;
+    }
+    button {
+      background-color: #4CAF50;
+      border: none;
+      color: white;
+      padding: 10px 20px;
+      text-align: center;
+      text-decoration: none;
+      display: inline-block;
+      font-size: 16px;
+      margin: 10px 2px;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    input[type=text] {
+      width: 100%;
+      padding: 12px 20px;
+      margin: 8px 0;
+      box-sizing: border-box;
+      border: 2px solid #ccc;
+      border-radius: 4px;
+    }
+    .card {
+      box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2);
+      transition: 0.3s;
+      border-radius: 5px;
+      padding: 20px;
+      margin: 20px 0;
+      background-color: #f9f9f9;
+    }
+    .log {
+      background-color: #f1f1f1;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 10px;
+      margin-top: 20px;
+      height: 300px;
+      overflow-y: auto;
+      font-family: monospace;
+    }
+    .log p {
+      margin: 5px 0;
+    }
+    .docstore-card {
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 10px;
+      margin: 10px 0;
+      background-color: white;
+    }
+  </style>
+</head>
+<body>
+  <h1>DocStoreWebSocketClient Browser Auth Example</h1>
+  
+  <div class="card">
+    <h2>Connect to DocStore Server</h2>
+    <div>
+      <label for="serverUrl">Server WebSocket URL:</label>
+      <input type="text" id="serverUrl" value="ws://localhost:8080">
+    </div>
+    <div>
+      <label for="authToken">Authentication Token (optional):</label>
+      <input type="text" id="authToken" placeholder="Bearer or Nostr token">
+    </div>
+    <button id="connectBtn">Connect</button>
+  </div>
+  
+  <div class="card">
+    <h2>DocStore Operations</h2>
+    <div>
+      <label for="docstoreName">DocStore Name:</label>
+      <input type="text" id="docstoreName" value="Test DocStore">
+    </div>
+    <button id="createDocstoreBtn" disabled>Create DocStore</button>
+    <button id="listDocstoresBtn" disabled>List DocStores</button>
+    <div id="docstores-container"></div>
+  </div>
+  
+  <div class="card">
+    <h2>Document Operations</h2>
+    <div>
+      <label for="docstoreId">DocStore ID:</label>
+      <input type="text" id="docstoreId" placeholder="Enter DocStore ID">
+    </div>
+    <button id="addDocumentBtn" disabled>Add Test Document</button>
+    <button id="getDocumentBtn" disabled>Get Document</button>
+    <div id="documents-container"></div>
+  </div>
+  
+  <div class="log" id="log"></div>
+
+  <!-- Import the client from the browser build -->
+  <script type="module">
+    // For this example, we'll import from the local build
+    import { DocStoreWebSocketClient } from '../dist/docstore/index.browser.js';
+    
+    // Store state
+    let client;
+    let currentDocstoreId = '';
+    let currentDocId = 'test-doc-1';
+    
+    // DOM elements
+    const connectBtn = document.getElementById('connectBtn');
+    const createDocstoreBtn = document.getElementById('createDocstoreBtn');
+    const listDocstoresBtn = document.getElementById('listDocstoresBtn');
+    const addDocumentBtn = document.getElementById('addDocumentBtn');
+    const getDocumentBtn = document.getElementById('getDocumentBtn');
+    const docstoresContainer = document.getElementById('docstores-container');
+    const documentsContainer = document.getElementById('documents-container');
+    const logElement = document.getElementById('log');
+    
+    // Log to the UI
+    function log(message) {
+      const p = document.createElement('p');
+      p.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
+      logElement.appendChild(p);
+      logElement.scrollTop = logElement.scrollHeight;
+    }
+    
+    // Connect to the DocStore server
+    async function connect() {
+      try {
+        const serverUrl = document.getElementById('serverUrl').value;
+        const authToken = document.getElementById('authToken').value;
+        
+        if (!serverUrl) {
+          log('Error: Server URL is required');
+          return;
+        }
+        
+        log(`Connecting to DocStore server at: ${serverUrl}`);
+        
+        // Create a new DocStoreWebSocketClient instance
+        const options = {
+          url: serverUrl
+        };
+        
+        if (authToken) {
+          options.token = authToken;
+        }
+        
+        client = new DocStoreWebSocketClient(options);
+        
+        try {
+          // Wait for connection
+          await client.waitForConnection();
+          log('Connected to DocStore server');
+          
+          // Enable the buttons
+          createDocstoreBtn.disabled = false;
+          listDocstoresBtn.disabled = false;
+          addDocumentBtn.disabled = false;
+          getDocumentBtn.disabled = false;
+        } catch (error) {
+          log(`Connection error: ${error.message}`);
+          throw error;
+        }
+        
+      } catch (error) {
+        log(`Error connecting to DocStore server: ${error.message}`);
+        console.error(error);
+      }
+    }
+    
+    // Create a new DocStore
+    async function createDocstore() {
+      try {
+        const name = document.getElementById('docstoreName').value;
+        
+        if (!name) {
+          log('Error: DocStore name is required');
+          return;
+        }
+        
+        log(`Creating DocStore: ${name}`);
+        
+        // Call the createDocstore method
+        const docstoreId = await client.createDocstore(name, 'test-model', 128);
+        
+        log(`DocStore created with ID: ${docstoreId}`);
+        
+        // Update the current DocStore ID
+        currentDocstoreId = docstoreId;
+        document.getElementById('docstoreId').value = docstoreId;
+        
+      } catch (error) {
+        log(`Error creating DocStore: ${error.message}`);
+        console.error(error);
+      }
+    }
+    
+    // List DocStores
+    async function listDocstores() {
+      try {
+        log('Listing DocStores...');
+        
+        // Call the listDocstores method
+        const docstores = await client.listDocstores();
+        
+        log(`Found ${docstores.length} DocStores`);
+        
+        // Display DocStores
+        docstoresContainer.innerHTML = '';
+        docstores.forEach((docstore, index) => {
+          const docstoreCard = document.createElement('div');
+          docstoreCard.className = 'docstore-card';
+          docstoreCard.innerHTML = `
+            <h3>DocStore #${index + 1}</h3>
+            <p><strong>ID:</strong> ${docstore.id}</p>
+            <p><strong>Name:</strong> ${docstore.name}</p>
+            <p><strong>Model:</strong> ${docstore.model}</p>
+            <p><strong>Vector Size:</strong> ${docstore.vector_size}</p>
+            <p><strong>Timestamp:</strong> ${new Date(docstore.timestamp * 1000).toLocaleString()}</p>
+          `;
+          docstoresContainer.appendChild(docstoreCard);
+          
+          // Add a button to select this DocStore
+          const selectBtn = document.createElement('button');
+          selectBtn.textContent = 'Select';
+          selectBtn.addEventListener('click', () => {
+            currentDocstoreId = docstore.id;
+            document.getElementById('docstoreId').value = docstore.id;
+            log(`Selected DocStore: ${docstore.id}`);
+          });
+          docstoreCard.appendChild(selectBtn);
+        });
+        
+      } catch (error) {
+        log(`Error listing DocStores: ${error.message}`);
+        console.error(error);
+      }
+    }
+    
+    // Add a test document
+    async function addDocument() {
+      try {
+        const docstoreId = document.getElementById('docstoreId').value || currentDocstoreId;
+        
+        if (!docstoreId) {
+          log('Error: DocStore ID is required');
+          return;
+        }
+        
+        log(`Adding test document to DocStore: ${docstoreId}`);
+        
+        // Create a test document
+        const doc = {
+          id: currentDocId,
+          docstore_id: docstoreId,
+          timestamp: Math.floor(Date.now() / 1000),
+          created_at: Math.floor(Date.now() / 1000),
+          type: 'test',
+          data: JSON.stringify({
+            title: 'Test Document',
+            content: 'This is a test document created from the browser client.',
+            tags: ['test', 'browser', 'websocket']
+          }),
+          embeddings: [new Float32Array([0.1, 0.2, 0.3, 0.4])]
+        };
+        
+        // Call the upsert method
+        await client.upsert(doc);
+        
+        log(`Document added with ID: ${currentDocId}`);
+        
+      } catch (error) {
+        log(`Error adding document: ${error.message}`);
+        console.error(error);
+      }
+    }
+    
+    // Get a document
+    async function getDocument() {
+      try {
+        const docstoreId = document.getElementById('docstoreId').value || currentDocstoreId;
+        
+        if (!docstoreId) {
+          log('Error: DocStore ID is required');
+          return;
+        }
+        
+        log(`Getting document ${currentDocId} from DocStore: ${docstoreId}`);
+        
+        // Call the get method
+        const doc = await client.get(docstoreId, currentDocId);
+        
+        if (doc) {
+          log(`Document found: ${doc.id}`);
+          
+          // Display the document
+          documentsContainer.innerHTML = '';
+          const docCard = document.createElement('div');
+          docCard.className = 'docstore-card';
+          
+          // Parse the data if it's JSON
+          let data = doc.data;
+          try {
+            data = JSON.parse(doc.data);
+            data = JSON.stringify(data, null, 2);
+          } catch (e) {
+            // Not JSON, use as is
+          }
+          
+          docCard.innerHTML = `
+            <h3>Document: ${doc.id}</h3>
+            <p><strong>DocStore ID:</strong> ${doc.docstore_id}</p>
+            <p><strong>Type:</strong> ${doc.type}</p>
+            <p><strong>Timestamp:</strong> ${new Date(doc.timestamp * 1000).toLocaleString()}</p>
+            <p><strong>Created At:</strong> ${new Date(doc.created_at * 1000).toLocaleString()}</p>
+            <pre><code>${data}</code></pre>
+          `;
+          documentsContainer.appendChild(docCard);
+        } else {
+          log(`Document not found: ${currentDocId}`);
+        }
+        
+      } catch (error) {
+        log(`Error getting document: ${error.message}`);
+        console.error(error);
+      }
+    }
+    
+    // Event listeners
+    connectBtn.addEventListener('click', connect);
+    createDocstoreBtn.addEventListener('click', createDocstore);
+    listDocstoresBtn.addEventListener('click', listDocstores);
+    addDocumentBtn.addEventListener('click', addDocument);
+    getDocumentBtn.addEventListener('click', getDocument);
+    
+    // Initialize
+    log('Page loaded. Click "Connect" to connect to the DocStore server.');
+  </script>
+</body>
+</html>

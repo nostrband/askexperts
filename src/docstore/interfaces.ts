@@ -2,6 +2,8 @@
  * Document store interfaces
  */
 
+import { AuthRequest } from "../common/auth.js";
+
 /**
  * Document interface representing a stored document
  */
@@ -153,7 +155,8 @@ export enum MessageType {
   RESPONSE = 'response',
   SUBSCRIPTION = 'subscription',
   DOCUMENT = 'document',
-  END = 'end'
+  END = 'end',
+  AUTH = 'auth'  // Added AUTH message type for WebSocket authentication
 }
 
 /**
@@ -192,4 +195,12 @@ export interface DocStorePerms {
    * @returns Promise that resolves with the user ID
    */
   getUserId(pubkey: string): Promise<string>;
+
+  /**
+   * Parse and validate a NIP-98 authentication token
+   * @param origin - Origin URL for validation
+   * @param req - Request object with headers and other properties
+   * @returns Public key if token is valid, empty string otherwise
+   */
+  parseAuthToken(origin: string, req: AuthRequest): Promise<string>;
 }

@@ -16,7 +16,10 @@ async function main() {
     
     // Create a DocStoreWebSocketClient with authentication
     console.log('Connecting to server with authentication...');
-    const client = new DocStoreWebSocketClient('ws://localhost:8080', privateKey);
+    const client = new DocStoreWebSocketClient({
+      url: 'ws://localhost:8080',
+      privateKey
+    });
     
     // Wait for connection
     await client.waitForConnection();
@@ -99,7 +102,10 @@ async function authErrorExample() {
     
     // Create a client with the invalid key
     console.log('Attempting to connect with invalid key...');
-    const client = new DocStoreWebSocketClient('ws://localhost:8080', invalidPrivateKey);
+    const client = new DocStoreWebSocketClient({
+      url: 'ws://localhost:8080',
+      privateKey: invalidPrivateKey
+    });
     
     // This will likely fail if the server has authentication enabled
     // and the pubkey is not registered
@@ -133,7 +139,9 @@ async function noAuthExample() {
     
     // Create a client without authentication
     console.log('Attempting to connect without authentication...');
-    const client = new DocStoreWebSocketClient('ws://localhost:8080');
+    const client = new DocStoreWebSocketClient({
+      url: 'ws://localhost:8080'
+    });
     
     // This will likely fail if the server has authentication enabled
     await client.waitForConnection();

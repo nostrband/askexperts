@@ -8,7 +8,7 @@ import fs from 'fs';
 import os from 'os';
 
 // Configuration
-const PORT = 8081;
+const PORT = 8080;
 const HOST = 'localhost';
 const DB_PATH = path.join(os.tmpdir(), 'docstore-websocket-example.db');
 const WS_URL = `ws://${HOST}:${PORT}`;
@@ -36,7 +36,9 @@ async function main() {
   try {
     // Create a client
     console.log(`Connecting to ${WS_URL}`);
-    const client = new DocStoreWebSocketClient(WS_URL);
+    const client = new DocStoreWebSocketClient({
+      url: WS_URL
+    });
     
     // Wait for connection
     await client.waitForConnection();
@@ -141,18 +143,17 @@ async function main() {
     
   } catch (error) {
     console.error('Error:', error);
-  } finally {
-    // Close the server
-    console.log('Closing server...');
-    server.close();
-    console.log('Server closed');
-    
-    // Clean up the database file
-    if (fs.existsSync(DB_PATH)) {
-      fs.unlinkSync(DB_PATH);
-      console.log('Database file deleted');
-    }
   }
+  
+  // Keep the server running for browser testing
+  console.log('\n');
+  console.log('==============================================');
+  console.log('Server is now running for browser testing');
+  console.log(`WebSocket URL: ${WS_URL}`);
+  console.log('Open examples/docstore-browser-test.html in your browser');
+  console.log('Press Ctrl+C to stop the server');
+  console.log('==============================================');
+  console.log('\n');
 }
 
 // Run the main function

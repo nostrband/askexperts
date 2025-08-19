@@ -9,10 +9,10 @@ import { createOpenAI } from "../../openai/index.js";
 import { AskExpertsServer } from "../../server/AskExpertsServer.js";
 import { LightningPaymentManager } from "../../payments/LightningPaymentManager.js";
 import { DocStoreClient } from "../../docstore/interfaces.js";
-import { DocStoreSQLite } from "../../docstore/DocStoreSQLite.js";
 import { DocStoreWebSocketClient } from "../../docstore/DocStoreWebSocketClient.js";
 import { getDocstorePath } from "../../bin/commands/docstore/index.js";
 import dotenv from "dotenv";
+import { DocStoreLocalClient } from "../../docstore/DocStoreLocalClient.js";
 
 /**
  * Interface for tracking running experts
@@ -450,12 +450,14 @@ export class ExpertWorker {
       debugExpert(
         `Creating DocStoreWebSocketClient for URL: ${parsedDocstore.url}, docstore ID: ${parsedDocstore.id}`
       );
-      return new DocStoreWebSocketClient(parsedDocstore.url);
+      return new DocStoreWebSocketClient({
+        url: parsedDocstore.url
+      });
     } else {
       // Local docstore
       const docstorePath = getDocstorePath();
       debugExpert(`Using local DocStoreSQLite at: ${docstorePath}`);
-      return new DocStoreSQLite(docstorePath);
+      return new DocStoreLocalClient(docstorePath);
     }
   }
 

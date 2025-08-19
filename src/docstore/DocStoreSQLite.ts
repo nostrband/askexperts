@@ -1,12 +1,12 @@
 import { DatabaseSync } from "node:sqlite";
-import { Doc, DocStore, DocStoreClient, Subscription } from "./interfaces.js";
+import { Doc, DocStore, Subscription } from "./interfaces.js";
 import crypto from "crypto";
 import { debugDocstore, debugError } from "../common/debug.js";
 
 /**
- * SQLite implementation of DocStoreClient
+ * SQLite implementation
  */
-export class DocStoreSQLite implements DocStoreClient {
+export class DocStoreSQLite {
   private db: DatabaseSync;
   private readonly BATCH_SIZE = 1000;
   private readonly RETRY_INTERVAL_MS = 10000; // 10 seconds
@@ -113,15 +113,16 @@ export class DocStoreSQLite implements DocStoreClient {
       type?: string;
       since?: number;
       until?: number;
+      user_id?: string;
     },
     onDoc: (doc?: Doc) => Promise<void>
   ): Promise<Subscription> {
     let isActive = true;
     let pauseTimeout: any;
     let lastAid = 0; // Use aid for pagination instead of id
-    const { docstore_id, type, since, until } = options;
+    const { docstore_id, type, since, until, user_id } = options;
     
-    debugDocstore(`Subscribing to docstore: ${docstore_id}, type: ${type || 'all'}, since: ${since || 'beginning'}, until: ${until || 'now'}`);
+    debugDocstore(`Subscribing to docstore: ${docstore_id}, type: ${type || 'all'}, since: ${since || 'beginning'}, until: ${until || 'now'}, user_id: ${user_id || 'all'}`);
 
     // Function to convert row to Doc interface
     const rowToDoc = (row: Record<string, any>): Doc => {
@@ -155,6 +156,12 @@ export class DocStoreSQLite implements DocStoreClient {
       `;
 
       const queryParams: any[] = [docstore_id];
+
+      // Add user_id filter if defined
+      if (user_id !== undefined) {
+        query += ` AND user_id = ?`;
+        queryParams.push(user_id);
+      }
 
       // Add type filter if defined
       if (type !== undefined) {
@@ -345,9 +352,18 @@ export class DocStoreSQLite implements DocStoreClient {
    * @param id - ID of the docstore to get
    * @returns The docstore if found, null otherwise
    */
-  getDocstoreSync(id: string): DocStore | undefined {
-    const stmt = this.db.prepare("SELECT * FROM docstores WHERE id = ?");
-    const row = stmt.get(id);
+  getDocstoreSync(id: string, user_id?: string): DocStore | undefined {
+    let query = "SELECT * FROM docstores WHERE id = ?";
+    const params = [id];
+    
+    // Add user_id filter if provided
+    if (user_id !== undefined) {
+      query += " AND user_id = ?";
+      params.push(user_id);
+    }
+    
+    const stmt = this.db.prepare(query);
+    const row = stmt.get(...params);
     
     if (!row) {
       return undefined;
@@ -364,13 +380,15 @@ export class DocStoreSQLite implements DocStoreClient {
     };
   }
 
-  async getDocstore(id: string): Promise<DocStore | undefined> {
-    return Promise.resolve(this.getDocstoreSync(id));
+  async getDocstore(id: string, user_id?: string): Promise<DocStore | undefined> {
+    return Promise.resolve(this.getDocstoreSync(id, user_id));
   }
 
-  async upsert(doc: Doc): Promise<void> {
-    debugDocstore(`Upserting document: ${doc.id} in docstore: ${doc.docstore_id}, type: ${doc.type}`);
-    
+  async upsert(doc: Doc, user_id?: string): Promise<void> {
+    debugDocstore(`Upserting document: ${doc.id} in docstore: ${doc.docstore_id}, type: ${doc.type}, user_id: ${user_id || doc.user_id || 'none'}`);
+
+    if (user_id && doc.user_id !== user_id) throw new Error("Wrong doc user");
+
     // Get the docstore to check vector_size
     const docstore = this.getDocstoreSync(doc.docstore_id);
     if (!docstore) {
@@ -402,7 +420,7 @@ export class DocStoreSQLite implements DocStoreClient {
       doc.type,
       doc.data,
       embeddingsBlob,
-      doc.user_id || ""
+      user_id || doc.user_id || ""
     );
     
     return Promise.resolve();
@@ -414,12 +432,18 @@ export class DocStoreSQLite implements DocStoreClient {
    * @param doc_id - ID of the document to get
    * @returns The document if found, null otherwise
    */
-  async get(docstore_id: string, doc_id: string): Promise<Doc | null> {
-    const stmt = this.db.prepare(
-      "SELECT * FROM docs WHERE docstore_id = ? AND id = ?"
-    );
-
-    const row = stmt.get(docstore_id, doc_id);
+  async get(docstore_id: string, doc_id: string, user_id?: string): Promise<Doc | null> {
+    let query = "SELECT * FROM docs WHERE docstore_id = ? AND id = ?";
+    const params = [docstore_id, doc_id];
+    
+    // Add user_id filter if provided
+    if (user_id !== undefined) {
+      query += " AND user_id = ?";
+      params.push(user_id);
+    }
+    
+    const stmt = this.db.prepare(query);
+    const row = stmt.get(...params);
 
     if (!row) {
       return Promise.resolve(null);
@@ -452,12 +476,18 @@ export class DocStoreSQLite implements DocStoreClient {
    * @param doc_id - ID of the document to delete
    * @returns true if document existed and was deleted, false otherwise
    */
-  async delete(docstore_id: string, doc_id: string): Promise<boolean> {
-    const stmt = this.db.prepare(
-      "DELETE FROM docs WHERE docstore_id = ? AND id = ?"
-    );
-
-    const result = stmt.run(docstore_id, doc_id);
+  async delete(docstore_id: string, doc_id: string, user_id?: string): Promise<boolean> {
+    let query = "DELETE FROM docs WHERE docstore_id = ? AND id = ?";
+    const params = [docstore_id, doc_id];
+    
+    // Add user_id filter if provided
+    if (user_id !== undefined) {
+      query += " AND user_id = ?";
+      params.push(user_id);
+    }
+    
+    const stmt = this.db.prepare(query);
+    const result = stmt.run(...params);
 
     // Return true if a row was affected (document was deleted)
     return Promise.resolve(result.changes > 0);
@@ -471,12 +501,21 @@ export class DocStoreSQLite implements DocStoreClient {
    * @param options - Options for the model, defaults to empty string
    * @returns Promise that resolves with the ID of the created or existing docstore
    */
-  async createDocstore(name: string, model: string = "", vector_size: number = 0, options: string = ""): Promise<string> {
-    debugDocstore(`Creating docstore with name: ${name}, model: ${model}, vector_size: ${vector_size}`);
+  async createDocstore(name: string, model: string = "", vector_size: number = 0, options: string = "", user_id?: string): Promise<string> {
+    debugDocstore(`Creating docstore with name: ${name}, model: ${model}, vector_size: ${vector_size}, user_id: ${user_id || 'none'}`);
     // Check if docstore with this name already exists
+    let query = "SELECT id FROM docstores WHERE name = ?";
+    const params = [name];
+    
+    // Add user_id filter if provided
+    if (user_id !== undefined) {
+      query += " AND user_id = ?";
+      params.push(user_id);
+    }
+    
     const existingDocstore = this.db
-      .prepare("SELECT id FROM docstores WHERE name = ?")
-      .get(name);
+      .prepare(query)
+      .get(...params);
 
     if (existingDocstore && existingDocstore.id !== null) {
       debugDocstore(`Docstore with name ${name} already exists with ID: ${existingDocstore.id}`);
@@ -491,7 +530,7 @@ export class DocStoreSQLite implements DocStoreClient {
       "INSERT INTO docstores (id, name, timestamp, model, vector_size, options, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
     );
 
-    stmt.run(id, name, timestamp, model, vector_size, options, "");
+    stmt.run(id, name, timestamp, model, vector_size, options, user_id || "");
     debugDocstore(`Created new docstore with name: ${name}, ID: ${id}, model: ${model}, vector_size: ${vector_size}`);
     return Promise.resolve(id);
   }
@@ -500,9 +539,20 @@ export class DocStoreSQLite implements DocStoreClient {
    * List all docstores
    * @returns Promise that resolves with an array of docstore objects
    */
-  async listDocstores(): Promise<DocStore[]> {
-    const stmt = this.db.prepare("SELECT * FROM docstores ORDER BY id ASC");
-    const rows = stmt.all();
+  async listDocstores(user_id?: string): Promise<DocStore[]> {
+    let query = "SELECT * FROM docstores";
+    const params: any[] = [];
+    
+    // Add user_id filter if provided
+    if (user_id !== undefined) {
+      query += " WHERE user_id = ?";
+      params.push(user_id);
+    }
+    
+    query += " ORDER BY id ASC";
+    
+    const stmt = this.db.prepare(query);
+    const rows = stmt.all(...params);
 
     const docstores = rows.map(
       (row: Record<string, any>): DocStore => ({
@@ -524,7 +574,7 @@ export class DocStoreSQLite implements DocStoreClient {
    * @param ids - Array of docstore IDs to retrieve
    * @returns Promise that resolves with an array of docstore objects
    */
-  async listDocStoresByIds(ids: string[]): Promise<DocStore[]> {
+  async listDocStoresByIds(ids: string[], user_id?: string): Promise<DocStore[]> {
     if (ids.length === 0) {
       return Promise.resolve([]);
     }
@@ -532,8 +582,19 @@ export class DocStoreSQLite implements DocStoreClient {
     // Create placeholders for the IN clause
     const placeholders = ids.map(() => '?').join(',');
     
-    const stmt = this.db.prepare(`SELECT * FROM docstores WHERE id IN (${placeholders}) ORDER BY id ASC`);
-    const rows = stmt.all(...ids);
+    let query = `SELECT * FROM docstores WHERE id IN (${placeholders})`;
+    const params = [...ids];
+    
+    // Add user_id filter if provided
+    if (user_id !== undefined) {
+      query += " AND user_id = ?";
+      params.push(user_id);
+    }
+    
+    query += " ORDER BY id ASC";
+    
+    const stmt = this.db.prepare(query);
+    const rows = stmt.all(...params);
 
     const docstores = rows.map(
       (row: Record<string, any>): DocStore => ({
@@ -601,22 +662,36 @@ export class DocStoreSQLite implements DocStoreClient {
    * @param id - ID of the docstore to delete
    * @returns Promise that resolves with true if docstore existed and was deleted, false otherwise
    */
-  async deleteDocstore(id: string): Promise<boolean> {
+  async deleteDocstore(id: string, user_id?: string): Promise<boolean> {
     // Use a transaction to ensure atomicity
     this.db.exec("BEGIN TRANSACTION");
 
     try {
       // Delete all documents in the docstore
-      const docsStmt = this.db.prepare(
-        "DELETE FROM docs WHERE docstore_id = ?"
-      );
-      docsStmt.run(id);
+      let docsQuery = "DELETE FROM docs WHERE docstore_id = ?";
+      const docsParams = [id];
+      
+      // Add user_id filter if provided
+      if (user_id !== undefined) {
+        docsQuery += " AND user_id = ?";
+        docsParams.push(user_id);
+      }
+      
+      const docsStmt = this.db.prepare(docsQuery);
+      docsStmt.run(...docsParams);
 
       // Delete the docstore
-      const docstoreStmt = this.db.prepare(
-        "DELETE FROM docstores WHERE id = ?"
-      );
-      const result = docstoreStmt.run(id);
+      let docstoreQuery = "DELETE FROM docstores WHERE id = ?";
+      const docstoreParams = [id];
+      
+      // Add user_id filter if provided
+      if (user_id !== undefined) {
+        docstoreQuery += " AND user_id = ?";
+        docstoreParams.push(user_id);
+      }
+      
+      const docstoreStmt = this.db.prepare(docstoreQuery);
+      const result = docstoreStmt.run(...docstoreParams);
 
       this.db.exec("COMMIT");
 
@@ -634,12 +709,18 @@ export class DocStoreSQLite implements DocStoreClient {
    * @param docstore_id - ID of the docstore to count documents for
    * @returns Promise that resolves with the number of documents in the docstore
    */
-  async countDocs(docstore_id: string): Promise<number> {
-    const stmt = this.db.prepare(
-      "SELECT COUNT(*) as count FROM docs WHERE docstore_id = ?"
-    );
-
-    const result = stmt.get(docstore_id);
+  async countDocs(docstore_id: string, user_id?: string): Promise<number> {
+    let query = "SELECT COUNT(*) as count FROM docs WHERE docstore_id = ?";
+    const params = [docstore_id];
+    
+    // Add user_id filter if provided
+    if (user_id !== undefined) {
+      query += " AND user_id = ?";
+      params.push(user_id);
+    }
+    
+    const stmt = this.db.prepare(query);
+    const result = stmt.get(...params);
     return Promise.resolve(result && typeof result.count === "number" ? result.count : 0);
   }
 

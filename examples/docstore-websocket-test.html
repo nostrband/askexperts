@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DocStoreWebSocketClient Test</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    .log {
+      background-color: #f1f1f1;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 10px;
+      margin-top: 20px;
+      height: 300px;
+      overflow-y: auto;
+      font-family: monospace;
+    }
+    button {
+      padding: 8px 16px;
+      margin: 5px;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    input {
+      padding: 8px;
+      margin: 5px;
+      width: 300px;
+    }
+  </style>
+</head>
+<body>
+  <h1>DocStoreWebSocketClient Test</h1>
+  
+  <div>
+    <label for="serverUrl">WebSocket URL:</label>
+    <input type="text" id="serverUrl" value="ws://localhost:8080">
+    <button id="connectBtn">Connect</button>
+  </div>
+  
+  <div>
+    <button id="testCustomWsBtn">Test Custom WebSocket</button>
+    <button id="testUuidBtn">Test UUID Generation</button>
+  </div>
+  
+  <div class="log" id="log"></div>
+
+  <script type="module">
+    // Import the DocStoreWebSocketClient from the browser build
+    import { DocStoreWebSocketClient, generateUUID } from '../dist/docstore/browser.js';
+    
+    // DOM elements
+    const log = document.getElementById('log');
+    const connectBtn = document.getElementById('connectBtn');
+    const testCustomWsBtn = document.getElementById('testCustomWsBtn');
+    const testUuidBtn = document.getElementById('testUuidBtn');
+    
+    // Log function
+    function logMessage(message) {
+      const p = document.createElement('p');
+      p.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
+      log.appendChild(p);
+      log.scrollTop = log.scrollHeight;
+    }
+    
+    // Connect to WebSocket server
+    connectBtn.addEventListener('click', async () => {
+      try {
+        const url = document.getElementById('serverUrl').value;
+        logMessage(`Connecting to ${url}...`);
+        
+        const client = new DocStoreWebSocketClient({
+          url: url
+        });
+        
+        try {
+          await client.waitForConnection();
+          logMessage('Connected successfully!');
+        } catch (error) {
+          logMessage(`Connection error: ${error.message}`);
+        }
+      } catch (error) {
+        logMessage(`Error: ${error.message}`);
+      }
+    });
+    
+    // Test custom WebSocket
+    testCustomWsBtn.addEventListener('click', () => {
+      try {
+        logMessage('Testing custom WebSocket implementation...');
+        
+        // Create a mock WebSocket
+        const mockWs = {
+          send: (data) => {
+            logMessage(`Mock WebSocket sent: ${data}`);
+          },
+          close: () => {
+            logMessage('Mock WebSocket closed');
+          },
+          onopen: null,
+          onmessage: null,
+          onclose: null,
+          onerror: null
+        };
+        
+        // Create client with mock WebSocket
+        const client = new DocStoreWebSocketClient({
+          url: 'ws://example.com',
+          webSocket: mockWs
+        });
+        
+        // Trigger the onopen handler
+        setTimeout(() => {
+          logMessage('Triggering mock WebSocket open event');
+          if (mockWs.onopen) mockWs.onopen();
+        }, 500);
+        
+        logMessage('Custom WebSocket test initialized');
+      } catch (error) {
+        logMessage(`Error: ${error.message}`);
+      }
+    });
+    
+    // Test UUID generation
+    testUuidBtn.addEventListener('click', () => {
+      try {
+        const uuid = generateUUID();
+        logMessage(`Generated UUID: ${uuid}`);
+      } catch (error) {
+        logMessage(`Error generating UUID: ${error.message}`);
+      }
+    });
+    
+    // Initial log
+    logMessage('Page loaded. Click a button to test functionality.');
+  </script>
+</body>
+</html>
