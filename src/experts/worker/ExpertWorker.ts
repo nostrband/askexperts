@@ -1,4 +1,4 @@
-import { SimplePool } from "nostr-tools";
+import { getPublicKey, SimplePool } from "nostr-tools";
 import { DBExpert } from "../../db/interfaces.js";
 import { NostrExpert } from "../../experts/NostrExpert.js";
 import { OpenaiProxyExpertBase } from "../../experts/OpenaiProxyExpertBase.js";
@@ -13,6 +13,7 @@ import { DocStoreWebSocketClient } from "../../docstore/DocStoreWebSocketClient.
 import { getDocstorePath } from "../../bin/commands/docstore/index.js";
 import dotenv from "dotenv";
 import { DocStoreLocalClient } from "../../docstore/DocStoreLocalClient.js";
+import { hexToBytes } from "nostr-tools/utils";
 
 /**
  * Interface for tracking running experts
@@ -32,7 +33,7 @@ export class ExpertWorker {
   private paymentManagers: Map<string, LightningPaymentManager> = new Map();
   private pool: SimplePool;
   private ragDB: RagDB;
-  
+
   /**
    * Get the pubkeys of all running experts
    *
@@ -44,7 +45,7 @@ export class ExpertWorker {
 
   /**
    * Create a new ExpertWorker
-   * 
+   *
    * @param pool SimplePool instance for Nostr communication
    * @param ragHost Host for RAG database
    * @param ragPort Port for RAG database
@@ -57,14 +58,16 @@ export class ExpertWorker {
 
   /**
    * Start an expert
-   * 
+   *
    * @param expert The expert to start
    * @param nwcString NWC connection string for the expert's wallet
    * @returns Promise that resolves when the expert is started
    */
   public async startExpert(expert: DBExpert, nwcString: string): Promise<void> {
     if (this.runningExperts.has(expert.pubkey)) {
-      debugExpert(`Expert ${expert.nickname} (${expert.pubkey}) is already running`);
+      debugExpert(
+        `Expert ${expert.nickname} (${expert.pubkey}) is already running`
+      );
       return;
     }
 
@@ -73,11 +76,15 @@ export class ExpertWorker {
       let paymentManager: LightningPaymentManager;
       if (this.paymentManagers.has(expert.wallet_id)) {
         paymentManager = this.paymentManagers.get(expert.wallet_id)!;
-        debugExpert(`Reusing existing payment manager for wallet ID ${expert.wallet_id}`);
+        debugExpert(
+          `Reusing existing payment manager for wallet ID ${expert.wallet_id}`
+        );
       } else {
         paymentManager = new LightningPaymentManager(nwcString);
         this.paymentManagers.set(expert.wallet_id, paymentManager);
-        debugExpert(`Created new payment manager for wallet ID ${expert.wallet_id}`);
+        debugExpert(
+          `Created new payment manager for wallet ID ${expert.wallet_id}`
+        );
       }
 
       // Create individual stop promise for this expert
@@ -91,7 +98,9 @@ export class ExpertWorker {
       // Start the expert based on its type
       if (expert.type === "nostr") {
         // Parse docstores - exactly one must be specified
-        const parsedDocstores = ExpertWorker.parseDocstoreIdsList(expert.docstores);
+        const parsedDocstores = ExpertWorker.parseDocstoreIdsList(
+          expert.docstores
+        );
         if (parsedDocstores.length !== 1) {
           throw new Error(
             `Expert ${expert.nickname} must have exactly one docstore specified, found ${parsedDocstores.length}`
@@ -99,9 +108,12 @@ export class ExpertWorker {
         }
         const parsedDocstore = parsedDocstores[0];
 
-        // Create the appropriate DocStoreClient based on the docstore ID format
-        const expertDocStoreClient = ExpertWorker.createDocStoreClientFromParsed(parsedDocstore);
-        
+        // Create the appropriate DocStoreClient based on the docstore ID format,
+        // Authenticate using expert privkey
+        const privkey = expert.privkey ? hexToBytes(expert.privkey) : undefined;
+        const expertDocStoreClient =
+          ExpertWorker.createDocStoreClientFromParsed(parsedDocstore, privkey);
+
         result = await ExpertWorker.startNostrExpert(
           expert,
           this.pool,
@@ -126,19 +138,24 @@ export class ExpertWorker {
         pubkey: expert.pubkey,
         type: expert.type,
         stopFn: stopResolve!,
-        disposed: result.disposed
+        disposed: result.disposed,
       });
 
-      debugExpert(`Started expert ${expert.nickname} (${expert.pubkey}) of type ${expert.type}`);
+      debugExpert(
+        `Started expert ${expert.nickname} (${expert.pubkey}) of type ${expert.type}`
+      );
     } catch (error) {
-      debugError(`Error starting expert ${expert.nickname} (${expert.pubkey}):`, error);
+      debugError(
+        `Error starting expert ${expert.nickname} (${expert.pubkey}):`,
+        error
+      );
       throw error;
     }
   }
 
   /**
    * Stop an expert
-   * 
+   *
    * @param pubkey The pubkey of the expert to stop
    * @returns True if the expert was running and is now stopped, false otherwise
    */
@@ -160,31 +177,31 @@ export class ExpertWorker {
   async [Symbol.asyncDispose]() {
     // Collect all disposed promises
     const disposedPromises: Promise<void>[] = [];
-    
+
     // Stop all running experts
     for (const [pubkey, expert] of this.runningExperts.entries()) {
       debugExpert(`Stopping expert ${pubkey}...`);
       expert.stopFn();
       disposedPromises.push(expert.disposed);
     }
-    
+
     // Wait for all experts to be fully disposed
     await Promise.all(disposedPromises);
-    
+
     this.runningExperts.clear();
-    
+
     // Dispose all payment managers
     for (const [walletId, paymentManager] of this.paymentManagers.entries()) {
       debugExpert(`Disposing payment manager for wallet ID ${walletId}`);
       paymentManager[Symbol.dispose]();
     }
-    
+
     this.paymentManagers.clear();
   }
 
   /**
    * Start a Nostr expert
-   * 
+   *
    * @param expert The expert to start
    * @param pool SimplePool instance
    * @param paymentManager Payment manager
@@ -237,7 +254,8 @@ export class ExpertWorker {
 
     // Get API key from environment
     const apiKey = expertEnvVars.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
-    const baseURL = expertEnvVars.OPENAI_BASE_URL || process.env.OPENAI_BASE_URL;
+    const baseURL =
+      expertEnvVars.OPENAI_BASE_URL || process.env.OPENAI_BASE_URL;
 
     // Create OpenAI interface instance
     const openai = createOpenAI({
@@ -296,7 +314,7 @@ export class ExpertWorker {
 
   /**
    * Start an OpenRouter expert
-   * 
+   *
    * @param expert The expert to start
    * @param pool SimplePool instance
    * @param paymentManager Payment manager
@@ -442,17 +460,25 @@ export class ExpertWorker {
    * @param parsedDocstore - Parsed docstore ID object
    * @returns DocStoreClient instance
    */
-  public static createDocStoreClientFromParsed(parsedDocstore: {
-    url?: string;
-    id: string;
-  }): DocStoreClient {
+  public static createDocStoreClientFromParsed(
+    parsedDocstore: {
+      url?: string;
+      id: string;
+    },
+    privateKey?: Uint8Array
+  ): DocStoreClient {
     if (parsedDocstore.url) {
       // Remote docstore
       debugExpert(
-        `Creating DocStoreWebSocketClient for URL: ${parsedDocstore.url}, docstore ID: ${parsedDocstore.id}`
+        `Creating DocStoreWebSocketClient for URL: ${
+          parsedDocstore.url
+        }, docstore ID: ${parsedDocstore.id}, auth: ${
+          privateKey ? getPublicKey(privateKey) : "none"
+        }`
       );
       return new DocStoreWebSocketClient({
-        url: parsedDocstore.url
+        url: parsedDocstore.url,
+        privateKey,
       });
     } else {
       // Local docstore

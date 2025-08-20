@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RAG Browser Test</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    pre {
+      background-color: #f5f5f5;
+      padding: 10px;
+      border-radius: 5px;
+      overflow-x: auto;
+    }
+    button {
+      padding: 8px 16px;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-right: 10px;
+    }
+    button:hover {
+      background-color: #45a049;
+    }
+    #output {
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h1>RAG Browser Test</h1>
+  <p>This example demonstrates the browser-compatible RAG module.</p>
+  
+  <div>
+    <button id="testEmbeddings">Test Embeddings</button>
+  </div>
+  
+  <div id="output">
+    <h3>Output:</h3>
+    <pre id="outputText"></pre>
+  </div>
+
+  <script type="module">
+    // Import from the browser-compatible RAG module
+    import { createRagEmbeddings, XenovaEmbeddings } from '../dist/rag/browser.js';
+    
+    const outputText = document.getElementById('outputText');
+    
+    function log(message) {
+      console.log(message);
+      outputText.textContent += message + '\n';
+    }
+    
+    async function testEmbeddings() {
+      outputText.textContent = ''; // Clear previous output
+      
+      try {
+        log('Creating embeddings...');
+        const embeddings = createRagEmbeddings();
+        log(`Created embeddings using model: ${embeddings.getModelName()}`);
+        
+        log('Initializing embeddings...');
+        await embeddings.start();
+        log('Embeddings initialized successfully');
+        
+        const testText = 'This is a test of the RAG module in the browser.';
+        log(`Embedding text: "${testText}"`);
+        
+        const chunks = await embeddings.embed(testText);
+        log(`Text split into ${chunks.length} chunks`);
+        log(`First chunk: "${chunks[0].text}"`);
+        log(`Embedding vector length: ${chunks[0].embedding.length}`);
+        log(`First 5 values of embedding: [${chunks[0].embedding.slice(0, 5).join(', ')}]`);
+        
+        log('Test completed successfully!');
+      } catch (error) {
+        log(`Error: ${error.message}`);
+        console.error(error);
+      }
+    }
+    
+    // Add event listeners
+    document.getElementById('testEmbeddings').addEventListener('click', testEmbeddings);
+    
+    log('RAG Browser Test loaded. Click the button to test embeddings.');
+  </script>
+</body>
+</html>

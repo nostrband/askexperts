@@ -1,6 +1,6 @@
 {
   "name": "askexperts",
-  "version": "0.7.24",
+  "version": "0.7.31",
   "description": "AskExperts SDK: build and use AI experts - ask them questions and pay with bitcoin on an open protocol",
   "main": "dist/index.js",
   "type": "module",
@@ -22,13 +22,15 @@
     "test:exports": "tsx tests/test-exports.ts",
     "prepublishOnly": "npm run build",
     "build:modules": "npm run build:client && npm run build:experts && npm run build:docstore && npm run build:server && npm run build:mcp && npm run build:openai && npm run build:rag && npm run build:proxy && npm run build:payments && npm run build:common && npm run build:bin && npm run build:db && npm run build:remote && npm run build:stream && npm run build:wallet",
-    "build:experts": "mkdir -p dist/experts && cp -r dist/src/experts/* dist/experts/",
+    "build:experts": "mkdir -p dist/experts && cp -r dist/src/experts/* dist/experts/ && npm run build:experts:browser",
+    "build:experts:browser": "esbuild src/experts/browser.ts --bundle --platform=browser --target=es2020 --format=esm --outfile=dist/experts/browser.js --external:stream --external:events --external:zlib --external:util --external:crypto --external:fs --external:path --external:os --external:http --external:https --external:net --external:tls --external:child_process --external:worker_threads --external:readline --external:assert --external:buffer --external:ws",
     "build:docstore": "mkdir -p dist/docstore && cp -r dist/src/docstore/* dist/docstore/ && npm run build:docstore:browser && npm run build:docstore:node",
     "build:docstore:node": "esbuild src/docstore/index.node.ts --bundle --platform=node --target=node18 --format=esm --outfile=dist/docstore/index.node.js --external:tty --external:debug --external:events --external:stream --external:ws --external:buffer --external:util --external:net --external:http --external:https --external:zlib --external:crypto",
     "build:server": "mkdir -p dist/server && cp -r dist/src/server/* dist/server/",
     "build:mcp": "mkdir -p dist/mcp && cp -r dist/src/mcp/* dist/mcp/",
     "build:openai": "mkdir -p dist/openai && cp -r dist/src/openai/* dist/openai/",
-    "build:rag": "mkdir -p dist/rag && cp -r dist/src/rag/* dist/rag/",
+    "build:rag": "mkdir -p dist/rag && cp -r dist/src/rag/* dist/rag/ && npm run build:rag:browser",
+    "build:rag:browser": "esbuild src/rag/browser.ts --bundle --platform=browser --target=es2020 --format=esm --outfile=dist/rag/browser.js --external:stream --external:events --external:zlib --external:util --external:crypto --external:fs --external:path --external:os --external:http --external:https --external:net --external:tls --external:child_process --external:worker_threads --external:readline --external:assert --external:buffer --external:ws --external:chromadb --external:@xenova/transformers",
     "build:proxy": "mkdir -p dist/proxy && cp -r dist/src/proxy/* dist/proxy/",
     "build:payments": "mkdir -p dist/payments && cp -r dist/src/payments/* dist/payments/",
     "build:common": "mkdir -p dist/common && cp -r dist/src/common/* dist/common/",
@@ -79,6 +81,8 @@
       "default": "./dist/client/index.node.js"
     },
     "./experts": {
+      "node": "./dist/experts/index.js",
+      "browser": "./dist/experts/browser.js",
       "default": "./dist/experts/index.js"
     },
     "./docstore": {
@@ -96,6 +100,8 @@
       "default": "./dist/openai/index.js"
     },
     "./rag": {
+      "node": "./dist/rag/index.js",
+      "browser": "./dist/rag/browser.js",
       "default": "./dist/rag/index.js"
     },
     "./proxy": {

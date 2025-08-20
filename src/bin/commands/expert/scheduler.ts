@@ -30,8 +30,8 @@ export async function startScheduler(
   if (options.debug) enableAllDebug();
   else enableErrorDebug();
 
-  // Only use local DB for this command
-  const db = await createDBClientForCommands({}) as DBClient;
+  // Global view on local db (no_user=true)
+  const db = new DBClient(true);
 
   try {
     // Get port from options or use default

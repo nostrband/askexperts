@@ -174,6 +174,11 @@ export interface WebSocketMessage {
   perms?: { listIds?: string[] }; // Added perms object for storing permission results
 }
 
+export interface UserInfo {
+  user_id: string;
+  context?: any;
+}
+
 /**
  * Interface for DocStore permissions
  * Used to validate user authentication and permissions
@@ -186,15 +191,15 @@ export interface DocStorePerms {
    * @throws Error if the operation is not allowed with a custom error message
    * @returns Promise that resolves with an optional object containing listIds if the operation is allowed
    */
-  checkPerms(user_id: string, message: WebSocketMessage): Promise<{ listIds?: string[] } | void>;
+  checkPerms(user_info: UserInfo, message: WebSocketMessage): Promise<{ listIds?: string[] } | void>;
 
   /**
    * Get the user ID associated with a public key
    * @param pubkey - Public key of the user
    * @throws Error if the user is not valid or doesn't exist
-   * @returns Promise that resolves with the user ID
+   * @returns Promise that resolves with the UserInfo object
    */
-  getUserId(pubkey: string): Promise<string>;
+  getUserInfo(pubkey: string): Promise<UserInfo>;
 
   /**
    * Parse and validate a NIP-98 authentication token

@@ -1,6 +1,10 @@
-// @ts-ignore
+// import { env } from "@xenova/transformers";
 import { pipeline } from "@xenova/transformers";
 import { Chunk, RagEmbeddings } from "./interfaces.js";
+
+// Looks like these don't work
+// env.allowLocalModels = false;   // don’t look under /models
+// env.allowRemoteModels = true;   // fetch from the Hub (default is true)
 
 /**
  * Implementation of RagEmbeddings using Xenova transformers library.

@@ -10,16 +10,18 @@ import { getCurrentUserId } from "../common/users.js";
 export class DBClient implements DBInterface {
   private db: DB;
   #user_id?: string;
+  private no_user?: boolean;
 
   /**
    * Creates a new DBClient instance
    */
-  constructor() {
+  constructor(no_user?: boolean) {
     this.db = getDB();
+    this.no_user = no_user;
   }
 
   private user_id() {
-    if (!this.#user_id)
+    if (!this.#user_id && !this.no_user)
       this.#user_id = getCurrentUserId();
     return this.#user_id;
   }
@@ -172,7 +174,9 @@ export class DBClient implements DBInterface {
    * @returns Promise resolving to the current user ID
    */
   async getUserId(): Promise<string> {
-    return this.user_id();
+    const uid = this.user_id();
+    if (!uid) throw new Error("No user for DBClient");
+    return uid;
   }
 
   /**
