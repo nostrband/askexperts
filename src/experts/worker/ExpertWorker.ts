@@ -33,6 +33,7 @@ export class ExpertWorker {
   private paymentManagers: Map<string, LightningPaymentManager> = new Map();
   private pool: SimplePool;
   private ragDB: RagDB;
+  private defaultDocStoreUrl?: string;
 
   /**
    * Get the pubkeys of all running experts
@@ -50,8 +51,14 @@ export class ExpertWorker {
    * @param ragHost Host for RAG database
    * @param ragPort Port for RAG database
    */
-  constructor(pool: SimplePool, ragHost?: string, ragPort?: number) {
+  constructor(
+    pool: SimplePool,
+    ragHost?: string,
+    ragPort?: number,
+    defaultDocStoreUrl?: string
+  ) {
     this.pool = pool;
+    this.defaultDocStoreUrl = defaultDocStoreUrl;
     this.ragDB = new ChromaRagDB(ragHost, ragPort);
     debugExpert("ExpertWorker initialized with RAG database");
   }
@@ -99,7 +106,8 @@ export class ExpertWorker {
       if (expert.type === "nostr") {
         // Parse docstores - exactly one must be specified
         const parsedDocstores = ExpertWorker.parseDocstoreIdsList(
-          expert.docstores
+          expert.docstores,
+          this.defaultDocStoreUrl
         );
         if (parsedDocstores.length !== 1) {
           throw new Error(
@@ -114,7 +122,7 @@ export class ExpertWorker {
         const expertDocStoreClient =
           ExpertWorker.createDocStoreClientFromParsed(parsedDocstore, privkey);
 
-        result = await ExpertWorker.startNostrExpert(
+        result = await this.startNostrExpert(
           expert,
           this.pool,
           paymentManager,
@@ -209,7 +217,7 @@ export class ExpertWorker {
    * @param docStoreClient DocStore client
    * @param onStop Promise that resolves when the expert should be stopped
    */
-  public static async startNostrExpert(
+  public async startNostrExpert(
     expert: DBExpert,
     pool: SimplePool,
     paymentManager: LightningPaymentManager,
@@ -243,7 +251,10 @@ export class ExpertWorker {
       : 0.1;
 
     // Parse docstores - exactly one must be specified
-    const parsedDocstores = ExpertWorker.parseDocstoreIdsList(expert.docstores);
+    const parsedDocstores = ExpertWorker.parseDocstoreIdsList(
+      expert.docstores,
+      this.defaultDocStoreUrl
+    );
     if (parsedDocstores.length !== 1) {
       throw new Error(
         `Expert ${expert.nickname} must have exactly one docstore specified, found ${parsedDocstores.length}`
@@ -442,7 +453,10 @@ export class ExpertWorker {
    * @param docstoresStr - Comma-separated list of docstore IDs
    * @returns Array of parsed docstore ID objects
    */
-  public static parseDocstoreIdsList(docstoresStr: string): Array<{
+  public static parseDocstoreIdsList(
+    docstoresStr: string,
+    defaultDocStoreUrl?: string
+  ): Array<{
     url?: string;
     id: string;
   }> {
@@ -451,7 +465,12 @@ export class ExpertWorker {
       .map((d) => d.trim())
       .filter((d) => d !== "");
 
-    return docstores.map(ExpertWorker.parseDocstoreId);
+    const ids = docstores.map(ExpertWorker.parseDocstoreId);
+    if (!defaultDocStoreUrl) return ids;
+    return ids.map((p) => {
+      p.url = defaultDocStoreUrl;
+      return p;
+    });
   }
 
   /**

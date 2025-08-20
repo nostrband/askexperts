@@ -32,10 +32,10 @@ export class ExpertScheduler {
 
   // Reconnection timers for workers
   private reconnectionTimers: Map<string, NodeJS.Timeout> = new Map();
-  
+
   // Start timers for experts
   private startTimers: Map<string, NodeJS.Timeout> = new Map();
-  
+
   // Expert monitoring
   private lastExpertTimestamp: number = 0;
   private expertMonitoringTimer: NodeJS.Timeout | null = null;
@@ -82,19 +82,19 @@ export class ExpertScheduler {
   public async stop(): Promise<void> {
     // Stop expert monitoring
     this.stopExpertMonitoring();
-    
+
     // Clear all reconnection timers
     for (const timer of this.reconnectionTimers.values()) {
       clearTimeout(timer);
     }
     this.reconnectionTimers.clear();
-    
+
     // Clear all start timers
     for (const timer of this.startTimers.values()) {
       clearTimeout(timer);
     }
     this.startTimers.clear();
-    
+
     // Close all worker job timers
     for (const worker of this.workers.values()) {
       if (worker.jobTimer) {
@@ -319,6 +319,10 @@ export class ExpertScheduler {
           `Expert ${expert.pubkey} is enabled in database but not in state tracking, queueing it`
         );
         this.queueExpert(expert.pubkey);
+      } else {
+        debugScheduler(
+          `Loaded expert ${expert.pubkey} state ${expertState.state} worker ${expertState.workerId}`
+        );
       }
     }
   }
@@ -653,7 +657,7 @@ export class ExpertScheduler {
     }
 
     debugScheduler(`Worker ${workerId} started expert ${expertPubkey}`);
-    
+
     // Clear any start timer for this expert
     const timer = this.startTimers.get(expertPubkey);
     if (timer) {
@@ -831,31 +835,39 @@ export class ExpertScheduler {
 
       // Send message to worker
       this.sendMessageToWorker(workerId, message);
-      
+
       // Set a timer to check if the expert starts within 60 seconds
       const timer = setTimeout(() => {
-        debugScheduler(`Start timeout for expert ${expert.pubkey} on worker ${workerId}`);
-        
+        debugScheduler(
+          `Start timeout for expert ${expert.pubkey} on worker ${workerId}`
+        );
+
         // Check if the expert is still in 'starting' state
         const expertState = this.expertStates.get(expert.pubkey);
-        if (expertState && expertState.state === 'starting' && expertState.workerId === workerId) {
-          debugScheduler(`Expert ${expert.pubkey} failed to start within timeout, requeuing`);
-          
+        if (
+          expertState &&
+          expertState.state === "starting" &&
+          expertState.workerId === workerId
+        ) {
+          debugScheduler(
+            `Expert ${expert.pubkey} failed to start within timeout, requeuing`
+          );
+
           // Update expert state to 'queued'
           this.expertStates.set(expert.pubkey, {
             pubkey: expert.pubkey,
-            state: 'queued',
-            timestamp: Date.now()
+            state: "queued",
+            timestamp: Date.now(),
           });
-          
+
           // Add expert back to the queue
           this.expertQueue.push(expert.pubkey);
         }
-        
+
         // Remove the timer
         this.startTimers.delete(expert.pubkey);
       }, 60000); // 60 second timeout
-      
+
       // Store the timer
       this.startTimers.set(expert.pubkey, timer);
     } catch (error) {

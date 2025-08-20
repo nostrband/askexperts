@@ -59,7 +59,6 @@ export async function parseAuthToken(
     if (method !== req.method) return "";
 
     const url = new URL(u);
-
     if (url.origin !== origin || url.pathname + url.search !== req.originalUrl)
       return "";
 

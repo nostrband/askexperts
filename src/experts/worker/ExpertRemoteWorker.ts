@@ -27,6 +27,8 @@ export interface ExpertRemoteWorkerOptions {
   ragPort?: number;
   /** Reconnection delay in milliseconds (default: 5000) */
   reconnectDelay?: number;
+  /** Default docstore url */
+  defaultDocStoreUrl?: string;
 }
 
 /**
@@ -62,7 +64,8 @@ export class ExpertRemoteWorker {
     this.worker = new ExpertWorker(
       options.pool,
       options.ragHost,
-      options.ragPort
+      options.ragPort,
+      options.defaultDocStoreUrl
     );
 
     debugWorker(

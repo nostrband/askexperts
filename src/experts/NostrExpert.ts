@@ -55,6 +55,8 @@ export class NostrExpert {
    */
   private docstoreId: string;
 
+
+  private syncController?: { stop: () => void };
   /**
    * Creates a new NostrExpert instance
    *
@@ -120,7 +122,7 @@ export class NostrExpert {
 
       // Sync from docstore to RAG
       await new Promise<void>(async (resolve) => {
-        const syncController = await this.docstoreToRag.sync({
+        this.syncController = await this.docstoreToRag.sync({
           docstore_id: this.docstoreId,
           collection_name: collectionName,
           onDoc: async (doc: Doc) => {
@@ -240,6 +242,7 @@ ${this.profile?.about || "-"}`;
   async [Symbol.asyncDispose]() {
     debugExpert("Clearing NostrExpert");
     this.docstoreToRag[Symbol.dispose]();
+    this.syncController?.stop();
   }
 
   /**

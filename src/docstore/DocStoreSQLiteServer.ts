@@ -146,12 +146,14 @@ export class DocStoreSQLiteServer {
       ws.on("message", async (data: Buffer) => {
         try {
           const message = JSON.parse(data.toString()) as WebSocketMessage;
-          
+
           // Check if authentication is required but not yet completed
           if ((ws as any).authRequired && !(ws as any).authenticated) {
             // Only allow auth messages if not authenticated
             if (message.type !== MessageType.AUTH) {
-              debugError("Authentication required: Received non-auth message before authentication");
+              debugError(
+                "Authentication required: Received non-auth message before authentication"
+              );
               this.sendErrorResponse(
                 ws,
                 message,
@@ -161,7 +163,7 @@ export class DocStoreSQLiteServer {
               ws.close();
               return;
             }
-            
+
             // Handle auth message
             await this.handleAuthMessage(ws, message);
           } else {
@@ -231,7 +233,11 @@ export class DocStoreSQLiteServer {
   ): Promise<void> {
     try {
       // Validate message format
-      if (!message.id || message.type !== MessageType.AUTH || !message.params.headers) {
+      if (
+        !message.id ||
+        message.type !== MessageType.AUTH ||
+        !message.params.headers
+      ) {
         this.sendErrorResponse(
           ws,
           message,
@@ -246,7 +252,7 @@ export class DocStoreSQLiteServer {
       const authReq: AuthRequest = {
         headers: message.params.headers,
         method: "GET", // Use GET as the method for WebSocket connections
-        originalUrl: this.serverOrigin,
+        originalUrl: "/",
         cookies: {},
       };
 
@@ -257,7 +263,10 @@ export class DocStoreSQLiteServer {
 
       // If pubkey is empty, authentication failed
       if (!pubkey) {
-        debugError("Authentication failed: Invalid or missing token");
+        debugError(
+          "Authentication failed: Invalid or missing token, message: ",
+          message
+        );
         this.sendErrorResponse(
           ws,
           message,
@@ -292,9 +301,11 @@ export class DocStoreSQLiteServer {
       ws.pubkey = pubkey;
       ws.user_info = user_info;
       (ws as any).authenticated = true;
-      
-      debugDocstore(`Authenticated user ${pubkey} with user_id ${user_info.user_id}`);
-      
+
+      debugDocstore(
+        `Authenticated user ${pubkey} with user_id ${user_info.user_id}`
+      );
+
       // Send success response
       this.sendResponse(ws, {
         id: message.id,

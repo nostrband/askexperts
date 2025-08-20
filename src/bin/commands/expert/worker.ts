@@ -41,15 +41,23 @@ export async function startWorker(
 
     // Get RAG host and port from environment or options
     const ragHost = options.ragHost || process.env.CHROMA_HOST;
-    const ragPortStr = options.ragPort ? options.ragPort.toString() : process.env.CHROMA_PORT;
+    const ragPortStr = options.ragPort
+      ? options.ragPort.toString()
+      : process.env.CHROMA_PORT;
     const ragPort = ragPortStr ? parseInt(ragPortStr) : undefined;
 
     // Get reconnect delay from options
     const reconnectDelay = options.reconnectDelay || 5000;
 
+    // Docstore
+    const defaultDocStoreUrl =
+      process.env.DOCSTORE_URL || "wss://docstore.askexperts.io";
+
     debugExpert(`Starting expert remote worker connecting to ${schedulerUrl}`);
     if (ragHost) {
-      debugExpert(`Using RAG database at ${ragHost}:${ragPort || 'default port'}`);
+      debugExpert(
+        `Using RAG database at ${ragHost}:${ragPort || "default port"}`
+      );
     }
 
     // Create worker
@@ -59,6 +67,7 @@ export async function startWorker(
       ragHost,
       ragPort,
       reconnectDelay,
+      defaultDocStoreUrl,
     });
 
     // Start worker
@@ -104,10 +113,17 @@ export function registerWorkerCommand(program: Command): void {
     .command("worker")
     .description("Start an expert remote worker")
     .option("-d, --debug", "Enable debug logging")
-    .option("-u, --url <url>", "URL of the scheduler (default: ws://localhost:8765)")
+    .option(
+      "-u, --url <url>",
+      "URL of the scheduler (default: ws://localhost:8765)"
+    )
     .option("--rag-host <host>", "Host for RAG database")
     .option("--rag-port <port>", "Port for RAG database", parseInt)
-    .option("--reconnect-delay <ms>", "Reconnection delay in milliseconds (default: 5000)", parseInt)
+    .option(
+      "--reconnect-delay <ms>",
+      "Reconnection delay in milliseconds (default: 5000)",
+      parseInt
+    )
     .action(async (options: WorkerCommandOptions) => {
       try {
         await startWorker(options);
