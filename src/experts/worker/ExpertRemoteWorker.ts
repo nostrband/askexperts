@@ -168,6 +168,10 @@ export class ExpertRemoteWorker {
         case "stop":
           this.handleStopMessage(message.data.expert);
           break;
+          
+        case "restart":
+          this.handleRestartMessage(message.data);
+          break;
 
         default:
           debugError(`Unknown message type: ${(message as any).type}`);
@@ -371,6 +375,48 @@ export class ExpertRemoteWorker {
       }
     } catch (error) {
       debugError(`Error stopping expert ${expertPubkey}:`, error);
+    }
+  }
+
+  /**
+   * Handle a restart message from the scheduler
+   *
+   * @param data Restart message data containing expert pubkey, expert object, and NWC string
+   */
+  private async handleRestartMessage(data: SchedulerToWorkerMessages['restart']) {
+    const expertPubkey = data.expert;
+    const expertObject = data.expert_object;
+    const nwcString = data.nwc_string;
+    
+    debugWorker(`Received restart message for expert ${expertPubkey}`);
+
+    try {
+      // First stop the expert
+      const stopped = await this.worker.stopExpert(expertPubkey);
+      
+      if (stopped) {
+        debugWorker(`Expert ${expertPubkey} stopped as part of restart`);
+      } else {
+        debugWorker(`Expert ${expertPubkey} was not running, proceeding with start`);
+      }
+      
+      // Immediately start the expert with the provided expert object and NWC string
+      debugWorker(`Starting expert ${expertPubkey} with updated configuration`);
+      await this.worker.startExpert(expertObject, nwcString);
+      
+      // Send started message
+      const startedMessage: WorkerToSchedulerMessage = {
+        type: "started",
+        data: {
+          workerId: this.workerId,
+          expert: expertPubkey,
+        },
+      };
+      this.sendMessage(startedMessage);
+      
+      debugWorker(`Expert ${expertPubkey} restarted successfully`);
+    } catch (error) {
+      debugError(`Error restarting expert ${expertPubkey}:`, error);
     }
   }
 

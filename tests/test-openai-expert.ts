@@ -61,7 +61,14 @@ async function testOpenaiExpert() {
   const expert = new OpenaiProxyExpert({
     server,
     openai,
-    model: "openai/gpt-4.1",
+    expert: {
+      pubkey: publicKey,
+      model: "openai/gpt-4.1",
+      discovery_hashtags: '',
+      description: '',
+      system_prompt: '',
+      nickname: ''
+    }
     //    systemPrompt: 'You are a helpful assistant.',
   });
 

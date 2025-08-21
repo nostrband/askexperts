@@ -38,6 +38,8 @@ export class OpenaiProxyExpert extends OpenaiProxyExpertBase {
     openai: OpenaiInterface;
     expert: DBExpert;
   }) {
+    if (!options.expert.model) throw new Error("Model not specified");
+
     super({ ...options, model: options.expert.model });
 
     this.#expert = options.expert;

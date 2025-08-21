@@ -640,7 +640,7 @@ export class DB {
    */
   async insertExpert(expert: DBExpert): Promise<boolean> {
     // Check if wallet exists - now using the async getWallet method
-    const wallet = await this.getWallet(expert.wallet_id, expert.user_id);
+    const wallet = await this.getWallet(expert.wallet_id || '', expert.user_id);
     if (!wallet) {
       throw new Error(`Wallet with ID ${expert.wallet_id} does not exist`);
     }
@@ -660,11 +660,11 @@ export class DB {
     try {
       stmt.run(
         expert.pubkey,
-        expert.wallet_id,
-        expert.type,
-        expert.nickname,
-        expert.env,
-        expert.docstores,
+        expert.wallet_id || '',
+        expert.type || '',
+        expert.nickname || '',
+        expert.env || '',
+        expert.docstores || '',
         expert.privkey || null,
         expert.disabled ? 1 : 0,
         expert.user_id || "",
@@ -695,7 +695,7 @@ export class DB {
    */
   async updateExpert(expert: DBExpert): Promise<boolean> {
     // Check if wallet exists - now using the async getWallet method
-    const wallet = await this.getWallet(expert.wallet_id, expert.user_id);
+    const wallet = await this.getWallet(expert.wallet_id || '', expert.user_id);
     if (!wallet) {
       throw new Error(`Wallet with ID ${expert.wallet_id} does not exist`);
     }
@@ -712,11 +712,11 @@ export class DB {
     `);
 
     const result = stmt.run(
-      expert.wallet_id,
-      expert.type,
-      expert.nickname,
-      expert.env,
-      expert.docstores,
+      expert.wallet_id || '',
+      expert.type || '',
+      expert.nickname || '',
+      expert.env || '',
+      expert.docstores || '',
       expert.privkey || null,
       expert.disabled ? 1 : 0,
       expert.user_id || "",

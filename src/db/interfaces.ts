@@ -28,26 +28,26 @@ export interface DBWallet {
  */
 export interface DBExpert {
   pubkey: string;
-  wallet_id: string;
-  type: string;
-  nickname: string;
-  env: string;
-  docstores: string;
+  wallet_id?: string;
+  type?: string;
+  nickname?: string;
+  env?: string;
+  docstores?: string;
   privkey?: string;
   disabled?: boolean;
-  user_id: string;
+  user_id?: string;
   timestamp?: number;
-  description: string;
-  picture: string;
-  hashtags: string;
-  model: string;
-  temperature: string;
-  system_prompt: string;
-  discovery_hashtags: string;
-  discovery_relays: string;
-  prompt_relays: string;
-  price_base: number;
-  price_margin: string;
+  description?: string;
+  picture?: string;
+  hashtags?: string;
+  model?: string;
+  temperature?: string;
+  system_prompt?: string;
+  discovery_hashtags?: string;
+  discovery_relays?: string;
+  prompt_relays?: string;
+  price_base?: number;
+  price_margin?: string;
 }
 
 /**

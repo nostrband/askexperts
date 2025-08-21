@@ -79,6 +79,13 @@ export interface SchedulerToWorkerMessages {
   stop: {
     expert: string;
   };
+
+  // Scheduler tells worker to restart an expert
+  restart: {
+    expert: string;
+    expert_object: any;     // The complete updated DBExpert object
+    nwc_string: string;     // NWC connection string
+  };
 }
 
 /**
@@ -93,7 +100,8 @@ export type WorkerToSchedulerMessage =
 /**
  * Union type for all messages from scheduler to worker
  */
-export type SchedulerToWorkerMessage = 
+export type SchedulerToWorkerMessage =
   | { type: 'job', data: SchedulerToWorkerMessages['job'] }
   | { type: 'no_job', data: SchedulerToWorkerMessages['no_job'] }
-  | { type: 'stop', data: SchedulerToWorkerMessages['stop'] };
+  | { type: 'stop', data: SchedulerToWorkerMessages['stop'] }
+  | { type: 'restart', data: SchedulerToWorkerMessages['restart'] };

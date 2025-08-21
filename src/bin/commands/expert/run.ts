@@ -74,11 +74,11 @@ async function runNostrExpert(
 ): Promise<void> {
   try {
     // Get wallet for the expert
-    const wallet = await getWalletForExpert(db, expert.wallet_id);
+    const wallet = await getWalletForExpert(db, expert.wallet_id || "");
     const nwcString = wallet.nwc;
 
     // Parse environment variables using dotenv
-    const envVars = dotenv.parse(expert.env);
+    const envVars = dotenv.parse(expert.env || "");
 
     // Get RAG host and port from environment
     const ragHost = envVars.CHROMA_HOST || process.env.CHROMA_HOST;
@@ -137,7 +137,7 @@ async function runOpenRouterExpert(
 ): Promise<void> {
   try {
     // Get wallet for the expert
-    const wallet = await getWalletForExpert(db, expert.wallet_id);
+    const wallet = await getWalletForExpert(db, expert.wallet_id || "");
     const nwcString = wallet.nwc;
 
     // Create a shared pool

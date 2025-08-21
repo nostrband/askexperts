@@ -86,7 +86,7 @@ export async function runAllExperts(
     async function startExpert(expert: DBExpert): Promise<void> {
       try {
         // Get wallet for the expert using the wallet client
-        const wallet = await db.getWallet(expert.wallet_id);
+        const wallet = await db.getWallet(expert.wallet_id || '');
         if (!wallet) {
           throw new Error(
             `Wallet with ID ${expert.wallet_id} not found for expert ${expert.nickname}`

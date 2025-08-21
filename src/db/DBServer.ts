@@ -657,7 +657,7 @@ export class DBServer {
           // Insert the wallet with a name based on the expert's name
           const walletName = `Wallet for expert ${expert.nickname}`;
           const wallet_id = await this.db.insertWallet({
-            user_id: expert.user_id,
+            user_id: expert.user_id || '',
             name: walletName,
             nwc: nwcString,
             default: false,

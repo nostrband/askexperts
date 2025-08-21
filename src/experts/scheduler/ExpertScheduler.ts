@@ -323,6 +323,46 @@ export class ExpertScheduler {
         debugScheduler(
           `Loaded expert ${expert.pubkey} state ${expertState.state} worker ${expertState.workerId}`
         );
+
+        // Handle the case where expert record is updated while already enabled and running
+        switch (expertState.state) {
+          case "starting":
+          case "started": {
+            if (!expertState.workerId)
+              throw new Error("Running expert without worker id");
+            // Expert is already running, send restart message
+            debugScheduler(
+              `Expert ${expert.pubkey} is already running in state ${expertState.state}, sending restart message`
+            );
+            this.sendRestartMessageToWorker(
+              expertState.workerId,
+              expert.pubkey
+            );
+
+            // Update expert state to 'starting'
+            this.expertStates.set(expert.pubkey, {
+              ...expertState,
+              state: "starting",
+              timestamp: Date.now(),
+            });
+            break;
+          }
+          case "stopped":
+          case "stopping": {
+            // Expert is stopped or stopping, put it back in the queue
+            debugScheduler(
+              `Expert ${expert.pubkey} is in state ${expertState.state}, putting it back in the queue`
+            );
+            this.queueExpert(expert.pubkey);
+            break;
+          }
+          case "queued": {
+            debugScheduler(
+              `Expert ${expert.pubkey} is in state ${expertState.state}, already in the queue`
+            );
+            break;
+          }
+        }
       }
     }
   }
@@ -808,7 +848,7 @@ export class ExpertScheduler {
 
     try {
       // Get the wallet for this expert to get the NWC string
-      const wallet = await this.db.getWallet(expert.wallet_id);
+      const wallet = await this.db.getWallet(expert.wallet_id || "");
 
       if (!wallet) {
         debugError(
@@ -969,6 +1009,94 @@ export class ExpertScheduler {
 
     // Send message to worker
     this.sendMessageToWorker(workerId, message);
+  }
+
+  /**
+   * Send a restart message to a specific worker for a specific expert
+   *
+   * @param workerId Worker ID
+   * @param expertPubkey Expert pubkey
+   */
+  private async sendRestartMessageToWorker(
+    workerId: string,
+    expertPubkey: string
+  ): Promise<void> {
+    const worker = this.workers.get(workerId);
+    if (!worker) {
+      return;
+    }
+
+    debugScheduler(
+      `Sending restart message for expert ${expertPubkey} to worker ${workerId}`
+    );
+
+    try {
+      // Get the expert from the database
+      const expert = await this.db.getExpert(expertPubkey);
+      if (!expert) {
+        debugError(`Expert ${expertPubkey} not found in database for restart`);
+        return;
+      }
+
+      // Get the wallet for this expert to get the NWC string
+      const wallet = await this.db.getWallet(expert.wallet_id || '');
+      if (!wallet) {
+        debugError(
+          `Wallet ${expert.wallet_id} not found for expert ${expertPubkey} for restart`
+        );
+        return;
+      }
+
+      // Create restart message with expert object and NWC string
+      const message: SchedulerToWorkerMessage = {
+        type: "restart",
+        data: {
+          expert: expertPubkey,
+          expert_object: expert,
+          nwc_string: wallet.nwc,
+        },
+      };
+
+      // Send message to worker
+      this.sendMessageToWorker(workerId, message);
+      
+      // Set a timer to check if the expert restarts within 60 seconds
+      const timer = setTimeout(() => {
+        debugScheduler(
+          `Restart timeout for expert ${expertPubkey} on worker ${workerId}`
+        );
+
+        // Check if the expert is still in 'starting' state
+        const expertState = this.expertStates.get(expertPubkey);
+        if (
+          expertState &&
+          expertState.state === "starting" &&
+          expertState.workerId === workerId
+        ) {
+          debugScheduler(
+            `Expert ${expertPubkey} failed to restart within timeout, requeuing`
+          );
+
+          // Update expert state to 'queued'
+          this.expertStates.set(expertPubkey, {
+            pubkey: expertPubkey,
+            state: "queued",
+            timestamp: Date.now(),
+          });
+
+          // Add expert back to the queue
+          this.expertQueue.push(expertPubkey);
+        }
+
+        // Remove the timer
+        this.startTimers.delete(expertPubkey);
+      }, 60000); // 60 second timeout
+
+      // Store the timer
+      this.startTimers.set(expertPubkey, timer);
+    } catch (error) {
+      debugError(`Error sending restart message for expert ${expertPubkey}:`, error);
+    }
   }
 
   /**

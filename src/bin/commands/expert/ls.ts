@@ -26,7 +26,7 @@ export async function listExperts(options: LsCommandOptions): Promise<void> {
     // Filter by type if specified
     if (options.type) {
       experts = experts.filter(expert =>
-        expert.type.toLowerCase() === options.type!.toLowerCase()
+        expert.type?.toLowerCase() === options.type!.toLowerCase()
       );
     }
     
@@ -36,10 +36,10 @@ export async function listExperts(options: LsCommandOptions): Promise<void> {
       experts = experts.filter(expert => {
         // Search in nickname, pubkey, docstores, and env
         return (
-          expert.nickname.toLowerCase().includes(searchLower) ||
-          expert.pubkey.toLowerCase().includes(searchLower) ||
-          expert.docstores.toLowerCase().includes(searchLower) ||
-          expert.env.toLowerCase().includes(searchLower)
+          expert.nickname?.toLowerCase().includes(searchLower) ||
+          expert.pubkey?.toLowerCase().includes(searchLower) ||
+          expert.docstores?.toLowerCase().includes(searchLower) ||
+          expert.env?.toLowerCase().includes(searchLower)
         );
       });
     }

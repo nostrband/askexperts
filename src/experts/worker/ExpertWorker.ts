@@ -82,14 +82,14 @@ export class ExpertWorker {
     try {
       // Get or create payment manager for this expert's wallet
       let paymentManager: LightningPaymentManager;
-      if (this.paymentManagers.has(expert.wallet_id)) {
-        paymentManager = this.paymentManagers.get(expert.wallet_id)!;
+      if (this.paymentManagers.has(expert.wallet_id || '')) {
+        paymentManager = this.paymentManagers.get(expert.wallet_id || '')!;
         debugExpert(
           `Reusing existing payment manager for wallet ID ${expert.wallet_id}`
         );
       } else {
         paymentManager = new LightningPaymentManager(nwcString);
-        this.paymentManagers.set(expert.wallet_id, paymentManager);
+        this.paymentManagers.set(expert.wallet_id || '', paymentManager);
         debugExpert(
           `Created new payment manager for wallet ID ${expert.wallet_id}`
         );
@@ -107,7 +107,7 @@ export class ExpertWorker {
       if (expert.type === "nostr") {
         // Parse docstores - exactly one must be specified
         const parsedDocstores = ExpertWorker.parseDocstoreIdsList(
-          expert.docstores,
+          expert.docstores || '',
           this.defaultDocStoreUrl
         );
         if (parsedDocstores.length !== 1) {
@@ -235,7 +235,7 @@ export class ExpertWorker {
     const privkey = new Uint8Array(Buffer.from(expert.privkey!, "hex"));
 
     // Parse environment variables if not provided
-    const expertEnvVars = dotenv.parse(expert.env);
+    const expertEnvVars = dotenv.parse(expert.env || '');
 
     // Target nostr pubkey
     const nostrPubkey = expertEnvVars.NOSTR_PUBKEY;
@@ -251,7 +251,7 @@ export class ExpertWorker {
 
     // Parse docstores - exactly one must be specified
     const parsedDocstores = ExpertWorker.parseDocstoreIdsList(
-      expert.docstores,
+      expert.docstores || '',
       this.defaultDocStoreUrl
     );
     if (parsedDocstores.length !== 1) {
@@ -352,7 +352,7 @@ export class ExpertWorker {
     const privkey = new Uint8Array(Buffer.from(expert.privkey!, "hex"));
 
     // Parse environment variables if not provided
-    const expertEnvVars = dotenv.parse(expert.env);
+    const expertEnvVars = dotenv.parse(expert.env || '');
 
     const margin = parseFloat(expert.price_margin || "0.1");
 

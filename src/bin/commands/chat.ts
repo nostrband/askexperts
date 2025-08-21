@@ -54,7 +54,7 @@ export async function executeChatCommand(
       const experts = await db.listExperts();
       const expertByNickname = experts.find(
         (expert: DBExpert) =>
-          expert.nickname.toLowerCase() === expertIdentifier.toLowerCase()
+          expert.nickname?.toLowerCase() === expertIdentifier.toLowerCase()
       );
 
       if (expertByNickname) {

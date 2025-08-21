@@ -32,9 +32,7 @@ export function parseExpertProfile(event: Event): Expert | null {
 
     // Extract payment methods from the tags
     const methodTags = event.tags.filter((tag) => tag[0] === "m");
-    const expertMethods = methodTags.map(
-      (tag) => tag[1]
-    ) as PaymentMethod[];
+    const expertMethods = methodTags.map((tag) => tag[1]) as PaymentMethod[];
 
     // Extract hashtags from the tags
     const hashtagTags = event.tags.filter((tag) => tag[0] === "t");
@@ -75,7 +73,7 @@ export function parseExpertProfile(event: Event): Expert | null {
 export interface PostWithContext {
   /** Post ID (event.id) */
   id: string;
-  
+
   /** Post creation timestamp */
   created_at: number;
 
@@ -102,11 +100,13 @@ export interface PostWithContext {
  * Interface for profile information returned by crawlProfile
  */
 export interface ProfileInfo {
-  /** Profile data (kind:0 event content) */
-  profile: any;
+  pubkey: string;
 
-  /** Posts data with context */
-  posts: PostWithContext[];
+  /** Profile data (kind:0 event content) */
+  profile?: any;
+
+  /** Nostr event */
+  event?: Event;
 }
 
 /**
@@ -144,42 +144,42 @@ export class Nostr {
   }
 
   /**
-   * Crawls a user's profile and posts
+   * Crawls a user's profile
    *
    * @param pubkey - Public key of the user
-   * @param limit - Maximum number of posts to fetch (default: 1000)
-   * @returns Promise resolving to ProfileInfo with profile and posts
+   * @returns Promise resolving to ProfileInfo
    */
-  async crawlProfile(
-    pubkey: string,
-    limit: number = 1000
-  ): Promise<ProfileInfo> {
+  async fetchProfile(pubkey: string, relays?: string[]): Promise<ProfileInfo> {
     try {
-      // 1. Fetch kind:10002 event (relay list) from outbox relays
-      const relayListFilter: Filter = {
-        kinds: [10002],
-        authors: [pubkey],
-        limit: 1,
-      };
+      if (!relays || !relays.length) {
+        // 1. Fetch kind:10002 event (relay list) from outbox relays
+        const relayListFilter: Filter = {
+          kinds: [10002],
+          authors: [pubkey],
+          limit: 1,
+        };
 
-      const relayListEvents = await fetchFromRelays(
-        relayListFilter,
-        Nostr.OUTBOX_RELAYS,
-        this.pool,
-        10000 // 10 second timeout
-      );
+        const relayListEvents = await fetchFromRelays(
+          relayListFilter,
+          Nostr.OUTBOX_RELAYS,
+          this.pool,
+          10000 // 10 second timeout
+        );
 
-      // Parse relay list into read and write relays
-      const { readRelays, writeRelays } = this.parseRelayList(
-        relayListEvents[0]
-      );
+        // Parse relay list into read and write relays
+        const { readRelays, writeRelays } = this.parseRelayList(
+          relayListEvents[0]
+        );
 
-      // If no relay list found, use outbox relays for both read and write
-      const effectiveReadRelays =
-        readRelays.length > 0 ? readRelays : Nostr.OUTBOX_RELAYS;
-      const effectiveWriteRelays =
-        writeRelays.length > 0 ? writeRelays : Nostr.OUTBOX_RELAYS;
-      debugExpert(`Fetched relays for ${pubkey}: ${effectiveWriteRelays}`);
+        // If no relay list found, use outbox relays for both read and write
+        const effectiveReadRelays =
+          readRelays.length > 0 ? readRelays : Nostr.OUTBOX_RELAYS;
+        const effectiveWriteRelays =
+          writeRelays.length > 0 ? writeRelays : Nostr.OUTBOX_RELAYS;
+        debugExpert(`Fetched relays for ${pubkey}: ${effectiveWriteRelays}`);
+
+        relays = effectiveWriteRelays;
+      }
 
       // 2. Fetch kind:0 (profile) from outbox relays
       const profileFilter: Filter = {
@@ -190,205 +190,22 @@ export class Nostr {
 
       const profileEvents = await fetchFromRelays(
         profileFilter,
-        Nostr.OUTBOX_RELAYS,
+        [...Nostr.OUTBOX_RELAYS, ...relays],
         this.pool,
         10000 // 10 second timeout
       );
 
       // Parse profile data
       const profile =
-        profileEvents.length > 0 ? JSON.parse(profileEvents[0].content) : {};
+        profileEvents.length > 0
+          ? JSON.parse(profileEvents[0].content)
+          : undefined;
       debugExpert(`Fetched profile for ${pubkey}: ${JSON.stringify(profile)}`);
 
-      // 3. Fetch kind:1 (posts) from write relays with pagination
-      const allPostEvents: Event[] = [];
-      let oldestTimestamp: number | undefined;
-
-      // Continue fetching until we reach the limit or no more posts are available
-      while (allPostEvents.length < limit) {
-        // Create filter for the current batch
-        const postsFilter: Filter = {
-          kinds: [1],
-          authors: [pubkey],
-          limit: 500,
-        };
-
-        // Add until parameter for pagination if we have an oldest timestamp
-        if (oldestTimestamp) {
-          postsFilter.until = oldestTimestamp - 1; // Subtract 1 to avoid duplicates
-        }
-
-        // Fetch the current batch
-        const postEvents = await fetchFromRelays(
-          postsFilter,
-          effectiveWriteRelays,
-          this.pool,
-          10000 // 10 second timeout
-        );
-        debugExpert(
-          `Fetched batch since ${postsFilter.until} events ${postEvents.length}`
-        );
-
-        // If no more posts were found, break the loop
-        if (postEvents.length === 0) {
-          break;
-        }
-
-        // Add the new posts to our collection
-        allPostEvents.push(...postEvents);
-
-        // Find the oldest timestamp for the next iteration
-        oldestTimestamp = Math.min(
-          ...postEvents.map((event) => event.created_at)
-        );
-      }
-
-      // Trim to the requested limit
-      const finalPostEvents = allPostEvents.slice(0, limit);
-
-      // Sort by created_at in descending order (newest first)
-      finalPostEvents.sort((a, b) => b.created_at - a.created_at);
-
-      // 4. Process posts to find reply references
-      const referencedEvents: Map<string, EventReference> = new Map();
-
-      // Collect all event references from posts
-      for (const event of finalPostEvents) {
-        for (const tag of event.tags) {
-          if (tag[0] === "e") {
-            const id = tag[1];
-            const relay = tag[2];
-            const marker = tag[3];
-
-            // Only consider tags with marker absent, 'reply', or 'root'
-            if (!marker || marker === "reply" || marker === "root") {
-              // Prefer 'reply' over 'root' if both exist for the same ID
-              if (referencedEvents.has(id)) {
-                const existingRef = referencedEvents.get(id)!;
-                if (existingRef.marker === "root" && marker === "reply") {
-                  referencedEvents.set(id, { id, relay, marker });
-                }
-              } else {
-                referencedEvents.set(id, { id, relay, marker });
-              }
-            }
-          }
-        }
-      }
-
-      // 5. Group referenced events by relay
-      const relayToIds: Map<string, string[]> = new Map();
-
-      // Add all referenced events to their respective relays
-      for (const ref of referencedEvents.values()) {
-        if (ref.relay) {
-          const ids = relayToIds.get(ref.relay) || [];
-          ids.push(ref.id);
-          relayToIds.set(ref.relay, ids);
-        } else {
-          // If no relay specified, add to all read relays
-          for (const relay of effectiveReadRelays) {
-            const ids = relayToIds.get(relay) || [];
-            ids.push(ref.id);
-            relayToIds.set(relay, ids);
-          }
-        }
-      }
-
-      // 6. Fetch referenced events from relays in parallel (one relay at a time)
-      const fetchResults: Event[][] = [];
-
-      // Process each relay in parallel
-      const relayPromises: Promise<void>[] = [];
-
-      for (const [relay, ids] of relayToIds.entries()) {
-        // For each relay, create a promise that processes all batches sequentially
-        const relayPromise = (async () => {
-          // Process in batches of IDs
-          const BATCH_SIZE = 200;
-          for (let i = 0; i < ids.length; i += BATCH_SIZE) {
-            const batch = ids.slice(i, i + BATCH_SIZE);
-
-            const filter: Filter = {
-              ids: batch,
-            };
-            debugExpert("fetching from", relay, batch.length, i, ids.length);
-
-            // Fetch this batch and add results
-            const batchResults = await fetchFromRelays(
-              filter,
-              [relay],
-              this.pool,
-              10000 // 15 second timeout
-            );
-            debugExpert("fetched from", relay, i, batchResults.length);
-
-            fetchResults.push(batchResults);
-          }
-        })();
-
-        relayPromises.push(relayPromise);
-      }
-
-      // Wait for all relay processing to complete
-      await Promise.all(relayPromises);
-
-      // 7. Collect and deduplicate referenced events
-      const referencedEventsById: Map<string, Event> = new Map();
-
-      for (const events of fetchResults) {
-        for (const event of events) {
-          referencedEventsById.set(event.id, event);
-        }
-      }
-
-      // 8. Create posts with context
-      const postsWithContext: PostWithContext[] = finalPostEvents.map(
-        (event) => {
-          // Find reply reference for this post
-          let inReplyTo = undefined;
-
-          // Look for e tags with reply or root marker
-          const replyTags = event.tags
-            .filter(
-              (tag) =>
-                tag[0] === "e" &&
-                (!tag[3] || tag[3] === "reply" || tag[3] === "root")
-            )
-            .sort((a, b) => {
-              // Sort to prefer 'reply' over 'root' or undefined
-              const markerA = a[3] || "";
-              const markerB = b[3] || "";
-              return markerA === "reply" ? -1 : markerB === "reply" ? 1 : 0;
-            });
-
-          // If we have reply tags, try to find the referenced event
-          if (replyTags.length > 0) {
-            const replyId = replyTags[0][1];
-            const replyEvent = referencedEventsById.get(replyId);
-
-            if (replyEvent) {
-              inReplyTo = {
-                created_at: replyEvent.created_at,
-                content: replyEvent.content,
-                pubkey: replyEvent.pubkey,
-              };
-            }
-          }
-
-          return {
-            id: event.id,
-            created_at: event.created_at,
-            content: event.content,
-            pubkey: event.pubkey,
-            in_reply_to: inReplyTo,
-          };
-        }
-      );
-
       return {
+        pubkey,
         profile,
-        posts: postsWithContext,
+        event: profileEvents?.[0],
       };
     } catch (error) {
       debugError("Error crawling profile:", error);
@@ -473,7 +290,7 @@ export class Nostr {
     pubkey,
     kinds = [],
     relays = [],
-    limit = 1000
+    limit = 1000,
   }: {
     pubkey: string;
     kinds?: number[];
@@ -501,7 +318,9 @@ export class Nostr {
 
         if (relayListEvents.length > 0) {
           // Parse relay list
-          const { writeRelays: parsedWriteRelays } = this.parseRelayList(relayListEvents[0]);
+          const { writeRelays: parsedWriteRelays } = this.parseRelayList(
+            relayListEvents[0]
+          );
           if (parsedWriteRelays.length > 0) {
             writeRelays = parsedWriteRelays;
           }
@@ -516,7 +335,7 @@ export class Nostr {
       }
     }
 
-    debugExpert(`Using relays: ${writeRelays.join(', ')}`);
+    debugExpert(`Using relays: ${writeRelays.join(", ")}`);
 
     // Fetch events of specified kinds
     const events: Event[] = [];
@@ -529,8 +348,7 @@ export class Nostr {
         authors: [pubkey],
         limit: Math.min(500, limit - events.length),
       };
-      if (kinds && kinds.length > 0)
-        filter.kinds = kinds;
+      if (kinds && kinds.length > 0) filter.kinds = kinds;
 
       // Add until parameter for pagination if we have an oldest timestamp
       if (oldestTimestamp) {
@@ -555,13 +373,15 @@ export class Nostr {
       events.push(...batchEvents);
 
       // Find the oldest timestamp for the next iteration
-      oldestTimestamp = Math.min(...batchEvents.map((event: Event) => event.created_at));
+      oldestTimestamp = Math.min(
+        ...batchEvents.map((event: Event) => event.created_at)
+      );
     }
 
     // Trim to the requested limit and sort by created_at in descending order
     const finalEvents = events.slice(0, limit);
     finalEvents.sort((a, b) => b.created_at - a.created_at);
-    
+
     return finalEvents;
   }
 }

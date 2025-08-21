@@ -73,15 +73,8 @@ export async function manageOpenRouterExperts(
     // Create a map of existing experts by model ID
     const existingExpertsByModel = new Map<string, DBExpert>();
     for (const expert of openRouterExperts) {
-      // Extract model from env (format: EXPERT_MODEL=model\nEXPERT_MARGIN=margin)
-      const envLines = expert.env.split("\n");
-      const modelLine = envLines.find((line) =>
-        line.startsWith("EXPERT_MODEL=")
-      );
-      if (modelLine) {
-        const model = modelLine.substring("EXPERT_MODEL=".length);
-        existingExpertsByModel.set(model, expert);
-      }
+      if (!expert.model) continue;
+      existingExpertsByModel.set(expert.model, expert);
     }
 
     // Helper
@@ -93,9 +86,6 @@ export async function manageOpenRouterExperts(
       const { privateKey } = generateRandomKeyPair();
       const privkey = privateKey;
       const pubkey = getPublicKey(privkey);
-
-      // Create environment variables
-      //          const env = `EXPERT_MODEL=${modelId}\nEXPERT_MARGIN=${options.margin}`;
 
       // Create expert object
       const expert: DBExpert = {
@@ -158,16 +148,7 @@ export async function manageOpenRouterExperts(
           // Update existing expert
           debugExpert(`Updating existing expert for model ${modelId}`);
 
-          // Update environment variables with current margin
-          const envLines = existingExpert.env.split("\n");
-          const updatedEnvLines = envLines.map((line) => {
-            if (line.startsWith("EXPERT_MARGIN=")) {
-              return `EXPERT_MARGIN=${options.margin}`;
-            }
-            return line;
-          });
-
-          existingExpert.env = updatedEnvLines.join("\n");
+          existingExpert.price_margin = options.margin.toString();
           existingExpert.disabled = false; // Ensure expert is enabled
 
           // Update in database
@@ -218,14 +199,8 @@ export async function manageOpenRouterExperts(
         // Create a map of existing experts by model ID
         const currentExpertsByModel = new Map<string, DBExpert>();
         for (const expert of currentExperts) {
-          const envLines = expert.env.split("\n");
-          const modelLine = envLines.find((line) =>
-            line.startsWith("EXPERT_MODEL=")
-          );
-          if (modelLine) {
-            const model = modelLine.substring("EXPERT_MODEL=".length);
-            currentExpertsByModel.set(model, expert);
-          }
+          if (!expert.model) continue;
+          currentExpertsByModel.set(expert.model, expert);
         }
 
         // Create or update experts for each available model
