@@ -18,7 +18,7 @@ export async function listDocs(
     }
     
     const docstoreClient = await createDocstoreClient(options);
-    const docstore = await getDocstore(docstoreClient, options.docstore);
+    const docstore = await getDocstore(docstoreClient, id);
 
     console.log(
       `Listing all documents in docstore '${docstore.name}' (ID: ${docstore.id})...`

@@ -431,7 +431,7 @@ export class DBServer {
 
     try {
       const wallet = req.body as Omit<DBWallet, "id">;
-      if (!wallet || !wallet.name || !wallet.nwc) {
+      if (!wallet || !wallet.name) {
         res.status(400).json({ error: "Invalid wallet data" });
         return;
       }
@@ -439,6 +439,12 @@ export class DBServer {
       // Use user_id from the request object if available
       if ((req as any).user_id) {
         wallet.user_id = (req as any).user_id;
+      }
+
+      if (!wallet.nwc) {
+        debugServer(`New wallet has no NWC, generating it`);
+        const { nwcString } = await createWallet();
+        wallet.nwc = nwcString;
       }
 
       const id = await this.db.insertWallet(wallet);
@@ -646,31 +652,6 @@ export class DBServer {
       // Use user_id from the request object if available
       if ((req as any).user_id) {
         expert.user_id = (req as any).user_id;
-      }
-
-      // If wallet_id is empty, create a new wallet for this expert
-      if (!expert.wallet_id) {
-        try {
-          // Create a new wallet
-          const { nwcString } = await createWallet();
-          
-          // Insert the wallet with a name based on the expert's name
-          const walletName = `Wallet for expert ${expert.nickname}`;
-          const wallet_id = await this.db.insertWallet({
-            user_id: expert.user_id || '',
-            name: walletName,
-            nwc: nwcString,
-            default: false,
-          });
-          
-          // Use the new wallet_id for the expert
-          expert.wallet_id = wallet_id;
-          debugServer(`Created new wallet ${wallet_id} for expert ${expert.nickname}`);
-        } catch (e) {
-          debugError("Failed to create wallet for expert", e);
-          res.status(500).json({ error: "Failed to create wallet for expert" });
-          return;
-        }
       }
 
       const success = await this.db.insertExpert(expert);

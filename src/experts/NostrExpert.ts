@@ -6,9 +6,9 @@ import { RagDB, RagEmbeddings } from "../rag/interfaces.js";
 import { OpenaiProxyExpertBase } from "./OpenaiProxyExpertBase.js";
 import { Doc, DocStoreClient } from "../docstore/interfaces.js";
 import { DocstoreToRag, createRagEmbeddings } from "../rag/index.js";
-import { ChatCompletion } from "openai/resources";
 import { DBExpert } from "../db/interfaces.js";
 import { str2arr } from "../common/utils.js";
+import { extractHashtags } from "./utils/index.js";
 
 /**
  * NostrExpert implementation for NIP-174
@@ -131,11 +131,13 @@ export class NostrExpert {
       );
 
       // Sync from docstore to RAG
+      let count = 0;
       await new Promise<void>(async (resolve) => {
         this.syncController = await this.docstoreToRag.sync({
           docstore_id: this.docstoreId,
           collection_name: collectionName,
           onDoc: async (doc: Doc) => {
+            count++;
             const event = JSON.parse(doc.data);
             if (!validateEvent(event)) return false;
             if (event.pubkey !== this.pubkey) return false;
@@ -155,16 +157,15 @@ export class NostrExpert {
             }
             return true;
           },
-          onEof: () => {
-            debugExpert(
-              `Completed syncing docstore to RAG collection ${collectionName}`
-            );
-            resolve();
-          },
+          onEof: resolve,
         });
       });
 
-      this.discovery_hashtags = str2arr(this.expert.discovery_hashtags);
+      debugExpert(
+        `Completed syncing docstore to RAG collection ${collectionName}, post ${this.posts.length}, docs ${count}`
+      );
+
+      this.discovery_hashtags = str2arr(this.expert.discovery_hashtags) || [];
       if (!this.discovery_hashtags.length) {
         // Extract hashtags from profile info
         const extractedHashtags = await this.extractHashtags(); // this.profileInfo
@@ -203,7 +204,7 @@ ${JSON.stringify(this.profile)}`;
         Promise.resolve(systemPrompt);
 
       // Set nickname and description to openaiExpert.server
-      this.openaiExpert.server.nickname = this.pubkeyNickname() + "_clone";
+      this.openaiExpert.server.nickname = this.pubkeyNickname();
       this.openaiExpert.server.description = await this.getDescription();
 
       // Start the OpenAI expert
@@ -275,75 +276,17 @@ ${this.profile?.about || "-"}`;
    * @returns Promise resolving to an array of hashtags
    */
   private async extractHashtags(): Promise<string[]> {
-    try {
-      // Use the OpenAI instance from the provided OpenaiProxyExpertBase
-      const openai = this.openaiExpert.openai;
-
-      // Create system prompt for hashtag extraction
-      const systemPrompt = `You are an expert at analyzing user profiles and determining what topics they are knowledgeable about.
-Analyze the provided profile information and identify at least 10 hashtags that represent topics this person would be considered an expert on.
-Focus on content of their posts, areas where they demonstrate knowledge.
-Then for each hashtag, come up with 4 additional variations of it and add variations to the hashtag list too.
-Return ONLY a JSON array of hashtags - english, lowercase, without # symbol, with - instead of spaces, with no explanation or other text.
-Example response: ["bitcoin", "programming", "javascript", "webapps", "openprotocols"]`;
-
-      const input = JSON.stringify(
-        {
-          profile: this.profile,
-          // Use latest 100 posts
-          posts: this.posts
-            .sort((a, b) => a.created_at - b.created_at)
-            .slice(-Math.min(this.posts.length, 500))
-            .map((p) => ({
-              content: p.content,
-            })),
-        },
-        null,
-        2
-      );
-      debugExpert(`Extract hashtags, input size ${input.length} chars`);
-
-      // Make completion request
-      const quote = await openai.getQuote(this.openaiExpert.model, {
-        model: this.openaiExpert.model,
-        messages: [
-          { role: "system", content: systemPrompt },
-          {
-            role: "user",
-            content: input,
-          },
-        ],
-        temperature: 0.5,
-      });
-      debugExpert(`Paying ${quote.amountSats} for extractHashtags`);
-
-      const completion = (await openai.execute(
-        quote.quoteId
-      )) as ChatCompletion;
-
-      // Extract and parse the hashtags from the response
-      const content = completion.choices[0]?.message?.content || "[]";
-
-      // Try to parse the JSON array
-      try {
-        const hashtags = JSON.parse(content);
-        if (Array.isArray(hashtags)) {
-          return hashtags.filter((tag) => typeof tag === "string");
-        }
-      } catch (error) {
-        debugError("Error parsing hashtags JSON:", error);
-        // If parsing fails, try to extract hashtags using regex
-        const matches = content.match(/["']([^"']+)["']/g);
-        if (matches) {
-          return matches.map((m: string) => m.replace(/["']/g, ""));
-        }
-      }
-
-      return [];
-    } catch (error) {
-      debugError("Error extracting hashtags:", error);
-      throw error;
-    }
+    return extractHashtags(
+      this.openaiExpert.openai,
+      this.openaiExpert.model,
+      this.profile,
+      this.posts
+        .sort((a, b) => a.created_at - b.created_at)
+        .slice(-Math.min(this.posts.length, 500))
+        .map((p) => ({
+          content: p.content,
+        }))
+    );
   }
 
   private ragCollectionName() {

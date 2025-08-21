@@ -45,3 +45,6 @@ export type {
 
 // Export the common module
 export * from "./common/index.js";
+
+// Export the experts module
+export * from "./experts/index.js";

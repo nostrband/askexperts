@@ -99,7 +99,7 @@ export function registerMcpCommand(program: Command): void {
     )
     .option("-r, --remote", "Use remote wallet client")
     .option("-u, --url <url>", "URL of remote wallet server (default: https://api.askexperts.io)")
-     .option("-d, --debug", "Enable debug logging")
+    .option("-d, --debug", "Enable debug logging")
     .action(async (options) => {
       if (options.debug) enableAllDebug();
       else enableErrorDebug();

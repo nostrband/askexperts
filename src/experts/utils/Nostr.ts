@@ -110,15 +110,6 @@ export interface ProfileInfo {
 }
 
 /**
- * Interface for tracking event references
- */
-interface EventReference {
-  id: string;
-  relay?: string;
-  marker?: string;
-}
-
-/**
  * Nostr utility class for fetching and processing Nostr data
  */
 export class Nostr {

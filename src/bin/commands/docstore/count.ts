@@ -18,8 +18,8 @@ export async function countDocs(
     }
     
     const docstoreClient = await createDocstoreClient(options);
-    const docstore = await getDocstore(docstoreClient, options.docstore);
-    const count = docstoreClient.countDocs(id);
+    const docstore = await getDocstore(docstoreClient, id);
+    const count = await docstoreClient.countDocs(id);
     console.log(
       `Docstore '${docstore.name}' (ID: ${id}) contains ${count} document(s)`
     );

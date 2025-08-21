@@ -61,6 +61,7 @@ export async function getDocstore(
   if (docstoreId) {
     const docstore = await client.getDocstore(docstoreId);
     if (!docstore) throw new Error("Docstore not found");
+    return docstore;
   }
 
   const docstores = await client.listDocstores();
@@ -87,8 +88,8 @@ export async function getDocstore(
 export async function createDocstoreClient(options: DocstoreCommandOptions): Promise<DocStoreClient> {
   // Use remote client if remote flag is set
   if (options.remote) {
-    // Use the provided URL or default to https://docstore.askexperts.io
-    const serverUrl = options.url || "https://docstore.askexperts.io";
+    // Use the provided URL or default to wss://docstore.askexperts.io
+    const serverUrl = options.url || "wss://docstore.askexperts.io";
 
     // Get the current user ID
     const userId = getCurrentUserId();
@@ -131,7 +132,7 @@ export function registerDocstoreCommand(program: Command): void {
   const addRemoteOptions = (cmd: Command) =>
     cmd
       .option("-r, --remote", "Use remote client")
-      .option("-u, --url <url>", "URL of remote server (default: https://docstore.askexperts.io)");
+      .option("-u, --url <url>", "URL of remote server (default: wss://docstore.askexperts.io)");
 
   // Helper to add all common options
   const addCommonOptions = (cmd: Command) => {

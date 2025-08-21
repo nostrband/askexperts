@@ -422,7 +422,7 @@ export class ExpertWorker {
    * Parse a docstore ID string into URL and ID components
    *
    * If the docstore ID contains a ":", it's treated as a remote docstore with format:
-   * url:docstore_id (e.g., https://docstore.askexperts.io:docstore_id)
+   * url:docstore_id (e.g., wss://docstore.askexperts.io:docstore_id)
    *
    * @param docstoreIdStr - The docstore ID string to parse
    * @returns An object containing the URL (if remote) and the actual docstore ID
@@ -513,7 +513,7 @@ export class ExpertWorker {
    * Parse a docstore ID string and create the appropriate DocStoreClient
    *
    * If the docstore ID contains a ":", it's treated as a remote docstore with format:
-   * url:docstore_id (e.g., https://docstore.askexperts.io:docstore_id)
+   * url:docstore_id (e.g., wss://docstore.askexperts.io:docstore_id)
    *
    * @param docstoreIdStr - The docstore ID string to parse
    * @returns An object containing the DocStoreClient and the actual docstore ID

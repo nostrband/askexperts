@@ -353,6 +353,9 @@ export class ExpertScheduler {
             debugScheduler(
               `Expert ${expert.pubkey} is in state ${expertState.state}, putting it back in the queue`
             );
+
+            // Reset state
+            expertState.state = "queued";
             this.queueExpert(expert.pubkey);
             break;
           }
@@ -374,30 +377,35 @@ export class ExpertScheduler {
    */
   public queueExpert(pubkey: string): void {
     // Check if expert is already in a state
-    const existingState = this.expertStates.get(pubkey);
-    if (existingState) {
+    let expertState = this.expertStates.get(pubkey);
+    if (expertState) {
       // If expert is already queued, do nothing
-      if (existingState.state === "queued") {
+      if (expertState.state === "queued") {
+        debugScheduler(
+          `Expert ${pubkey} is already in state ${expertState.state}`
+        );
         return;
       }
 
       // If expert is in any other state, we need to handle it differently
       // For now, just log a warning
       debugScheduler(
-        `Expert ${pubkey} is already in state ${existingState.state}, not queueing`
+        `Expert ${pubkey} is in state ${expertState.state}, queueing`
       );
-      return;
+    } else {
+      // Init state
+      expertState = {
+        pubkey,
+        state: "queued",
+        timestamp: Date.now(),
+      };
     }
 
     // Add expert to queue
     this.expertQueue.push(pubkey);
 
     // Update expert state
-    this.expertStates.set(pubkey, {
-      pubkey,
-      state: "queued",
-      timestamp: Date.now(),
-    });
+    this.expertStates.set(pubkey, expertState);
 
     debugScheduler(`Expert ${pubkey} queued`);
 
@@ -438,6 +446,9 @@ export class ExpertScheduler {
             // Only requeue if the expert is still associated with this worker
             if (expertState.workerId === workerId) {
               debugScheduler(`Requeuing expert ${expertPubkey}`);
+
+              // Reset their state
+              expertState.state = "queued";
               this.queueExpert(expertPubkey);
             }
           }
@@ -1039,7 +1050,7 @@ export class ExpertScheduler {
       }
 
       // Get the wallet for this expert to get the NWC string
-      const wallet = await this.db.getWallet(expert.wallet_id || '');
+      const wallet = await this.db.getWallet(expert.wallet_id || "");
       if (!wallet) {
         debugError(
           `Wallet ${expert.wallet_id} not found for expert ${expertPubkey} for restart`
@@ -1059,7 +1070,7 @@ export class ExpertScheduler {
 
       // Send message to worker
       this.sendMessageToWorker(workerId, message);
-      
+
       // Set a timer to check if the expert restarts within 60 seconds
       const timer = setTimeout(() => {
         debugScheduler(
@@ -1095,7 +1106,10 @@ export class ExpertScheduler {
       // Store the timer
       this.startTimers.set(expertPubkey, timer);
     } catch (error) {
-      debugError(`Error sending restart message for expert ${expertPubkey}:`, error);
+      debugError(
+        `Error sending restart message for expert ${expertPubkey}:`,
+        error
+      );
     }
   }
 
