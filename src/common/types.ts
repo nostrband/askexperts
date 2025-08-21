@@ -137,6 +137,9 @@ export interface Expert {
   /** Expert's description */
   description: string;
   
+  /** Expert's picture */
+  picture?: string;
+  
   /** Relays for prompting */
   relays: string[];
   

@@ -454,10 +454,11 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
       // Add streaming support tag
       ["s", "true"],
       ...this.#paymentMethods.map((method) => ["m", method]),
-      ...(this.#hashtags?.map((tag) => ["t", tag]) || []),
+      ...(this.#profileHashtags?.map((tag) => ["t", tag]) || []),
     ];
-
-    // Add name tag if nickname is provided
+    if (this.#picture) {
+      tags.push(["picture", this.#picture]);
+    }
     if (this.#nickname) {
       tags.push(["name", this.#nickname]);
     }

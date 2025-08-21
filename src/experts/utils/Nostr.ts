@@ -44,10 +44,15 @@ export function parseExpertProfile(event: Event): Expert | null {
     const nameTag = event.tags.find((tag) => tag[0] === "name");
     const name = nameTag ? nameTag[1] : undefined;
 
+    // Extract picture from the tags
+    const pictureTag = event.tags.find((tag) => tag[0] === "picture");
+    const picture = pictureTag ? pictureTag[1] : undefined;
+
     // Create an Expert object
     const expert: Expert = {
       pubkey: event.pubkey,
       name,
+      picture,
       description: event.content,
       relays: expertRelays,
       formats: expertFormats,
