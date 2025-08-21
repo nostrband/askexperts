@@ -43,41 +43,46 @@ export class LightningPaymentManager implements ExpertPaymentManager {
    * @param invoice - Lightning invoice to pay
    * @returns Promise resolving to payment preimage
    */
-  async payInvoice(invoice: string): Promise<string> {
+  async payInvoice(invoice: string) {
     // Create a promise that will be resolved when the payment is processed
-    return new Promise<string>((resolve, reject) => {
-      // Create a function to process the payment
-      const processPayment = async () => {
-        this.activePayments++;
+    return new Promise<{ preimage: string; fees_msat: number }>(
+      (resolve, reject) => {
+        // Create a function to process the payment
+        const processPayment = async () => {
+          this.activePayments++;
 
-        try {
-          // Pay the invoice
-          const paymentResult = await this.nwcClient.payInvoice({
-            invoice,
-          });
+          try {
+            // Pay the invoice
+            const paymentResult = await this.nwcClient.payInvoice({
+              invoice,
+            });
 
-          // Resolve with the preimage
-          resolve(paymentResult.preimage);
-        } catch (error) {
-          // Reject with the error
-          reject(error instanceof Error ? error : new Error(String(error)));
-        } finally {
-          // Decrement the active payments counter
-          this.activePayments--;
+            // Resolve with the preimage
+            resolve({
+              preimage: paymentResult.preimage,
+              fees_msat: paymentResult.fees_paid,
+            });
+          } catch (error) {
+            // Reject with the error
+            reject(error instanceof Error ? error : new Error(String(error)));
+          } finally {
+            // Decrement the active payments counter
+            this.activePayments--;
 
-          // Process the next payment in the queue if any
-          this.processNextPayment();
+            // Process the next payment in the queue if any
+            this.processNextPayment();
+          }
+        };
+
+        // If we can process the payment immediately, do so
+        if (this.activePayments < this.maxParallelPayments) {
+          processPayment();
+        } else {
+          // Otherwise, add it to the queue
+          this.paymentQueue.push(processPayment);
         }
-      };
-
-      // If we can process the payment immediately, do so
-      if (this.activePayments < this.maxParallelPayments) {
-        processPayment();
-      } else {
-        // Otherwise, add it to the queue
-        this.paymentQueue.push(processPayment);
       }
-    });
+    );
   }
 
   /**
@@ -158,7 +163,7 @@ export class LightningPaymentManager implements ExpertPaymentManager {
       description,
       expirySec
     );
-    
+
     return [
       {
         method: "lightning",

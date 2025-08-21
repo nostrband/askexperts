@@ -6,11 +6,11 @@
 import { SimplePool } from "nostr-tools";
 import { AskExpertsServerBase } from "./AskExpertsServerBase.js";
 import { ExpertPaymentManager } from "../payments/ExpertPaymentManager.js";
-import { 
-  Prompt, 
-  ExpertQuote, 
-  Proof, 
-  ExpertReplies, 
+import {
+  Prompt,
+  ExpertQuote,
+  Proof,
+  ExpertReplies,
   ExpertReply,
   OnPromptPriceCallback,
   OnPromptPaidCallback,
@@ -24,7 +24,10 @@ import { StreamFactory } from "../stream/index.js";
  */
 import { AskExpertsServerInterface } from "./AskExpertsServerInterface.js";
 
-export class AskExpertsServer extends AskExpertsServerBase implements AskExpertsServerInterface {
+export class AskExpertsServer
+  extends AskExpertsServerBase
+  implements AskExpertsServerInterface
+{
   /**
    * Payment manager for handling expert payments
    */
@@ -78,6 +81,8 @@ export class AskExpertsServer extends AskExpertsServerBase implements AskExperts
     streamFactory?: StreamFactory;
     nickname?: string;
     description?: string;
+    profileHashtags?: string[];
+    picture?: string;
   }) {
     // Initialize the base class with all options except paymentManager
     super({
@@ -95,6 +100,8 @@ export class AskExpertsServer extends AskExpertsServerBase implements AskExperts
       streamFactory: options.streamFactory,
       nickname: options.nickname,
       description: options.description,
+      profileHashtags: options.profileHashtags,
+      picture: options.picture,
     });
 
     // Store the payment manager
@@ -139,7 +146,7 @@ export class AskExpertsServer extends AskExpertsServerBase implements AskExperts
 
   /**
    * Custom prompt handler that determines price and creates invoices
-   * 
+   *
    * @param prompt - The prompt to handle
    * @returns Promise resolving to an ExpertQuote
    */
@@ -170,7 +177,7 @@ export class AskExpertsServer extends AskExpertsServerBase implements AskExperts
 
   /**
    * Custom proof handler that verifies payment and processes the prompt
-   * 
+   *
    * @param prompt - The prompt to handle
    * @param quote - The expert quote containing invoices
    * @param proof - The payment proof

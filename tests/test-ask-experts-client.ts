@@ -4,7 +4,7 @@
 
 import { Quote, Proof, Prompt } from '../src/common/types.js';
 import { AskExpertsClient } from '../src/client/index.js';
-import * as bolt11 from 'bolt11';
+import * as bolt11 from 'light-bolt11-decoder';
 
 /**
  * Example of using AskExpertsClient to find experts, fetch their profiles, and ask questions
@@ -90,7 +90,7 @@ async function testAskExpertsClient() {
           try {
             // Parse the invoice
             const decoded = bolt11.decode(invoice.invoice);
-            console.log(`  Decoded payment hash: ${decoded.tagsObject.payment_hash}`);
+            console.log(`  Decoded payment hash: ${decoded.sections.find(s => s.name === 'payment_hash')?.value}`);
             
             // For testing, we'll accept the payment
             return true;

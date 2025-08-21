@@ -7,6 +7,8 @@ import { OpenaiProxyExpertBase } from "./OpenaiProxyExpertBase.js";
 import { Doc, DocStoreClient } from "../docstore/interfaces.js";
 import { DocstoreToRag, createRagEmbeddings } from "../rag/index.js";
 import { ChatCompletion } from "openai/resources";
+import { DBExpert } from "../db/interfaces.js";
+import { str2arr } from "../common/utils.js";
 
 /**
  * NostrExpert implementation for NIP-174
@@ -18,15 +20,20 @@ export class NostrExpert {
    */
   private openaiExpert: OpenaiProxyExpertBase;
 
+  /** Expert info */
+  private expert: DBExpert;
+
   /**
    * Public key of the Nostr user to imitate
    */
   private pubkey: string;
 
+  /** Hashtags we're watching */
+  private discovery_hashtags: string[] = [];
+
   /**
-   * Crawled profile data
+   * Crawled data
    */
-  // private profileInfo?: ProfileInfo;
   private profile?: any;
   private posts: Event[] = [];
 
@@ -55,7 +62,6 @@ export class NostrExpert {
    */
   private docstoreId: string;
 
-
   private syncController?: { stop: () => void };
   /**
    * Creates a new NostrExpert instance
@@ -64,11 +70,13 @@ export class NostrExpert {
    */
   constructor(options: {
     openaiExpert: OpenaiProxyExpertBase;
+    expert: DBExpert;
     pubkey: string;
     ragDB: RagDB;
     docStoreClient: DocStoreClient;
     docstoreId: string;
   }) {
+    this.expert = options.expert;
     this.pubkey = options.pubkey;
     this.openaiExpert = options.openaiExpert;
 
@@ -87,10 +95,12 @@ export class NostrExpert {
 
     // Set onGetContext (renamed from onPromptContext)
     this.openaiExpert.onGetContext = this.onGetContext.bind(this);
+    this.openaiExpert.onGetInvoiceDescription =
+      this.onGetInvoiceDescription.bind(this);
   }
 
   private pubkeyNickname() {
-    return this.profile?.name || this.pubkey.substring(0, 6);
+    return this.expert.nickname || this.pubkey.substring(0, 6);
   }
 
   /**
@@ -154,12 +164,20 @@ export class NostrExpert {
         });
       });
 
-      // Extract hashtags from profile info
-      const extractedHashtags = await this.extractHashtags(); // this.profileInfo
-      debugExpert(`Extracted hashtags: ${extractedHashtags.sort().join(", ")}`);
+      this.discovery_hashtags = str2arr(this.expert.discovery_hashtags);
+      if (!this.discovery_hashtags.length) {
+        // Extract hashtags from profile info
+        const extractedHashtags = await this.extractHashtags(); // this.profileInfo
+        debugExpert(
+          `Extracted hashtags: ${extractedHashtags.sort().join(", ")}`
+        );
+        this.discovery_hashtags = extractedHashtags;
+      }
 
       // Create the system prompt with the profile data
-      const systemPrompt = `You will be given a person's profile in json format below. Also, for every user's message a relevant
+      let systemPrompt = this.expert.system_prompt;
+      if (!systemPrompt) {
+        systemPrompt = `You will be given a person's profile in json format below. Also, for every user's message a relevant
 selection of person's posts will be prepended to user message in this format:
 '
 ### CONTEXT
@@ -171,12 +189,13 @@ Act like you are that person - when users talk to you, look through the person's
 and posts and reply as if you were that person, preserve their unique style, their opinions and their preferences.
 
 ${JSON.stringify(this.profile)}`;
+      }
 
       // Set hashtags to openaiExpert.server.hashtags
       this.openaiExpert.server.hashtags = [
         this.pubkey,
         nip19.npubEncode(this.pubkey),
-        ...extractedHashtags,
+        ...this.discovery_hashtags,
       ];
 
       // Set onGetSystemPrompt to return the static systemPrompt
@@ -208,12 +227,16 @@ ${JSON.stringify(this.profile)}`;
   private async onAsk(ask: Ask): Promise<ExpertBid | undefined> {
     try {
       const tags = ask.hashtags;
-      console.log("ask", ask);
+      debugExpert("ask", ask);
 
       // Check if the ask is relevant to this expert
-      // if (!tags.includes(this.pubkey)) {
-      //   return undefined;
-      // }
+      if (
+        !tags.includes(this.pubkey) &&
+        !tags.includes(nip19.npubEncode(this.pubkey)) &&
+        !tags.find((s) => this.discovery_hashtags.includes(s))
+      ) {
+        return undefined;
+      }
 
       debugExpert(`NostrExpert received ask: ${ask.id}`);
 
@@ -228,6 +251,7 @@ ${JSON.stringify(this.profile)}`;
   }
 
   private async getDescription(): Promise<string> {
+    if (this.expert.description) return this.expert.description;
     return `I am imitating ${this.pubkeyNickname()} pubkey ${
       this.pubkey
     } (${nip19.npubEncode(
@@ -324,6 +348,12 @@ Example response: ["bitcoin", "programming", "javascript", "webapps", "openproto
 
   private ragCollectionName() {
     return `expert_${this.pubkey}`;
+  }
+
+  private onGetInvoiceDescription(prompt: Prompt): Promise<string> {
+    return Promise.resolve(
+      `Payment to expert ${this.pubkey.substring(0, 10)}...`
+    );
   }
 
   /**

@@ -84,6 +84,48 @@ export async function manageOpenRouterExperts(
       }
     }
 
+    // Helper
+    const createExpert = async (modelId: string) => {
+      // Create new expert
+      debugExpert(`Creating new expert for model ${modelId}`);
+
+      // Generate keypair
+      const { privateKey } = generateRandomKeyPair();
+      const privkey = privateKey;
+      const pubkey = getPublicKey(privkey);
+
+      // Create environment variables
+      //          const env = `EXPERT_MODEL=${modelId}\nEXPERT_MARGIN=${options.margin}`;
+
+      // Create expert object
+      const expert: DBExpert = {
+        user_id,
+        pubkey,
+        wallet_id: wallet.id,
+        type: "openrouter",
+        nickname: `openrouter_${modelId}`,
+        env: "",
+        docstores: "",
+        privkey: bytesToHex(privkey),
+        disabled: false,
+        model: modelId,
+        price_base: 0,
+        price_margin: options.margin.toString(),
+        description: "",
+        picture: "",
+        hashtags: "",
+        discovery_hashtags: "",
+        discovery_relays: "",
+        prompt_relays: "",
+        system_prompt: "",
+        temperature: "",
+      };
+
+      // Insert into database
+      await db.insertExpert(expert);
+      debugExpert(`Created expert for model ${modelId} with pubkey ${pubkey}`);
+    };
+
     // Create or update experts for each available model
     for (const model of filteredModels) {
       const modelId = model.id;
@@ -132,35 +174,7 @@ export async function manageOpenRouterExperts(
           await db.updateExpert(existingExpert);
           debugExpert(`Updated expert for model ${modelId}`);
         } else {
-          // Create new expert
-          debugExpert(`Creating new expert for model ${modelId}`);
-
-          // Generate keypair
-          const { privateKey } = generateRandomKeyPair();
-          const privkey = privateKey;
-          const pubkey = getPublicKey(privkey);
-
-          // Create environment variables
-          const env = `EXPERT_MODEL=${modelId}\nEXPERT_MARGIN=${options.margin}`;
-
-          // Create expert object
-          const expert: DBExpert = {
-            user_id,
-            pubkey,
-            wallet_id: wallet.id,
-            type: "openrouter",
-            nickname: `openrouter_${modelId}`,
-            env,
-            docstores: "",
-            privkey: bytesToHex(privkey),
-            disabled: false,
-          };
-
-          // Insert into database
-          await db.insertExpert(expert);
-          debugExpert(
-            `Created expert for model ${modelId} with pubkey ${pubkey}`
-          );
+          await createExpert(modelId);
         }
       } catch (error) {
         debugError(`Error processing model ${modelId}: ${error}`);
@@ -236,10 +250,7 @@ export async function manageOpenRouterExperts(
                 debugExpert(
                   `Disabling expert for inaccessible model ${modelId}`
                 );
-                await db.setExpertDisabled(
-                  existingExpert.pubkey,
-                  true
-                );
+                await db.setExpertDisabled(existingExpert.pubkey, true);
               }
 
               continue;
@@ -252,41 +263,10 @@ export async function manageOpenRouterExperts(
               // Enable expert if it was disabled
               if (existingExpert.disabled) {
                 debugExpert(`Re-enabling expert for model ${modelId}`);
-                await db.setExpertDisabled(
-                  existingExpert.pubkey,
-                  false
-                );
+                await db.setExpertDisabled(existingExpert.pubkey, false);
               }
             } else {
-              // Create new expert
-              debugExpert(`Creating new expert for model ${modelId}`);
-
-              // Generate keypair
-              const { privateKey } = generateRandomKeyPair();
-              const privkey = privateKey;
-              const pubkey = getPublicKey(privkey);
-
-              // Create environment variables
-              const env = `EXPERT_MODEL=${modelId}\nEXPERT_MARGIN=${options.margin}`;
-
-              // Create expert object
-              const expert: DBExpert = {
-                user_id,
-                pubkey,
-                wallet_id: wallet.id,
-                type: "openrouter",
-                nickname: `openrouter_${modelId}`,
-                env,
-                docstores: "",
-                privkey: bytesToHex(privkey),
-                disabled: false,
-              };
-
-              // Insert into database
-              await db.insertExpert(expert);
-              debugExpert(
-                `Created expert for model ${modelId} with pubkey ${pubkey}`
-              );
+              await createExpert(modelId);
             }
           } catch (error) {
             debugError(`Error processing model ${modelId}: ${error}`);
@@ -376,7 +356,7 @@ export function registerOpenRouterCommand(program: Command): void {
         process.exit(1);
       }
     });
-    
+
   // Add remote options
   addRemoteOptions(command);
 }

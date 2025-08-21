@@ -11,7 +11,7 @@ import {
   StreamReaderConfig,
   StreamStatus,
   StreamError as StreamErrorType,
-  STREAM_CHUNK_KIND
+  STREAM_CHUNK_KIND,
 } from "./types.js";
 import { debugStream, debugError } from "../common/debug.js";
 
@@ -55,10 +55,10 @@ export class StreamReader implements AsyncIterable<string | Uint8Array> {
   private isDone = false;
   private lastEventTime = 0;
   private subscription: { close: () => void } | null = null;
-  private waitingResolvers: ((
-    value: IteratorResult<string | Uint8Array, any>
-  ) => void)[] = [];
-  private waitingRejecters: ((reason: any) => void)[] = [];
+  private waitingPromiseHandlers: Array<{
+    resolve: (value: IteratorResult<string | Uint8Array, any>) => void;
+    reject: (reason: any) => void;
+  }> = [];
   private error: Error | null = null;
 
   /**
@@ -93,7 +93,9 @@ export class StreamReader implements AsyncIterable<string | Uint8Array> {
 
     // Validate version
     if (metadata.version !== undefined && metadata.version !== "1") {
-      throw new Error(`Unsupported protocol version: ${metadata.version}. Only version "1" is supported.`);
+      throw new Error(
+        `Unsupported protocol version: ${metadata.version}. Only version "1" is supported.`
+      );
     }
 
     if (metadata.encryption === "") {
@@ -111,13 +113,13 @@ export class StreamReader implements AsyncIterable<string | Uint8Array> {
           "Recipient private key (receiver_privkey) is required for decryption"
         );
       }
-      
+
       if (!metadata.receiver_pubkey) {
         throw new Error(
           "Recipient public key (receiver_pubkey) is required for decryption"
         );
       }
-      
+
       // Validate that the receiver_pubkey matches the public key derived from receiver_privkey
       const derivedPubkey = getPublicKey(metadata.receiver_privkey);
       if (derivedPubkey !== metadata.receiver_pubkey) {
@@ -240,7 +242,7 @@ export class StreamReader implements AsyncIterable<string | Uint8Array> {
    */
   private async processBuffer() {
     // Process events in order based on prev tag chain
-    while (this.buffer.has(this.nextRef) && !this.error) {
+    while (this.buffer.has(this.nextRef) && !this.error && !this.isDone) {
       const event = this.buffer.get(this.nextRef)!;
 
       // Extract index for logging
@@ -275,9 +277,11 @@ export class StreamReader implements AsyncIterable<string | Uint8Array> {
 
         // Resolve waiting promises with the chunk
         const result = { value: chunk, done: false };
-        if (this.waitingResolvers.length > 0) {
-          const resolve = this.waitingResolvers.shift()!;
-          resolve(result);
+        if (this.waitingPromiseHandlers.length > 0) {
+          if (this.resultBuffer.length > 0)
+            throw new Error("Bad iterator state");
+          const handler = this.waitingPromiseHandlers.shift()!;
+          handler.resolve(result);
         } else {
           this.resultBuffer.push(result);
         }
@@ -286,6 +290,14 @@ export class StreamReader implements AsyncIterable<string | Uint8Array> {
         if (status === "done") {
           this.isDone = true;
           this.close();
+
+          // Resolve all pending promises with 'done'.
+          // NOTE: resultBuffer should be empty if there are
+          // waiting promises.
+          while (this.waitingPromiseHandlers.length > 0) {
+            const handler = this.waitingPromiseHandlers.shift()!;
+            handler.resolve({ value: undefined, done: true });
+          }
         }
       } catch (err: any) {
         this.setError(err);
@@ -432,9 +444,9 @@ export class StreamReader implements AsyncIterable<string | Uint8Array> {
     this.close();
 
     // Reject any waiting promises
-    while (this.waitingRejecters.length > 0) {
-      const reject = this.waitingRejecters.shift()!;
-      reject(err);
+    while (this.waitingPromiseHandlers.length > 0) {
+      const handler = this.waitingPromiseHandlers.shift()!;
+      handler.reject(err);
     }
   }
 
@@ -466,16 +478,11 @@ export class StreamReader implements AsyncIterable<string | Uint8Array> {
         }
 
         // If the stream is done, return done
-        if (this.isDone && !this.buffer.size && !this.resultBuffer.length) {
-          // Resolve any waiting promises with done
-          while (this.waitingResolvers.length > 0) {
-            const resolve = this.waitingResolvers.shift()!;
-            resolve({ value: undefined, done: true });
-          }
-
+        if (this.isDone && !this.resultBuffer.length) {
           return { value: undefined, done: true };
         }
 
+        // Return next buffered result
         if (this.resultBuffer.length) {
           return this.resultBuffer.shift()!;
         }
@@ -483,8 +490,7 @@ export class StreamReader implements AsyncIterable<string | Uint8Array> {
         // Wait for the next chunk
         return new Promise<IteratorResult<string | Uint8Array>>(
           (resolve, reject) => {
-            this.waitingResolvers.push(resolve);
-            this.waitingRejecters.push(reject);
+            this.waitingPromiseHandlers.push({ resolve, reject });
           }
         );
       },

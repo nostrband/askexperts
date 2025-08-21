@@ -943,7 +943,7 @@ export class OpenaiAskExperts implements OpenaiInterface {
     }
 
     // Pay the invoice using the payment manager
-    const preimage = await this.paymentManager.payInvoice(
+    const { preimage } = await this.paymentManager.payInvoice(
       lightningInvoice.invoice
     );
 

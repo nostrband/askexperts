@@ -102,9 +102,9 @@ export class OpenRouter implements ModelPricing {
         throw new Error("Failed to get valid pricing");
       }
 
-      debugExpert(
-        `Fetched USD prices from OpenRouter: input=${inputPriceUsd} usd/token, output=${outputPriceUsd} usd/token`
-      );
+      // debugExpert(
+      //   `Fetched USD prices from OpenRouter: input=${inputPriceUsd} usd/token, output=${outputPriceUsd} usd/token`
+      // );
 
       // If BTC/USD rate is not set, fetch it
       if (!this.btcUsd) {
@@ -126,9 +126,9 @@ export class OpenRouter implements ModelPricing {
         1 + ((outputPriceUsd * 100000000) / this.btcUsd) * 1000000
       );
 
-      debugExpert(
-        `Calculated prices: input=${inputTokenPPM} sats/M, output=${outputTokenPPM} sats/M`
-      );
+      // debugExpert(
+      //   `Calculated prices: input=${inputTokenPPM} sats/M, output=${outputTokenPPM} sats/M`
+      // );
 
       return {
         inputPricePPM: inputTokenPPM,

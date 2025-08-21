@@ -49,6 +49,11 @@ export class OpenaiProxyExpertBase {
   #onGetSystemPrompt?: (prompt: Prompt) => Promise<string>;
 
   /**
+   * Optional callback to get custom invoice description
+   */
+  #onGetInvoiceDescription?: (prompt: Prompt) => Promise<string>;
+
+  /**
    * Model id to use
    */
   #model: string;
@@ -64,10 +69,12 @@ export class OpenaiProxyExpertBase {
     model: string;
     onGetContext?: (prompt: Prompt) => Promise<string>;
     onGetSystemPrompt?: (prompt: Prompt) => Promise<string>;
+    onGetInvoiceDescription?: (prompt: Prompt) => Promise<string>;
   }) {
     this.#model = options.model;
     this.#onGetContext = options.onGetContext;
     this.#onGetSystemPrompt = options.onGetSystemPrompt;
+    this.#onGetInvoiceDescription = options.onGetInvoiceDescription;
 
     // Use the provided OpenAI client
     this.openai = options.openai;
@@ -126,6 +133,16 @@ export class OpenaiProxyExpertBase {
     value: ((prompt: Prompt) => Promise<string>) | undefined
   ) {
     this.#onGetSystemPrompt = value;
+  }
+
+  get onGetInvoiceDescription(): ((prompt: Prompt) => Promise<string>) | undefined {
+    return this.#onGetInvoiceDescription;
+  }
+
+  set onGetInvoiceDescription(
+    value: ((prompt: Prompt) => Promise<string>) | undefined
+  ) {
+    this.#onGetInvoiceDescription = value;
   }
 
   /**
@@ -269,10 +286,19 @@ ${lastMessage.content}
         })`
       );
 
+      // Get custom invoice description if callback is provided
+      let description = `Payment for ${this.model} completion`;
+      if (this.onGetInvoiceDescription) {
+        const customDescription = await this.onGetInvoiceDescription(prompt);
+        if (customDescription) {
+          description = customDescription;
+        }
+      }
+
       // Return the price information
       return {
         amountSats: priceEstimate.amountSats,
-        description: `Payment for ${this.model} completion`,
+        description,
       };
     } catch (error) {
       debugError("Error handling prompt:", error);

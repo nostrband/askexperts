@@ -3,22 +3,36 @@
  * Handles chat interactions with experts
  */
 
-import { AskExpertsPayingClient } from "./AskExpertsPayingClient.js";
+import { AskExpertsPayingClient, OnPaidCallback } from "./AskExpertsPayingClient.js";
 import { LightningPaymentManager } from "../payments/LightningPaymentManager.js";
-import { FORMAT_OPENAI, FORMAT_TEXT, METHOD_LIGHTNING } from "../common/constants.js";
+import {
+  FORMAT_OPENAI,
+  FORMAT_TEXT,
+  METHOD_LIGHTNING,
+} from "../common/constants.js";
 import { debugError, debugClient } from "../common/debug.js";
-import { Expert, Prompt, Quote, Proof } from "../common/types.js";
+import {
+  Expert,
+  Prompt,
+  Quote,
+  Proof,
+  FetchExpertsParams,
+} from "../common/types.js";
 import { parseBolt11 } from "../common/bolt11.js";
+import { SimplePool } from "nostr-tools";
+import { StreamFactory } from "../stream/interfaces.js";
 
 /**
  * Options for the chat client
  */
 export interface ChatClientOptions {
   nwcString: string;
-  relays?: string[];
+  discoveryRelays?: string[];
+  streamFactory?: StreamFactory;
+  pool?: SimplePool;
   maxAmount?: string;
-  debug?: boolean;
   stream?: boolean;
+  onPaid?: OnPaidCallback;
 }
 
 /**
@@ -47,49 +61,23 @@ export class AskExpertsChatClient {
    */
   constructor(private expertPubkey: string, options: ChatClientOptions) {
     this.options = options;
-    
+
     // Initialize properties
     this.initializeProperties(options);
-    
+
     // Create the payment manager with the provided NWC string
     const paymentManager = new LightningPaymentManager(options.nwcString);
-    
-    // Try to get discovery relays from options or environment variables
-    let discoveryRelays: string[] | undefined = this.options.relays;
-    if (!discoveryRelays && process.env.DISCOVERY_RELAYS) {
-      discoveryRelays = process.env.DISCOVERY_RELAYS.split(",").map((relay) =>
-        relay.trim()
-      );
-    }
 
     // Initialize the paying client
     this.client = new AskExpertsPayingClient(paymentManager, {
       maxAmountSats: this.maxAmountSats,
-      discoveryRelays,
-      onPaid: async (prompt: Prompt, quote: Quote, proof: Proof): Promise<void> => {
-        try {
-          // Find the lightning invoice
-          const lightningInvoice = quote.invoices.find(
-            (inv) => inv.method === METHOD_LIGHTNING
-          );
-          
-          if (lightningInvoice && lightningInvoice.invoice) {
-            // Parse the invoice to get the amount
-            const { amount_sats } = parseBolt11(lightningInvoice.invoice);
-            
-            // Get expert name or use a default
-            const expertName = this.expert?.name || "Expert";
-            
-            // Print payment information to console
-            console.log(`Paid ${amount_sats} sats to ${expertName}`);
-          }
-        } catch (error) {
-          debugError("Error in onPaid callback:", error);
-        }
-      }
+      discoveryRelays: options.discoveryRelays,
+      pool: options.pool,
+      streamFactory: options.streamFactory,
+      onPaid: options.onPaid,
     });
   }
-  
+
   /**
    * Initialize properties that don't depend on the wallet
    * @param options Client options
@@ -129,23 +117,31 @@ export class AskExpertsChatClient {
     // Verify that the expert supports FORMAT_OPENAI
     if (!this.expert || !this.expert.formats.includes(FORMAT_OPENAI)) {
       throw new Error(
-        `Expert ${this.expertPubkey} doesn't support OpenAI format. Supported formats: ${this.expert?.formats.join(
-          ", "
-        ) || "none"}`
+        `Expert ${
+          this.expertPubkey
+        } doesn't support OpenAI format. Supported formats: ${
+          this.expert?.formats.join(", ") || "none"
+        }`
       );
     }
 
     return this.expert as Expert;
   }
 
+  async fetchExperts(params: FetchExpertsParams): Promise<Expert[]> {
+    return this.client.fetchExperts(params);
+  }
 
   /**
    * Process a message and get a response from the expert
-   * 
+   *
    * @param message The message to send to the expert
    * @returns The expert's reply
    */
-  public async processMessage(message: string): Promise<string> {
+  public async processMessage(
+    message: string,
+    onStream?: (s: string) => void
+  ): Promise<string> {
     if (!message) {
       return "";
     }
@@ -154,9 +150,15 @@ export class AskExpertsChatClient {
       throw new Error("Expert not initialized. Call initialize() first.");
     }
 
+    if (this.options.stream && !onStream) {
+      throw new Error("Stream option requires onStream callback");
+    }
+
     const start = Date.now();
     try {
-      debugClient(`Sending message to expert ${this.expertPubkey} of ${message.length} chars...`);
+      debugClient(
+        `Sending message to expert ${this.expertPubkey} of ${message.length} chars...`
+      );
 
       // Add user message to history
       this.messageHistory.push({
@@ -206,12 +208,14 @@ export class AskExpertsChatClient {
             } else {
               chunk = reply.content;
             }
+            if (this.options.stream) onStream!(chunk);
             expertReply += chunk;
           }
         } else {
           debugClient(`Received chunk from expert ${this.expertPubkey}`);
           if (!reply.content) continue;
           const chunk = reply.content.choices[0]?.delta.content;
+          if (this.options.stream) onStream!(chunk);
           expertReply += chunk;
         }
       }

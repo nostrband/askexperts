@@ -14,6 +14,7 @@ import { getDocstorePath } from "../../bin/commands/docstore/index.js";
 import dotenv from "dotenv";
 import { DocStoreLocalClient } from "../../docstore/DocStoreLocalClient.js";
 import { hexToBytes } from "nostr-tools/utils";
+import { str2arr } from "../../common/utils.js";
 
 /**
  * Interface for tracking running experts
@@ -245,10 +246,8 @@ export class ExpertWorker {
     }
 
     // Get model and margin from environment or use defaults
-    const model = expertEnvVars.EXPERT_MODEL || "openai/gpt-4.1";
-    const margin = expertEnvVars.EXPERT_MARGIN
-      ? parseFloat(expertEnvVars.EXPERT_MARGIN)
-      : 0.1;
+    const model = expert.model || "openai/gpt-4.1";
+    const margin = parseFloat(expert.price_margin || "0.1");
 
     // Parse docstores - exactly one must be specified
     const parsedDocstores = ExpertWorker.parseDocstoreIdsList(
@@ -282,6 +281,12 @@ export class ExpertWorker {
       privkey,
       pool,
       paymentManager,
+      description: expert.description,
+      discoveryRelays: str2arr(expert.discovery_relays),
+      hashtags: str2arr(expert.discovery_hashtags),
+      nickname: expert.nickname,
+      picture: expert.picture,
+      profileHashtags: str2arr(expert.hashtags),
     });
 
     // Create OpenaiProxyExpertBase instance
@@ -294,6 +299,7 @@ export class ExpertWorker {
     // Create the expert
     const nostrExpert = new NostrExpert({
       openaiExpert,
+      expert,
       pubkey: nostrPubkey,
       ragDB,
       docStoreClient,
@@ -348,17 +354,7 @@ export class ExpertWorker {
     // Parse environment variables if not provided
     const expertEnvVars = dotenv.parse(expert.env);
 
-    const model = expertEnvVars.EXPERT_MODEL;
-    if (!model) {
-      throw new Error(
-        "OpenRouter model is required. Set EXPERT_MODEL in the expert's env configuration."
-      );
-    }
-
-    // Get model and margin from environment or use defaults
-    const margin = expertEnvVars.EXPERT_MARGIN
-      ? parseFloat(expertEnvVars.EXPERT_MARGIN)
-      : 0.1;
+    const margin = parseFloat(expert.price_margin || "0.1");
 
     // Get API key from environment
     const apiKey =
@@ -381,20 +377,26 @@ export class ExpertWorker {
       privkey,
       pool,
       paymentManager,
+      description: expert.description,
+      discoveryRelays: str2arr(expert.discovery_relays),
+      hashtags: str2arr(expert.discovery_hashtags),
+      nickname: expert.nickname,
+      picture: expert.picture,
+      profileHashtags: str2arr(expert.hashtags),
     });
 
     // Create OpenaiProxyExpert instance
     const openaiExpert = new OpenaiProxyExpert({
       server,
       openai,
-      model,
+      expert,
     });
 
     // Start the expert
     await openaiExpert.start();
 
     debugExpert(
-      `Started expert ${expert.nickname} (${expert.pubkey}) with model ${model} and margin ${margin}`
+      `Started expert ${expert.nickname} (${expert.pubkey}) with model ${expert.model} and margin ${margin}`
     );
 
     // Create a promise that will resolve when all resources are disposed

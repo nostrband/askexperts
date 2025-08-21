@@ -3,12 +3,16 @@ import { Ask, ExpertBid } from "../common/types.js";
 import { debugExpert, debugError } from "../common/debug.js";
 import { OpenaiInterface } from "../openai/index.js";
 import { OpenaiProxyExpertBase } from "./OpenaiProxyExpertBase.js";
+import { DBExpert } from "../db/interfaces.js";
 
 /**
  * OpenAI Expert implementation for NIP-174
  * Provides direct access to OpenAI models with pricing based on token usage
  */
 export class OpenaiProxyExpert extends OpenaiProxyExpertBase {
+  /** Expert description */
+  #expert: DBExpert;
+
   /**
    * Model vendor
    */
@@ -18,11 +22,6 @@ export class OpenaiProxyExpert extends OpenaiProxyExpertBase {
    * Model name
    */
   private modelName: string;
-
-  /**
-   * System prompt to prepend to all conversations
-   */
-  private readonly systemPrompt?: string;
 
   /**
    * Interval ID for description update checks
@@ -37,22 +36,36 @@ export class OpenaiProxyExpert extends OpenaiProxyExpertBase {
   constructor(options: {
     server: AskExpertsServer;
     openai: OpenaiInterface;
-    model: string;
-    systemPrompt?: string;
+    expert: DBExpert;
   }) {
-    super(options);
+    super({ ...options, model: options.expert.model });
+
+    this.#expert = options.expert;
     this.modelVendor = this.model.split("/")[0];
     this.modelName = (this.model.split("/")?.[1] || this.model).split(
       /[\s\p{P}]+/u
     )[0];
-    this.systemPrompt = options.systemPrompt;
 
-    this.server.hashtags = [this.model, this.modelVendor, this.modelName];
+    this.server.hashtags = this.#expert.discovery_hashtags
+      ? this.#expert.discovery_hashtags
+          .split(",")
+          .map((s) => s.trim())
+          .filter((s) => !!s)
+      : [this.model, this.modelVendor, this.modelName];
 
-    this.server.nickname = this.model;
+    this.server.nickname = this.#expert.nickname || this.model;
     this.server.onAsk = this.onAsk.bind(this);
-    if (this.systemPrompt)
-      this.onGetSystemPrompt = () => Promise.resolve(this.systemPrompt!);
+    if (this.#expert.system_prompt)
+      this.onGetSystemPrompt = () =>
+        Promise.resolve(this.#expert.system_prompt!);
+  }
+
+  get expert() {
+    return this.#expert;
+  }
+
+  set expert(value: DBExpert) {
+    this.#expert = value;
   }
 
   /**
@@ -65,7 +78,7 @@ export class OpenaiProxyExpert extends OpenaiProxyExpertBase {
     // Set up interval to check for description changes
     this.descriptionCheckInterval = setInterval(async () => {
       const newDescription = await this.getDescription();
-      
+
       // Only update if description has changed
       if (newDescription !== this.server.description) {
         this.server.description = newDescription;
@@ -87,22 +100,26 @@ export class OpenaiProxyExpert extends OpenaiProxyExpertBase {
     if (this.descriptionCheckInterval) {
       clearInterval(this.descriptionCheckInterval);
       this.descriptionCheckInterval = null;
-    }    
+    }
   }
 
   private async getDescription(): Promise<string> {
+    if (this.#expert.description) return this.#expert.description;
+
     // Get current pricing, it might change over time
     const pricing = await this.openai.pricing(this.model);
-    
+
     let description = `I'm an expert providing direct access to LLM model ${this.model}.`;
-    
+
     // Add pricing information if available
     if (pricing) {
       description += ` Input token price per million: ${pricing.inputPricePPM} sats, output token price per million ${pricing.outputPricePPM} sats.`;
     }
-    
-    description += ` System prompt: ${this.systemPrompt ? "disallowed" : "allowed"}`;
-    
+
+    description += ` System prompt: ${
+      this.#expert.system_prompt ? "disallowed" : "allowed"
+    }`;
+
     return description;
   }
 

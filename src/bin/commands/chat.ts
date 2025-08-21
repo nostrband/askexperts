@@ -11,6 +11,9 @@ import * as fs from "fs";
 import * as path from "path";
 import { getWalletByNameOrDefault } from "./wallet/utils.js";
 import { createDBClientForCommands } from "./utils.js";
+import { Expert, Quote } from "../../common/types.js";
+import { METHOD_LIGHTNING } from "../../common/constants.js";
+import { parseBolt11 } from "../../common/bolt11.js";
 
 /**
  * Options for the chat command
@@ -42,44 +45,81 @@ export async function executeChatCommand(
     // Check if the identifier is a pubkey or a nickname
     let expertPubkey = expertIdentifier;
     let foundByNickname = false;
-    
+
     // Try to find expert by nickname if it doesn't look like a pubkey
-    if (!expertIdentifier.startsWith('npub') && expertIdentifier.length !== 64) {
+    if (
+      !expertIdentifier.startsWith("npub") &&
+      expertIdentifier.length !== 64
+    ) {
       const experts = await db.listExperts();
-      const expertByNickname = experts.find((expert: DBExpert) =>
-        expert.nickname.toLowerCase() === expertIdentifier.toLowerCase()
+      const expertByNickname = experts.find(
+        (expert: DBExpert) =>
+          expert.nickname.toLowerCase() === expertIdentifier.toLowerCase()
       );
-      
+
       if (expertByNickname) {
         expertPubkey = expertByNickname.pubkey;
         foundByNickname = true;
-        debugError(`Found expert with nickname "${expertIdentifier}", using pubkey: ${expertPubkey}`);
+        debugError(
+          `Found expert with nickname "${expertIdentifier}", using pubkey: ${expertPubkey}`
+        );
       } else {
         // If not found by nickname, assume it's a pubkey
-        debugError(`No expert found with nickname "${expertIdentifier}", assuming it's a pubkey`);
+        debugError(
+          `No expert found with nickname "${expertIdentifier}", assuming it's a pubkey`
+        );
       }
     }
-    
+
     // Get the wallet and NWC string
     const wallet = await getWalletByNameOrDefault(db, options.wallet);
     const nwcString = wallet.nwc;
-    
+
     if (!nwcString) {
-      throw new Error(`Wallet ${options.wallet || 'default'} does not have an NWC string configured.`);
+      throw new Error(
+        `Wallet ${
+          options.wallet || "default"
+        } does not have an NWC string configured.`
+      );
     }
-    
+
     // Create the chat client with the NWC string
+    let expert: Expert;
     const chatClient = new AskExpertsChatClient(expertPubkey, {
       nwcString,
-      relays: options.relays,
+      discoveryRelays: options.relays,
       maxAmount: options.maxAmount,
-      debug: options.debug,
-      stream: options.stream
+      stream: options.stream,
+      onPaid: async (prompt, quote: Quote, proof, fees_msat): Promise<void> => {
+        try {
+          // Find the lightning invoice
+          const lightningInvoice = quote.invoices.find(
+            (inv) => inv.method === METHOD_LIGHTNING
+          );
+
+          if (lightningInvoice && lightningInvoice.invoice) {
+            // Parse the invoice to get the amount
+            const { amount_sats } = parseBolt11(lightningInvoice.invoice);
+
+            // Get expert name or use a default
+            const expertName = expert.name || "Expert";
+
+            // Print payment information to console
+            console.log(
+              `Paid ${amount_sats}+${Math.ceil(
+                fees_msat / 1000
+              )} sats to ${expertName}`
+            );
+          }
+        } catch (error) {
+          debugError("Error in onPaid callback:", error);
+        }
+      },
     });
-    
+
     // Initialize the client and fetch expert profile
-    const expert = await chatClient.initialize();
-    
+    expert = await chatClient.initialize();
+
     if (foundByNickname) {
       console.log(`Expert: ${expert.name} (nickname: ${expertIdentifier})`);
     } else {
@@ -101,8 +141,10 @@ export async function executeChatCommand(
       const start = Date.now();
       try {
         // Process the message using the chat client
-        const expertReply = await chatClient.processMessage(message);
-        
+        const expertReply = await chatClient.processMessage(message, (s) =>
+          process.stdout.write(s)
+        );
+
         // Display the expert's reply
         if (options.stream) {
           // In stream mode, the output is already written to stdout
@@ -132,18 +174,18 @@ export async function executeChatCommand(
     // Check if we should read from stdin
     if (options.stdin) {
       // Read the first message from stdin
-      let stdinMessage = '';
+      let stdinMessage = "";
       const stdinChunks: Buffer[] = [];
-      
-      process.stdin.on('data', (chunk) => {
+
+      process.stdin.on("data", (chunk) => {
         stdinChunks.push(chunk);
       });
-      
-      process.stdin.on('end', async () => {
+
+      process.stdin.on("end", async () => {
         stdinMessage = Buffer.concat(stdinChunks).toString().trim();
         if (stdinMessage) {
           await processMessage(stdinMessage);
-          
+
           // Dispose of resources and exit
           chatClient[Symbol.dispose]();
           process.exit(0);
@@ -152,7 +194,7 @@ export async function executeChatCommand(
           process.exit(1);
         }
       });
-      
+
       // Make sure stdin is in flowing mode
       process.stdin.resume();
     } else {
@@ -183,7 +225,7 @@ export async function executeChatCommand(
 
         // Process file attachments
         const processedMessage = await processFileAttachments(message, rl);
-        
+
         await processMessage(processedMessage);
         rl.prompt();
       });
@@ -211,25 +253,28 @@ export async function executeChatCommand(
  * @param rl The readline interface to use for confirmation prompts
  * @returns The processed message with file contents appended (if any)
  */
-async function processFileAttachments(message: string, rl: readline.Interface): Promise<string> {
+async function processFileAttachments(
+  message: string,
+  rl: readline.Interface
+): Promise<string> {
   // Regular expression to match attach_file: prefix
   const attachFileRegex = /\battach_file:([^\s]+)\b/g;
-  
+
   // Find all file paths in the message
   const filePaths: string[] = [];
   let match;
   while ((match = attachFileRegex.exec(message)) !== null) {
     filePaths.push(match[1]);
   }
-  
+
   // If no file attachments, return the original message
   if (filePaths.length === 0) {
     return message;
   }
-  
+
   // Remove all attach_file: words from the message
-  let processedMessage = message.replace(attachFileRegex, '').trim();
-  
+  let processedMessage = message.replace(attachFileRegex, "").trim();
+
   // Process each file
   for (const filePath of filePaths) {
     try {
@@ -237,29 +282,33 @@ async function processFileAttachments(message: string, rl: readline.Interface): 
       const answer = await new Promise<string>((resolve) => {
         rl.question(`Attach file ${filePath}? y/N `, resolve);
       });
-      
+
       // If confirmed, read the file and append to message
-      if (answer.toLowerCase() === 'y') {
+      if (answer.toLowerCase() === "y") {
         try {
           // Resolve the file path (handle relative paths)
           const resolvedPath = path.resolve(filePath);
-          
+
           // Read the file as UTF-8
-          const fileContent = fs.readFileSync(resolvedPath, 'utf8');
-          
+          const fileContent = fs.readFileSync(resolvedPath, "utf8");
+
           // Append the file content to the message
           processedMessage += `\n${fileContent}`;
-          
+
           debugError(`Attached file: ${filePath}`);
         } catch (error) {
-          console.error(`Error reading file ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+          console.error(
+            `Error reading file ${filePath}: ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          );
         }
       }
     } catch (error) {
       debugError(`Error processing file ${filePath}:`, error);
     }
   }
-  
+
   return processedMessage;
 }
 
@@ -281,7 +330,10 @@ export function registerChatCommand(program: Command): void {
   program
     .command("chat")
     .description("Start a chat with a specific expert using pubkey or nickname")
-    .argument("<expert-identifier>", "The pubkey or nickname of the expert to chat with")
+    .argument(
+      "<expert-identifier>",
+      "The pubkey or nickname of the expert to chat with"
+    )
     .option(
       "-w, --wallet <name>",
       "Wallet name to use for payments (uses default if not specified)"
@@ -300,7 +352,10 @@ export function registerChatCommand(program: Command): void {
     .option("-s, --stream", "Enable streaming")
     .option("--stdin", "Read first message from stdin and exit after reply")
     .option("-r, --remote", "Use remote wallet client")
-    .option("-u, --url <url>", "URL of remote wallet server (default: https://api.askexperts.io)")
+    .option(
+      "-u, --url <url>",
+      "URL of remote wallet server (default: https://api.askexperts.io)"
+    )
     .action(async (expertIdentifier, options) => {
       if (options.debug) enableAllDebug();
       else enableErrorDebug();

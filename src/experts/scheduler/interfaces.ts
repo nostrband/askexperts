@@ -65,15 +65,9 @@ export interface WorkerToSchedulerMessages {
 export interface SchedulerToWorkerMessages {
   // Scheduler sends a job to worker
   job: {
-    expert: string;
-    wallet_id: string;
-    type: string;
-    nickname: string;
-    env: string;
-    docstores: string;
-    privkey?: string;
-    user_id: string;
-    nwc_string: string;
+    expert_pubkey: string;  // The pubkey of the expert (for backward compatibility)
+    expert_object: any;     // The complete DBExpert object
+    nwc_string: string;     // NWC connection string
   };
   
   // Scheduler tells worker no jobs are available

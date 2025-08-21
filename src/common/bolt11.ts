@@ -1,4 +1,4 @@
-import * as bolt11 from "bolt11";
+import { decode } from "light-bolt11-decoder";
 
 /**
  * Parses a BOLT11 invoice and extracts bid amount and payment hash
@@ -7,11 +7,20 @@ import * as bolt11 from "bolt11";
  * @returns Object containing amount_sats and payment_hash
  * @throws Error if decoding fails or if either output field is empty
  */
-export function parseBolt11(invoice: string): { amount_sats: number; payment_hash: string } {
+export function parseBolt11(invoice: string): {
+  amount_sats: number;
+  payment_hash: string;
+} {
   try {
-    const decodedInvoice = bolt11.decode(invoice);
-    const amountSats = decodedInvoice.satoshis || 0;
-    const paymentHash = decodedInvoice.tagsObject.payment_hash || '';
+    const decodedInvoice = decode(invoice);
+    const amountSats = Math.floor(
+      parseInt(
+        decodedInvoice.sections.find((s) => s.name === "amount")?.value || "0"
+      ) / 1000
+    );
+    const paymentHash =
+      decodedInvoice.sections.find((s) => s.name === "payment_hash")?.value ||
+      "";
 
     if (!amountSats) {
       throw new Error("Bad invoice with 0 amount");
@@ -23,9 +32,13 @@ export function parseBolt11(invoice: string): { amount_sats: number; payment_has
 
     return {
       amount_sats: amountSats,
-      payment_hash: paymentHash
+      payment_hash: paymentHash,
     };
   } catch (error) {
-    throw new Error(`Failed to parse invoice: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(
+      `Failed to parse invoice: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
   }
 }

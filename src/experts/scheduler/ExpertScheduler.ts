@@ -821,14 +821,8 @@ export class ExpertScheduler {
       const message: SchedulerToWorkerMessage = {
         type: "job",
         data: {
-          expert: expert.pubkey,
-          wallet_id: expert.wallet_id,
-          type: expert.type,
-          nickname: expert.nickname,
-          env: expert.env,
-          docstores: expert.docstores,
-          privkey: expert.privkey,
-          user_id: expert.user_id,
+          expert_pubkey: expert.pubkey,
+          expert_object: expert,
           nwc_string: wallet.nwc,
         },
       };

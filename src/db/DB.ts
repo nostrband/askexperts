@@ -94,6 +94,27 @@ export class DB {
       );
     }
 
+    // Migration: Add new columns for expert details if they don't exist
+    try {
+      // Check if description column exists
+      const hasDescriptionColumn = this.db
+        .prepare("SELECT description FROM experts LIMIT 1")
+        .get();
+    } catch (error) {
+      // Columns don't exist, add them
+      this.db.exec("ALTER TABLE experts ADD COLUMN description TEXT DEFAULT ''");
+      this.db.exec("ALTER TABLE experts ADD COLUMN picture TEXT DEFAULT ''");
+      this.db.exec("ALTER TABLE experts ADD COLUMN hashtags TEXT DEFAULT ''");
+      this.db.exec("ALTER TABLE experts ADD COLUMN model TEXT DEFAULT ''");
+      this.db.exec("ALTER TABLE experts ADD COLUMN temperature TEXT DEFAULT ''");
+      this.db.exec("ALTER TABLE experts ADD COLUMN system_prompt TEXT DEFAULT ''");
+      this.db.exec("ALTER TABLE experts ADD COLUMN discovery_hashtags TEXT DEFAULT ''");
+      this.db.exec("ALTER TABLE experts ADD COLUMN discovery_relays TEXT DEFAULT ''");
+      this.db.exec("ALTER TABLE experts ADD COLUMN prompt_relays TEXT DEFAULT ''");
+      this.db.exec("ALTER TABLE experts ADD COLUMN price_base NUMBER DEFAULT 0");
+      this.db.exec("ALTER TABLE experts ADD COLUMN price_margin TEXT DEFAULT ''");
+    }
+
     // Create users table with all columns and indexes
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS users (
@@ -444,6 +465,17 @@ export class DB {
         privkey: row.privkey ? String(row.privkey) : undefined,
         disabled: Boolean(row.disabled || false),
         user_id: String(row.user_id || ""),
+        description: String(row.description || ""),
+        picture: String(row.picture || ""),
+        hashtags: String(row.hashtags || ""),
+        model: String(row.model || ""),
+        temperature: String(row.temperature || ""),
+        system_prompt: String(row.system_prompt || ""),
+        discovery_hashtags: String(row.discovery_hashtags || ""),
+        discovery_relays: String(row.discovery_relays || ""),
+        prompt_relays: String(row.prompt_relays || ""),
+        price_base: Number(row.price_base || 0),
+        price_margin: String(row.price_margin || "")
       })
     );
 
@@ -489,6 +521,17 @@ export class DB {
         disabled: Boolean(row.disabled || false),
         user_id: String(row.user_id || ""),
         timestamp: row.timestamp ? Number(row.timestamp) : undefined,
+        description: String(row.description || ""),
+        picture: String(row.picture || ""),
+        hashtags: String(row.hashtags || ""),
+        model: String(row.model || ""),
+        temperature: String(row.temperature || ""),
+        system_prompt: String(row.system_prompt || ""),
+        discovery_hashtags: String(row.discovery_hashtags || ""),
+        discovery_relays: String(row.discovery_relays || ""),
+        prompt_relays: String(row.prompt_relays || ""),
+        price_base: Number(row.price_base || 0),
+        price_margin: String(row.price_margin || "")
       })
     );
 
@@ -523,6 +566,17 @@ export class DB {
         privkey: row.privkey ? String(row.privkey) : undefined,
         disabled: Boolean(row.disabled || false),
         user_id: String(row.user_id || ""),
+        description: String(row.description || ""),
+        picture: String(row.picture || ""),
+        hashtags: String(row.hashtags || ""),
+        model: String(row.model || ""),
+        temperature: String(row.temperature || ""),
+        system_prompt: String(row.system_prompt || ""),
+        discovery_hashtags: String(row.discovery_hashtags || ""),
+        discovery_relays: String(row.discovery_relays || ""),
+        prompt_relays: String(row.prompt_relays || ""),
+        price_base: Number(row.price_base || 0),
+        price_margin: String(row.price_margin || "")
       })
     );
 
@@ -563,6 +617,17 @@ export class DB {
       privkey: row.privkey ? String(row.privkey) : undefined,
       disabled: Boolean(row.disabled || false),
       user_id: String(row.user_id || ""),
+      description: String(row.description || ""),
+      picture: String(row.picture || ""),
+      hashtags: String(row.hashtags || ""),
+      model: String(row.model || ""),
+      temperature: String(row.temperature || ""),
+      system_prompt: String(row.system_prompt || ""),
+      discovery_hashtags: String(row.discovery_hashtags || ""),
+      discovery_relays: String(row.discovery_relays || ""),
+      prompt_relays: String(row.prompt_relays || ""),
+      price_base: Number(row.price_base || 0),
+      price_margin: String(row.price_margin || "")
     };
 
     return Promise.resolve(expert);
@@ -584,8 +649,12 @@ export class DB {
     const timestamp = Date.now();
 
     const stmt = this.db.prepare(`
-      INSERT INTO experts (pubkey, wallet_id, type, nickname, env, docstores, privkey, disabled, user_id, timestamp)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO experts (
+        pubkey, wallet_id, type, nickname, env, docstores, privkey, disabled, user_id, timestamp,
+        description, picture, hashtags, model, temperature, system_prompt,
+        discovery_hashtags, discovery_relays, prompt_relays, price_base, price_margin
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     try {
@@ -599,7 +668,18 @@ export class DB {
         expert.privkey || null,
         expert.disabled ? 1 : 0,
         expert.user_id || "",
-        timestamp
+        timestamp,
+        expert.description || "",
+        expert.picture || "",
+        expert.hashtags || "",
+        expert.model || "",
+        expert.temperature || "",
+        expert.system_prompt || "",
+        expert.discovery_hashtags || "",
+        expert.discovery_relays || "",
+        expert.prompt_relays || "",
+        expert.price_base || 0,
+        expert.price_margin || ""
       );
       return Promise.resolve(true);
     } catch (error) {
@@ -625,7 +705,9 @@ export class DB {
 
     const stmt = this.db.prepare(`
       UPDATE experts
-      SET wallet_id = ?, type = ?, nickname = ?, env = ?, docstores = ?, privkey = ?, disabled = ?, user_id = ?, timestamp = ?
+      SET wallet_id = ?, type = ?, nickname = ?, env = ?, docstores = ?, privkey = ?, disabled = ?, user_id = ?, timestamp = ?,
+          description = ?, picture = ?, hashtags = ?, model = ?, temperature = ?, system_prompt = ?,
+          discovery_hashtags = ?, discovery_relays = ?, prompt_relays = ?, price_base = ?, price_margin = ?
       WHERE pubkey = ?
     `);
 
@@ -639,6 +721,17 @@ export class DB {
       expert.disabled ? 1 : 0,
       expert.user_id || "",
       timestamp,
+      expert.description || "",
+      expert.picture || "",
+      expert.hashtags || "",
+      expert.model || "",
+      expert.temperature || "",
+      expert.system_prompt || "",
+      expert.discovery_hashtags || "",
+      expert.discovery_relays || "",
+      expert.prompt_relays || "",
+      expert.price_base || 0,
+      expert.price_margin || "",
       expert.pubkey
     );
 

@@ -129,6 +129,14 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
   #hashtags?: string[];
 
   /**
+   * Hashtags the expert is publishing in their profile
+   */
+  #profileHashtags: string[];
+
+  /** Picture for expert profile */
+  #picture: string = '';
+
+  /**
    * Formats supported by the expert
    */
   #formats: PromptFormat[];
@@ -248,6 +256,8 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
     streamFactory?: StreamFactory;
     nickname?: string;
     description?: string;
+    profileHashtags?: string[];
+    picture?: string;
   }) {
     // Required parameters
     this.#privkey = options.privkey;
@@ -259,6 +269,8 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
     this.#discoveryRelays = options.discoveryRelays || DEFAULT_DISCOVERY_RELAYS;
     this.#promptRelays = options.promptRelays || DEFAULT_DISCOVERY_RELAYS;
     this.#hashtags = options.hashtags || [];
+    this.#profileHashtags = options.profileHashtags || [];
+    this.#picture = options.picture || '';
     this.#formats = options.formats || [FORMAT_TEXT];
     this.#onAsk = options.onAsk;
     this.#onPrompt = options.onPrompt;
@@ -288,6 +300,24 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
 
   set description(value: string) {
     this.#description = value;
+    this.schedulePublishProfile();
+  }
+
+  get picture() {
+    return this.#picture;
+  }
+
+  set picture(value: string) {
+    this.#picture = value;
+    this.schedulePublishProfile();
+  }
+
+  get profileHashtags() {
+    return this.#profileHashtags;
+  }
+
+  set profileHashtags(value: string[]) {
+    this.#profileHashtags = value;
     this.schedulePublishProfile();
   }
 

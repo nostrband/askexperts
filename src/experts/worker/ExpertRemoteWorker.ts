@@ -290,28 +290,20 @@ export class ExpertRemoteWorker {
   private async handleJobMessage(
     job: SchedulerToWorkerMessages["job"]
   ): Promise<void> {
-    debugWorker(`Received job for expert ${job.expert}`);
+    const expertPubkey = job.expert_pubkey;
+    debugWorker(`Received job for expert ${expertPubkey}`);
 
     try {
       // Check if the expert is already running
       const runningExperts = this.worker.getRunningExpertPubkeys();
-      const existingExpert = runningExperts.includes(job.expert);
+      const existingExpert = runningExperts.includes(expertPubkey);
       if (existingExpert) {
         debugWorker(
-          `Expert ${job.expert} is already running, not starting again`
+          `Expert ${expertPubkey} is already running, not starting again`
         );
       } else {
-        // Create DBExpert object
-        const expert: DBExpert = {
-          pubkey: job.expert,
-          wallet_id: job.wallet_id,
-          type: job.type,
-          nickname: job.nickname,
-          env: job.env,
-          docstores: job.docstores,
-          privkey: job.privkey,
-          user_id: job.user_id,
-        };
+        // Use the complete DBExpert object from the job message
+        const expert: DBExpert = job.expert_object;
 
         // Start the expert using the NWC string from the job message
         await this.worker.startExpert(expert, job.nwc_string);
@@ -321,7 +313,7 @@ export class ExpertRemoteWorker {
         type: "started",
         data: {
           workerId: this.workerId,
-          expert: job.expert,
+          expert: expertPubkey,
         },
       };
       this.sendMessage(message);
@@ -332,7 +324,7 @@ export class ExpertRemoteWorker {
       // Request another job
       this.requestJob();
     } catch (error) {
-      debugError(`Error starting expert ${job.expert}:`, error);
+      debugError(`Error starting expert ${expertPubkey}:`, error);
 
       // Request another job
       this.requestJob();

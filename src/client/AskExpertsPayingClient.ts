@@ -4,6 +4,18 @@ import { ExpertPaymentManager } from "../payments/ExpertPaymentManager.js";
 import { parseBolt11 } from "../common/bolt11.js";
 import { debugError } from "../common/debug.js";
 import { Proof, Quote, Prompt } from "../common/types.js";
+import { StreamFactory } from "../stream/interfaces.js";
+import { SimplePool } from "nostr-tools";
+
+/**
+ * Type definition for the onPaid callback function
+ */
+export type OnPaidCallback = (
+  prompt: Prompt,
+  quote: Quote,
+  proof: Proof,
+  fees_msat: number
+) => Promise<void>;
 
 /**
  * AskExpertsPayingClient class that extends AskExpertsClient with payment capabilities
@@ -12,7 +24,7 @@ import { Proof, Quote, Prompt } from "../common/types.js";
 export class AskExpertsPayingClient extends AskExpertsClient {
   #paymentManager: ExpertPaymentManager;
   #maxAmountSats: number = 100; // Default max amount
-  #onPaid?: (prompt: Prompt, quote: Quote, proof: Proof) => Promise<void>;
+  #onPaid?: OnPaidCallback;
 
   /**
    * Creates a new AskExpertsPayingClient instance
@@ -27,7 +39,9 @@ export class AskExpertsPayingClient extends AskExpertsClient {
     options?: {
       maxAmountSats?: number;
       discoveryRelays?: string[];
-      onPaid?: (prompt: Prompt, quote: Quote, proof: Proof) => Promise<void>;
+      streamFactory?: StreamFactory;
+      pool?: SimplePool;
+      onPaid?: OnPaidCallback;
     }
   ) {
     // Create the client with callbacks for quotes and payments
@@ -35,6 +49,8 @@ export class AskExpertsPayingClient extends AskExpertsClient {
       discoveryRelays: options?.discoveryRelays,
       onQuote: (quote, prompt) => this.handleQuote(quote, prompt),
       onPay: (quote, prompt) => this.handlePayment(quote, prompt),
+      pool: options?.pool,
+      streamFactory: options?.streamFactory,
     });
 
     if (!paymentManager) {
@@ -56,7 +72,7 @@ export class AskExpertsPayingClient extends AskExpertsClient {
 
   /**
    * Sets the maximum amount to pay in satoshis
-   * 
+   *
    * @param maxAmountSats - Maximum amount to pay in satoshis
    */
   /**
@@ -79,14 +95,14 @@ export class AskExpertsPayingClient extends AskExpertsClient {
   /**
    * Gets the current onPaid callback function
    */
-  get onPaid(): ((prompt: Prompt, quote: Quote, proof: Proof) => Promise<void>) | undefined {
+  get onPaid(): OnPaidCallback | undefined {
     return this.#onPaid;
   }
 
   /**
    * Sets the onPaid callback function
    */
-  set onPaid(callback: (prompt: Prompt, quote: Quote, proof: Proof) => Promise<void>) {
+  set onPaid(callback: OnPaidCallback) {
     this.#onPaid = callback;
   }
 
@@ -98,10 +114,7 @@ export class AskExpertsPayingClient extends AskExpertsClient {
    * @returns Promise resolving to boolean indicating whether to proceed with payment
    * @protected
    */
-  protected async handleQuote(
-    quote: Quote,
-    prompt: Prompt
-  ): Promise<boolean> {
+  protected async handleQuote(quote: Quote, prompt: Prompt): Promise<boolean> {
     // Check if there's a lightning invoice
     const lightningInvoice = quote.invoices.find(
       (inv) => inv.method === "lightning"
@@ -121,7 +134,9 @@ export class AskExpertsPayingClient extends AskExpertsClient {
         return true;
       } else {
         debugError(
-          `Invoice amount (${amount_sats}) exceeds max amount (${this.#maxAmountSats})`
+          `Invoice amount (${amount_sats}) exceeds max amount (${
+            this.#maxAmountSats
+          })`
         );
         return false;
       }
@@ -151,9 +166,9 @@ export class AskExpertsPayingClient extends AskExpertsClient {
 
     try {
       // Pay the invoice using the payment manager
-      const preimage = await (this.#paymentManager as LightningPaymentManager).payInvoice(
-        lightningInvoice.invoice
-      );
+      const { preimage, fees_msat } = await (
+        this.#paymentManager as LightningPaymentManager
+      ).payInvoice(lightningInvoice.invoice);
 
       // Create the proof object
       const proof: Proof = {
@@ -163,7 +178,7 @@ export class AskExpertsPayingClient extends AskExpertsClient {
 
       // Call the onPaid callback if it exists
       if (this.#onPaid) {
-        await this.#onPaid(prompt, quote, proof);
+        await this.#onPaid(prompt, quote, proof, fees_msat);
       }
 
       // Return the proof

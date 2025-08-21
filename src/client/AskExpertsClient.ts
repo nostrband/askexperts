@@ -3,7 +3,7 @@
  * Works in both browser and Node.js environments
  */
 
-import { Event, getPublicKey, SimplePool } from "nostr-tools";
+import { Event, SimplePool } from "nostr-tools";
 import { z } from "zod";
 import { debugError } from "../common/debug.js";
 import { parseBolt11 } from "../common/bolt11.js";

@@ -179,16 +179,18 @@ export function createEventStream(
       const queue: Event[] = [];
       let done = false;
       let error: Error | null = null;
-      let resolveNext: ((value: IteratorResult<Event, any>) => void) | null =
-        null;
+      let promiseHandler: {
+        resolve: (value: IteratorResult<Event, any>) => void;
+        reject: (reason: any) => void;
+      } | null = null;
 
       const sub = pool.subscribeMany(relays, [filter], {
         onevent(event: Event) {
           if (done) return;
 
-          if (resolveNext) {
-            resolveNext({ value: event, done: false });
-            resolveNext = null;
+          if (promiseHandler) {
+            promiseHandler.resolve({ value: event, done: false });
+            promiseHandler = null;
           } else {
             queue.push(event);
           }
@@ -197,9 +199,9 @@ export function createEventStream(
           if (options.closeOnEose && !done) {
             done = true;
 
-            if (resolveNext) {
-              resolveNext({ value: undefined, done: true });
-              resolveNext = null;
+            if (promiseHandler) {
+              promiseHandler.resolve({ value: undefined, done: true });
+              promiseHandler = null;
             }
           }
         },
@@ -212,9 +214,9 @@ export function createEventStream(
           if (!done) {
             done = true;
 
-            if (resolveNext) {
-              resolveNext({ value: undefined, done: true });
-              resolveNext = null;
+            if (promiseHandler) {
+              promiseHandler.resolve({ value: undefined, done: true });
+              promiseHandler = null;
             }
           }
         }, options.timeout);
@@ -234,8 +236,8 @@ export function createEventStream(
             return { value: queue.shift()!, done: false };
           }
 
-          return new Promise((resolve) => {
-            resolveNext = resolve;
+          return new Promise((resolve, reject) => {
+            promiseHandler = { resolve, reject };
           });
         },
 
@@ -256,6 +258,13 @@ export function createEventStream(
           if (!done) {
             done = true;
             error = err instanceof Error ? err : new Error(String(err));
+
+            // Reject any pending promise
+            if (promiseHandler) {
+              promiseHandler.reject(error);
+              promiseHandler = null;
+            }
+
             sub.close();
 
             if (timeoutId) {
