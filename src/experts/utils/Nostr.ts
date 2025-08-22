@@ -282,11 +282,13 @@ export class Nostr {
     kinds = [],
     relays = [],
     limit = 1000,
+    onProgress,
   }: {
     pubkey: string;
     kinds?: number[];
     relays?: string[];
     limit?: number;
+    onProgress?: (count: number) => void;
   }): Promise<Event[]> {
     let writeRelays: string[] = [...relays];
 
@@ -362,6 +364,7 @@ export class Nostr {
 
       // Add the new events to our collection
       events.push(...batchEvents);
+      if (onProgress) onProgress(events.length);
 
       // Find the oldest timestamp for the next iteration
       oldestTimestamp = Math.min(
