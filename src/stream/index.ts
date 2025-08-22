@@ -13,7 +13,7 @@ export { StreamReader, StreamReaderError } from './StreamReader.js';
 
 // Export StreamFactory
 export { DefaultStreamFactory, getStreamFactory } from './DefaultStreamFactory.js';
-export { StreamFactory } from './interfaces.js';
+export type { StreamFactory } from './interfaces.js';
 
 // Export Compression
 export {

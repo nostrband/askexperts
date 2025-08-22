@@ -183,7 +183,7 @@ export class Nostr {
         profileFilter,
         [...Nostr.OUTBOX_RELAYS, ...relays],
         this.pool,
-        10000 // 10 second timeout
+        5000 // 5 second timeout
       );
 
       // Parse profile data

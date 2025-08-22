@@ -8,7 +8,7 @@ import { Doc, DocStoreClient } from "../docstore/interfaces.js";
 import { DocstoreToRag, createRagEmbeddings } from "../rag/index.js";
 import { DBExpert } from "../db/interfaces.js";
 import { str2arr } from "../common/utils.js";
-import { extractHashtags } from "./utils/index.js";
+import { extractHashtags } from "./index.js";
 
 /**
  * NostrExpert implementation for NIP-174
