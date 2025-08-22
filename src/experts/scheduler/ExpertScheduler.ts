@@ -355,7 +355,6 @@ export class ExpertScheduler {
             );
 
             // Reset state
-            expertState.state = "queued";
             this.queueExpert(expert.pubkey);
             break;
           }
@@ -390,8 +389,11 @@ export class ExpertScheduler {
       // If expert is in any other state, we need to handle it differently
       // For now, just log a warning
       debugScheduler(
-        `Expert ${pubkey} is in state ${expertState.state}, queueing`
+        `Expert ${pubkey} was in state ${expertState.state}, queueing`
       );
+
+      // Update the state
+      expertState.state = "queued";
     } else {
       // Init state
       expertState = {
@@ -448,7 +450,6 @@ export class ExpertScheduler {
               debugScheduler(`Requeuing expert ${expertPubkey}`);
 
               // Reset their state
-              expertState.state = "queued";
               this.queueExpert(expertPubkey);
             }
           }
