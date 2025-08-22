@@ -78,6 +78,18 @@ export class CompressionSizeLimitExceeded extends Error {
 }
 
 /**
+ * Interface for creating compression or decompression streams
+ */
+export interface BrowserCompressionStreamFactory {
+  /**
+   * Creates a new compression or decompression stream
+   *
+   * @returns A new CompressionStream or DecompressionStream
+   */
+  createStream(): CompressionStream | DecompressionStream;
+}
+
+/**
  * Interface for streaming compression instance
  */
 export interface CompressionInstance {
@@ -229,21 +241,34 @@ class BrowserCompression {
   protected reader: ReadableStreamDefaultReader<Uint8Array>;
   protected output: Uint8Array[] = [];
   protected totalSize: number = 0;
+  protected bufferSize: number = 0; // Track size of data written but not yet read
   protected maxResultSize?: number;
   protected method: CompressionMethod;
   protected lastError: any;
+  protected streamFactory: BrowserCompressionStreamFactory;
+
+  // Internal: background reader task
+  private pumpPromise: Promise<void>;
 
   constructor(
-    stream: CompressionStream | DecompressionStream,
+    streamFactory: BrowserCompressionStreamFactory,
     method: CompressionMethod,
     decompress: boolean,
     maxResultSize?: number
   ) {
     this.decompress = decompress;
-    this.writer = stream.writable.getWriter();
-    this.reader = stream.readable.getReader();
+    this.streamFactory = streamFactory;
     this.maxResultSize = maxResultSize;
     this.method = method;
+    
+    // Initialize the stream
+    const stream = this.streamFactory.createStream();
+    this.writer = stream.writable.getWriter();
+    this.reader = stream.readable.getReader();
+
+    // Start non-blocking consumption of the readable side.
+    // This prevents backpressure from stalling writer.write().
+    this.pumpPromise = this.pump();
   }
 
   async maxChunkSize() {
@@ -252,7 +277,7 @@ class BrowserCompression {
 
   private maxResultSizeSafe() {
     if (!this.maxResultSize) return this.maxResultSize;
-    // Allow room for 1Kb trailer, crop to 64 from the bottom
+    // Allow room for ~1KB trailer, keep at least 64 bytes margin.
     return Math.max(64, this.maxResultSize - 1024);
   }
 
@@ -269,55 +294,119 @@ class BrowserCompression {
     );
   }
 
-  private async read() {
-    const newChunks: Uint8Array[] = [];
-    let newSize = 0;
-    while (true) {
-      const { value, done } = await this.reader.read();
-      if (done) break;
-      if (value) {
-        newChunks.push(value);
-        newSize += value.length;
+  // Background reader: continuously pull output as it becomes available.
+  private async pump(): Promise<void> {
+    try {
+      for (;;) {
+        const { value, done } = await this.reader.read();
+        if (done) break;
+
+        if (value && value.length) {
+          // For decompression, enforce size after seeing actual bytes.
+          if (this.decompress) {
+            // Check *before* mutating state so we can abort early if needed.
+            const maxResultSize = this.maxResultSizeSafe();
+            if (maxResultSize) {
+              const projected = this.totalSize + value.length;
+              if (projected > maxResultSize) {
+                this.lastError = new CompressionSizeLimitExceeded(
+                  projected,
+                  maxResultSize
+                );
+                // Stop the pipeline: cancel reader and abort writer.
+                try {
+                  this.reader.cancel(this.lastError);
+                } catch {}
+                try {
+                  this.writer.abort?.(this.lastError);
+                } catch {}
+                break;
+              }
+            }
+          }
+
+          this.output.push(value);
+          this.totalSize += value.length;
+        }
       }
+    } catch (err) {
+      // Surface pump errors
+      this.lastError ??= err;
+      try {
+        this.reader.cancel(err);
+      } catch {}
+      try {
+        this.writer.abort?.(err as any);
+      } catch {}
+    } finally {
     }
-    return { newChunks, newSize };
   }
 
   async write(inputData: Uint8Array): Promise<number> {
     if (this.lastError) throw this.lastError;
 
-    // Check if adding these chunks would exceed the size limit,
-    // assume compressed input will be <= input size.
-    // NOTE: ideally we should compress the input first and then measure
-    // the size, but we can't 'unzip' this packet, so the only
-    // option left is to measure the input.
+    // On compression, enforce limit based on *input* size heuristic
+    // plus the current buffer size to prevent exceeding limits
     if (!this.decompress) {
+      // Check if totalSize + bufferSize + inputData.length would exceed the limit
+      const maxResultSize = this.maxResultSizeSafe();
+      if (maxResultSize && (this.totalSize + this.bufferSize + inputData.length > maxResultSize)) {
+        // We need to flush the current data before writing more
+        await this.flush();
+        
+        // Restart the stream with a new one
+        await this.restartStream();
+        
+        // Reset buffer size after restart
+        this.bufferSize = 0;
+      }
+      
+      // Now check if the new input alone would exceed the limit
       this.checkResultSize(inputData.length);
       if (this.lastError) throw this.lastError;
     }
 
-    // Send to compressor
+    // Feed data; pump is concurrently draining the output.
     await this.writer.write(inputData);
+    
+    // Update buffer size with the size of data we just wrote
+    this.bufferSize += inputData.length;
+    
+    // If the background pump tripped an error (e.g., decompression overflow),
+    // surface it promptly.
+    if (this.lastError) throw this.lastError;
 
-    // Read any available output
-    const { newChunks, newSize } = await this.read();
-
-    // For decompression, we check after decompression
-    // and throw the results away if exceeded
-    if (this.decompress) {
-      this.checkResultSize(newSize);
-      if (this.lastError) throw this.lastError;
-    }
-
-    // Add the chunks
-    this.output.push(...newChunks);
-    this.totalSize += newSize;
-
+    // Report how much we have so far.
     return this.totalSize;
   }
+  
+  /**
+   * Restarts the compression stream by creating a new one
+   * Only used for compression, not decompression
+   */
+  private async restartStream(): Promise<void> {
+    // Clean up existing stream
+    try {
+      this.writer.releaseLock();
+    } catch {}
+    try {
+      this.reader.cancel?.();
+    } catch {}
+    try {
+      this.reader.releaseLock();
+    } catch {}
+    
+    // Create a new stream
+    const stream = this.streamFactory.createStream();
+    this.writer = stream.writable.getWriter();
+    this.reader = stream.readable.getReader();
+    
+    // Restart the pump
+    this.pumpPromise = this.pump();
+  }
 
-  async finalize(): Promise<Uint8Array> {
-    // If we already have an error, reject immediately
+  private async flush() {
+        // If we already have a non-size-limit error, throw immediately.
     if (
       this.lastError &&
       !(this.lastError instanceof CompressionSizeLimitExceeded)
@@ -325,40 +414,97 @@ class BrowserCompression {
       throw this.lastError;
     }
 
-    // Write trailer, etc
-    await this.writer.close();
-
-    // Read any remaining output
-    const { newChunks, newSize } = await this.read();
-
-    // For decompression, we check after decompression
-    // and throw the results away if exceeded
-    if (this.decompress) {
-      this.checkResultSize(newSize);
-      if (this.lastError) throw this.lastError;
+    // Close to flush trailers/footers. This allows the pump to reach `done:true`.
+    try {
+      await this.writer.close();
+    } catch (e) {
+      // If closing fails, record but still wait for pump to settle.
+      this.lastError ??= e;
     }
 
-    // Add the chunks
-    this.output.push(...newChunks);
-    this.totalSize += newSize;
+    // Let the pump finish draining remaining bytes.
+    try {
+      await this.pumpPromise;
+    } catch {
+      // pumpPromise never rejects (we catch inside), but keep for completeness
+    }
+
+    // On decompression, enforce limit one last time (mirrors your original).
+    if (
+      this.decompress &&
+      this.lastError instanceof CompressionSizeLimitExceeded
+    ) {
+      throw this.lastError;
+    }
+
+    // If any other error occurred during pumping, throw it.
+    if (
+      this.lastError &&
+      !(this.lastError instanceof CompressionSizeLimitExceeded)
+    ) {
+      throw this.lastError;
+    }
+  }
+
+  async finalize(): Promise<Uint8Array> {
+
+    // Make sure compressor appends everything
+    await this.flush();
 
     // Concatenate all chunks
     const result = new Uint8Array(this.totalSize);
     let offset = 0;
-
     for (const chunk of this.output) {
       result.set(chunk, offset);
       offset += chunk.length;
     }
-
     return result;
   }
 
   dispose(): void {
-    // Release resources
-    this.writer.releaseLock();
-    this.reader.releaseLock();
+    // Best-effort cleanup
+    try {
+      this.writer.releaseLock();
+    } catch {}
+    try {
+      this.reader.cancel?.();
+    } catch {}
+    try {
+      this.reader.releaseLock();
+    } catch {}
     this.output = [];
+  }
+}
+
+/**
+ * Factory for creating CompressionStream instances
+ */
+class CompressionStreamFactoryImpl implements BrowserCompressionStreamFactory {
+  private format: CompressionFormat;
+  
+  constructor(format: string) {
+    // TypeScript type assertion to ensure format is a valid CompressionFormat
+    this.format = format as CompressionFormat;
+  }
+  
+  createStream(): CompressionStream {
+    return new CompressionStream(this.format);
+  }
+}
+
+/**
+ * Factory for creating DecompressionStream instances
+ */
+class DecompressionStreamFactoryImpl implements BrowserCompressionStreamFactory {
+  private format: CompressionFormat;
+  
+  constructor(format: string) {
+    // TypeScript type assertion to ensure format is a valid CompressionFormat
+    this.format = format as CompressionFormat;
+  }
+  
+  createStream(): DecompressionStream {
+    return new DecompressionStream(this.format);
   }
 }
 
@@ -370,14 +516,15 @@ class BrowserCompressionInstance implements CompressionInstance {
   protected binary: boolean;
 
   constructor(
-    stream: CompressionStream,
+    format: string,
     method: CompressionMethod,
     binary: boolean,
     maxResultSize?: number
   ) {
     this.binary = binary;
+    const factory = new CompressionStreamFactoryImpl(format);
     this.compression = new BrowserCompression(
-      stream,
+      factory,
       method,
       false,
       maxResultSize
@@ -418,13 +565,14 @@ class BrowserDecompressionInstance implements DecompressionInstance {
   private binary: boolean;
 
   constructor(
-    stream: DecompressionStream,
+    format: string,
     method: CompressionMethod,
     binary: boolean = false,
     maxResultSize?: number
   ) {
+    const factory = new DecompressionStreamFactoryImpl(format);
     this.compression = new BrowserCompression(
-      stream,
+      factory,
       method,
       true,
       maxResultSize
@@ -925,7 +1073,7 @@ export class DefaultCompression implements Compression {
           );
 
         return new BrowserCompressionInstance(
-          new CompressionStream("gzip"),
+          "gzip",
           method,
           binary,
           maxResultSize
@@ -974,7 +1122,7 @@ export class DefaultCompression implements Compression {
           );
 
         return new BrowserDecompressionInstance(
-          new DecompressionStream("gzip"),
+          "gzip",
           method,
           binary,
           maxResultSize
