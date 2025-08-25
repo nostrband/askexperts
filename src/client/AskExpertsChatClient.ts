@@ -3,22 +3,15 @@
  * Handles chat interactions with experts
  */
 
-import { AskExpertsPayingClient, OnPaidCallback } from "./AskExpertsPayingClient.js";
+import {
+  AskExpertsPayingClient,
+  OnPaidCallback,
+  OnMaxAmountExceededCallback,
+} from "./AskExpertsPayingClient.js";
 import { LightningPaymentManager } from "../payments/LightningPaymentManager.js";
-import {
-  FORMAT_OPENAI,
-  FORMAT_TEXT,
-  METHOD_LIGHTNING,
-} from "../common/constants.js";
+import { FORMAT_OPENAI, FORMAT_TEXT } from "../common/constants.js";
 import { debugError, debugClient } from "../common/debug.js";
-import {
-  Expert,
-  Prompt,
-  Quote,
-  Proof,
-  FetchExpertsParams,
-} from "../common/types.js";
-import { parseBolt11 } from "../common/bolt11.js";
+import { Expert, FetchExpertsParams } from "../common/types.js";
 import { SimplePool } from "nostr-tools";
 import { StreamFactory } from "../stream/interfaces.js";
 
@@ -33,6 +26,7 @@ export interface ChatClientOptions {
   maxAmount?: string;
   stream?: boolean;
   onPaid?: OnPaidCallback;
+  onMaxAmountExceeded?: OnMaxAmountExceededCallback;
 }
 
 /**
@@ -75,6 +69,7 @@ export class AskExpertsChatClient {
       pool: options.pool,
       streamFactory: options.streamFactory,
       onPaid: options.onPaid,
+      onMaxAmountExceeded: options.onMaxAmountExceeded,
     });
   }
 

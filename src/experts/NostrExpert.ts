@@ -63,6 +63,7 @@ export class NostrExpert {
   private docstoreId: string;
 
   private syncController?: { stop: () => void };
+
   /**
    * Creates a new NostrExpert instance
    *

@@ -18,6 +18,16 @@ export type OnPaidCallback = (
 ) => Promise<void>;
 
 /**
+ * Type definition for the onMaxAmountExceeded callback function
+ * Returns true to proceed with payment despite exceeding max amount, false to reject
+ */
+export type OnMaxAmountExceededCallback = (
+  prompt: Prompt,
+  quote: Quote,
+  amountSats: number
+) => Promise<boolean>;
+
+/**
  * AskExpertsPayingClient class that extends AskExpertsClient with payment capabilities
  * This class abstracts payment handling logic that was duplicated in AskExpertsSmartClient and AskExpertsChatClient
  */
@@ -25,6 +35,7 @@ export class AskExpertsPayingClient extends AskExpertsClient {
   #paymentManager: ExpertPaymentManager;
   #maxAmountSats: number = 100; // Default max amount
   #onPaid?: OnPaidCallback;
+  #onMaxAmountExceeded?: OnMaxAmountExceededCallback;
 
   /**
    * Creates a new AskExpertsPayingClient instance
@@ -42,6 +53,7 @@ export class AskExpertsPayingClient extends AskExpertsClient {
       streamFactory?: StreamFactory;
       pool?: SimplePool;
       onPaid?: OnPaidCallback;
+      onMaxAmountExceeded?: OnMaxAmountExceededCallback;
     }
   ) {
     // Create the client with callbacks for quotes and payments
@@ -67,6 +79,11 @@ export class AskExpertsPayingClient extends AskExpertsClient {
     // Set onPaid callback if provided
     if (options?.onPaid) {
       this.#onPaid = options.onPaid;
+    }
+
+    // Set onMaxAmountExceeded callback if provided
+    if (options?.onMaxAmountExceeded) {
+      this.#onMaxAmountExceeded = options.onMaxAmountExceeded;
     }
   }
 
@@ -107,6 +124,20 @@ export class AskExpertsPayingClient extends AskExpertsClient {
   }
 
   /**
+   * Gets the current onMaxAmountExceeded callback function
+   */
+  get onMaxAmountExceeded(): OnMaxAmountExceededCallback | undefined {
+    return this.#onMaxAmountExceeded;
+  }
+
+  /**
+   * Sets the onMaxAmountExceeded callback function
+   */
+  set onMaxAmountExceeded(callback: OnMaxAmountExceededCallback) {
+    this.#onMaxAmountExceeded = callback;
+  }
+
+  /**
    * Handles quote events from experts
    *
    * @param quote - Quote from expert
@@ -138,6 +169,13 @@ export class AskExpertsPayingClient extends AskExpertsClient {
             this.#maxAmountSats
           })`
         );
+        
+        // If onMaxAmountExceeded callback is provided, call it and return its result
+        if (this.#onMaxAmountExceeded) {
+          return await this.#onMaxAmountExceeded(prompt, quote, amount_sats);
+        }
+        
+        // Otherwise, reject the payment
         return false;
       }
     } catch (error) {
