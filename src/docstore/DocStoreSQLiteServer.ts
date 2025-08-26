@@ -497,6 +497,15 @@ export class DocStoreSQLiteServer {
       });
     }
 
+    // Convert base64 string back to Uint8Array for file
+    if (typeof result.file === 'string') {
+      try {
+        result.file = Buffer.from(result.file, 'base64');
+      } catch (error) {
+        debugError("Error converting base64 string to Buffer:", error);
+      }
+    }
+
     return result;
   }
 
@@ -508,14 +517,21 @@ export class DocStoreSQLiteServer {
   private prepareDocForSerialization(doc: Doc): any {
     // Create a deep copy of the document
     const result: any = { ...doc };
-
+    
     // Convert Float32Array embeddings to regular arrays
     if (doc.embeddings) {
       result.embeddings = doc.embeddings.map((embedding) =>
         embedding instanceof Float32Array ? Array.from(embedding) : embedding
       );
     }
-
+    
+    // Convert Uint8Array file to base64 string for transmission
+    if (doc.file) {
+      // For browser compatibility, we need to convert Uint8Array to base64 string
+      const buffer = Buffer.from(doc.file);
+      result.file = buffer.toString('base64');
+    }
+    
     return result;
   }
 

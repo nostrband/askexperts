@@ -12,10 +12,12 @@ export interface Doc {
   docstore_id: string;
   timestamp: number; // unix timestamp of doc insert time
   created_at: number; // unix timestamp of doc creation time (for imported docs)
-  type: string;
-  data: string;
+  type: string; // Nostr, tweet, etc
+  data: string; // Markdown content for LLM
   embeddings: Float32Array[]; // Array of embedding vectors
   user_id?: string; // User ID associated with the document
+  file?: Uint8Array; // Optional binary file data
+  metadata?: string; // Optional metadata string
 }
 
 /**

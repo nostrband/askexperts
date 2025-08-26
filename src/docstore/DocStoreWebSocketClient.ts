@@ -6,8 +6,9 @@ import { debugDocstore, debugError } from '../common/debug.js';
 /**
  * Serializable version of Doc with regular arrays instead of Float32Array
  */
-interface SerializableDoc extends Omit<Doc, 'embeddings'> {
+interface SerializableDoc extends Omit<Doc, 'embeddings' | 'file'> {
   embeddings: number[][];
+  file?: string; // Base64 encoded string for binary data
 }
 
 /**
@@ -358,6 +359,23 @@ export class DocStoreWebSocketClient implements DocStoreClient {
       );
     }
     
+    // Convert Uint8Array file to base64 string for transmission
+    if (doc.file) {
+      // For browser compatibility, we need to convert Uint8Array to base64 string
+      // In browser environments, we need to use a different approach
+      if (typeof window !== 'undefined') {
+        // Browser environment
+        const binary = Array.from(new Uint8Array(doc.file.buffer))
+          .map(b => String.fromCharCode(b))
+          .join('');
+        result.file = btoa(binary);
+      } else {
+        // Node.js environment
+        const buffer = Buffer.from(doc.file);
+        result.file = buffer.toString('base64');
+      }
+    }
+    
     return result;
   }
 
@@ -565,6 +583,27 @@ export class DocStoreWebSocketClient implements DocStoreClient {
 
     // Add the document to the buffer
     if (doc !== undefined) {
+      // Process the document before adding it to the buffer
+      // Convert base64 string back to Uint8Array for file field
+      if (doc.file && typeof doc.file === 'string') {
+        try {
+          if (typeof window !== 'undefined') {
+            // Browser environment
+            const binary = atob(doc.file);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) {
+              bytes[i] = binary.charCodeAt(i);
+            }
+            doc.file = bytes;
+          } else {
+            // Node.js environment
+            doc.file = Buffer.from(doc.file, 'base64');
+          }
+        } catch (error) {
+          debugError("Error converting base64 string to Uint8Array:", error);
+        }
+      }
+      
       buffer.push(doc);
     } else {
       // For EOF (undefined), we add a special marker

@@ -53,6 +53,7 @@ export class DocStoreLocalClient implements DocStoreClient {
    * @returns Promise that resolves when the operation is complete
    */
   async upsert(doc: Doc): Promise<void> {
+    if (!doc.user_id) doc.user_id = this.userId;
     return this.docStore.upsert(doc, this.userId);
   }
 

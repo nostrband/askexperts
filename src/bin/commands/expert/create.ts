@@ -3,11 +3,16 @@ import { DBExpert } from "../../../db/interfaces.js";
 import { generateRandomKeyPair } from "../../../common/crypto.js";
 import { getPublicKey } from "nostr-tools";
 import { bytesToHex } from "nostr-tools/utils";
-import { debugError, enableAllDebug, enableErrorDebug } from "../../../common/debug.js";
+import {
+  debugError,
+  enableAllDebug,
+  enableErrorDebug,
+} from "../../../common/debug.js";
 import { getWalletByNameOrDefault } from "../../commands/wallet/utils.js";
 import { ExpertCommandOptions, addRemoteOptions } from "./index.js";
 import { getCurrentUserId } from "../../../common/users.js";
 import { createDBClientForCommands } from "../utils.js";
+import { Prompts } from "../../../experts/Prompts.js";
 
 /**
  * Options for the create expert command
@@ -40,7 +45,7 @@ interface CreateExpertCommandOptions extends ExpertCommandOptions {
 /**
  * Create a new expert in the database
  *
- * @param type Type of expert (nostr or openai)
+ * @param type Type of expert (rag or openrouter)
  * @param nickname Nickname for the expert
  * @param options Command options
  */
@@ -54,8 +59,8 @@ export async function createExpert(
     else enableErrorDebug();
 
     // Validate type
-    if (type !== "nostr" && type !== "openai") {
-      throw new Error('Type must be either "nostr" or "openai"');
+    if (type !== "rag" && type !== "openrouter") {
+      throw new Error('Type must be either "rag" or "openrouter"');
     }
 
     const db = await createDBClientForCommands(options);
@@ -67,7 +72,7 @@ export async function createExpert(
     // Generate or use provided private key
     let privkey: Uint8Array;
     let pubkey: string;
-    
+
     if (options.privkey_hex) {
       try {
         privkey = new Uint8Array(Buffer.from(options.privkey_hex, "hex"));
@@ -82,14 +87,10 @@ export async function createExpert(
     }
 
     // Format environment variables
-    const envStr = options.env
-      ? options.env.join("\n")
-      : "";
+    const envStr = options.env ? options.env.join("\n") : "";
 
     // Format docstores
-    const docstoresStr = options.docstores
-      ? options.docstores.join(",")
-      : "";
+    const docstoresStr = options.docstores ? options.docstores.join(",") : "";
 
     // Create expert object
     const expert: DBExpert = {
@@ -101,18 +102,23 @@ export async function createExpert(
       env: envStr,
       docstores: docstoresStr,
       privkey: bytesToHex(privkey),
-      description: options.description || '',
-      discovery_hashtags: options.discovery_hashtags || '',
-      discovery_relays: options.discovery_relays || '',
-      hashtags: options.hashtags || '',
-      model: options.model || '',
-      picture: options.picture || '',
-      prompt_relays: options.prompt_relays || '',
-      system_prompt: options.system_prompt || '',
-      temperature: options.temperature || '',
+      description: options.description || "",
+      discovery_hashtags: options.discovery_hashtags || "",
+      discovery_relays: options.discovery_relays || "",
+      hashtags: options.hashtags || "",
+      model: options.model || "",
+      picture: options.picture || "",
+      prompt_relays: options.prompt_relays || "",
+      temperature: options.temperature || "",
       price_base: options.price_base || 0,
-      price_margin: options.price_margin || '',
+      price_margin: options.price_margin || "",
     };
+
+    if (options.system_prompt === "nostr") {
+      expert.system_prompt = Prompts.nostrCloneSystemPrompt();
+    } else {
+      expert.system_prompt = options.system_prompt;
+    }
 
     // Insert expert into database
     const success = await db.insertExpert(expert);
@@ -126,9 +132,9 @@ export async function createExpert(
     console.log(`  Public Key: ${pubkey}`);
     console.log(`  Private Key: ${bytesToHex(privkey)}`);
     console.log(`  Wallet ID: ${walletId}`);
-    if (envStr) console.log(`  Environment Variables: ${envStr.replace(/\n/g, ", ")}`);
+    if (envStr)
+      console.log(`  Environment Variables: ${envStr.replace(/\n/g, ", ")}`);
     if (docstoresStr) console.log(`  Docstores: ${docstoresStr}`);
-
   } catch (error) {
     debugError("Error creating expert:", error);
     throw error;
@@ -144,19 +150,31 @@ export function registerCreateCommand(program: Command): void {
   const command = program
     .command("create")
     .description("Create a new expert in the database")
-    .argument("<type>", "Type of expert (nostr or openai)")
+    .argument("<type>", "Type of expert (rag or openrouter)")
     .argument("<nickname>", "Nickname for the expert")
-    .option("-w, --wallet <name>", "Wallet name to use (uses default if not provided)")
-    .option("-e, --env <key:value...>", "Environment variables in key:value format")
+    .option(
+      "-w, --wallet <name>",
+      "Wallet name to use (uses default if not provided)"
+    )
+    .option(
+      "-e, --env <key:value...>",
+      "Environment variables in key:value format"
+    )
     .option("-s, --docstores <id...>", "Docstore IDs to use")
-    .option("-p, --privkey_hex <hex>", "Expert private key in hex format (generates one if not provided)")
+    .option(
+      "-p, --privkey_hex <hex>",
+      "Expert private key in hex format (generates one if not provided)"
+    )
     .option("-d, --debug", "Enable debug logging")
     .option("--description <text>", "Description of the expert")
     .option("--picture <url>", "URL to the expert's picture")
     .option("--hashtags <tags>", "Comma-separated hashtags for the expert")
     .option("--model <name>", "Model name for the expert")
     .option("--temperature <value>", "Temperature setting for the expert")
-    .option("--system_prompt <text>", "System prompt for the expert")
+    .option(
+      "--system_prompt <text>",
+      'System prompt for the expert, or template "nostr"'
+    )
     .option("--discovery_hashtags <tags>", "Comma-separated discovery hashtags")
     .option("--discovery_relays <urls>", "Comma-separated discovery relay URLs")
     .option("--prompt_relays <urls>", "Comma-separated prompt relay URLs")
@@ -170,7 +188,7 @@ export function registerCreateCommand(program: Command): void {
         process.exit(1);
       }
     });
-    
+
   // Add remote options
   addRemoteOptions(command);
 }

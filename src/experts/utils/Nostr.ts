@@ -154,7 +154,7 @@ export class Nostr {
           relayListFilter,
           Nostr.OUTBOX_RELAYS,
           this.pool,
-          10000 // 10 second timeout
+          2000 // 2 second timeout
         );
 
         // Parse relay list into read and write relays
@@ -183,7 +183,7 @@ export class Nostr {
         profileFilter,
         [...Nostr.OUTBOX_RELAYS, ...relays],
         this.pool,
-        5000 // 5 second timeout
+        2000 // 2 second timeout
       );
 
       // Parse profile data

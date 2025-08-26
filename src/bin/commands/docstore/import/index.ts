@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import { registerNostrImportCommand } from "./nostr.js";
+import { registerMarkdownImportCommand } from "./markdown.js";
 
 /**
  * Register the import command with its subcommands
@@ -20,4 +21,5 @@ export function registerImportCommand(
   
   // Register import subcommands
   registerNostrImportCommand(importCommand, addCommonOptions);
+  registerMarkdownImportCommand(importCommand, addCommonOptions);
 }

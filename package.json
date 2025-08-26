@@ -1,6 +1,6 @@
 {
   "name": "askexperts",
-  "version": "0.7.62",
+  "version": "0.7.68",
   "description": "AskExperts SDK: build and use AI experts - ask them questions and pay with bitcoin on an open protocol",
   "main": "dist/index.js",
   "type": "module",
@@ -21,7 +21,7 @@
     "expert": "tsx examples/expert-example.ts",
     "test:exports": "tsx tests/test-exports.ts",
     "prepublishOnly": "npm run build",
-    "build:modules": "npm run build:client && npm run build:experts && npm run build:docstore && npm run build:server && npm run build:mcp && npm run build:openai && npm run build:rag && npm run build:proxy && npm run build:payments && npm run build:common && npm run build:bin && npm run build:db && npm run build:remote && npm run build:stream && npm run build:wallet",
+    "build:modules": "npm run build:client && npm run build:experts && npm run build:docstore && npm run build:server && npm run build:mcp && npm run build:openai && npm run build:rag && npm run build:proxy && npm run build:payments && npm run build:common && npm run build:bin && npm run build:db && npm run build:remote && npm run build:stream && npm run build:wallet && npm run build:import",
     "build:experts": "mkdir -p dist/experts && cp -r dist/src/experts/* dist/experts/ && npm run build:experts:browser",
     "build:experts:browser": "esbuild src/experts/browser.ts --bundle --platform=browser --target=es2020 --format=esm --outfile=dist/experts/browser.js --external:stream --external:events --external:zlib --external:util --external:crypto --external:fs --external:path --external:os --external:http --external:https --external:net --external:tls --external:child_process --external:worker_threads --external:readline --external:assert --external:buffer --external:ws",
     "build:docstore": "mkdir -p dist/docstore && cp -r dist/src/docstore/* dist/docstore/ && npm run build:docstore:browser && npm run build:docstore:node",
@@ -38,7 +38,8 @@
     "build:db": "mkdir -p dist/db && cp -r dist/src/db/* dist/db/ && npm run build:db:browser",
     "build:remote": "mkdir -p dist/remote && cp -r dist/src/remote/* dist/remote/",
     "build:stream": "mkdir -p dist/stream && cp -r dist/src/stream/* dist/stream/",
-    "build:wallet": "mkdir -p dist/wallet && cp -r dist/src/wallet/* dist/wallet/"
+    "build:wallet": "mkdir -p dist/wallet && cp -r dist/src/wallet/* dist/wallet/",
+    "build:import": "mkdir -p dist/import && cp -r dist/src/import/* dist/import/"
   },
   "keywords": [
     "mcp",
@@ -71,6 +72,7 @@
     "dist/server",
     "dist/stream",
     "dist/wallet",
+    "dist/import",
     "bin",
     "README.md"
   ],
@@ -126,6 +128,9 @@
     },
     "./wallet": {
       "default": "./dist/wallet/index.js"
+    },
+    "./import": {
+      "default": "./dist/import/index.js"
     }
   },
   "publishConfig": {

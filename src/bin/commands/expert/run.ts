@@ -125,6 +125,69 @@ async function runNostrExpert(
 }
 
 /**
+ * Run a rag expert
+ *
+ * @param expert The expert to run
+ * @param options Command options
+ */
+async function runRagExpert(
+  db: DBInterface,
+  expert: DBExpert,
+  options: RunExpertCommandOptions
+): Promise<void> {
+  try {
+    // Get wallet for the expert
+    const wallet = await getWalletForExpert(db, expert.wallet_id || "");
+    const nwcString = wallet.nwc;
+
+    // Parse environment variables using dotenv
+    const envVars = dotenv.parse(expert.env || "");
+
+    // Get RAG host and port from environment
+    const ragHost = envVars.CHROMA_HOST || process.env.CHROMA_HOST;
+    const ragPortStr = envVars.CHROMA_PORT || process.env.CHROMA_PORT;
+    const ragPort = ragPortStr ? parseInt(ragPortStr) : undefined;
+
+    // Create a shared pool
+    const pool = new SimplePool();
+
+    // Create ExpertWorker
+    const worker = new ExpertWorker(pool, ragHost, ragPort);
+
+    // Set up signal handling
+    const onStop = new Promise<void>((ok) => {
+      const sigHandler = async () => {
+        debugExpert("\nReceived SIGINT. Shutting down expert...");
+
+        // Stop the expert
+        ok();
+
+        // Final cleaning
+        await worker[Symbol.asyncDispose]();
+        pool.destroy();
+
+        debugExpert("Expert shut down");
+      };
+
+      // SIGINT and SIGTERM
+      process.on("SIGINT", sigHandler);
+      process.on("SIGTERM", sigHandler);
+    });
+
+    // Start the expert
+    await worker.startExpert(expert, nwcString);
+
+    debugExpert("Press Ctrl+C to exit.");
+
+    // Wait for stop signal
+    await onStop;
+  } catch (error) {
+    debugError("Error running Nostr expert:", error);
+    throw error;
+  }
+}
+
+/**
  * Run an OpenRouter expert
  *
  * @param expert The expert to run
@@ -210,6 +273,8 @@ export async function runExpert(
     // Run expert based on type
     if (expert.type === "nostr") {
       await runNostrExpert(db, expert, options);
+    } else if (expert.type === "rag") {
+      await runRagExpert(db, expert, options);
     } else if (expert.type === "openrouter") {
       await runOpenRouterExpert(db, expert, options);
     } else {

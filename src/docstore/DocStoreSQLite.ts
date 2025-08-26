@@ -54,6 +54,8 @@ export class DocStoreSQLite {
         type TEXT NOT NULL,
         data TEXT NOT NULL,
         embeddings BLOB,
+        file BLOB,
+        metadata TEXT DEFAULT '',
         UNIQUE(docstore_id, id)
       )
     `);
@@ -95,6 +97,34 @@ export class DocStoreSQLite {
       }
     } catch (error) {
       debugError("Error adding user_id column to docs table:", error);
+    }
+
+    // Migration: Add file column to docs table if it doesn't exist
+    try {
+      // Check if file column exists in docs table
+      const docsColumns = this.db.prepare("PRAGMA table_info(docs)").all();
+      const hasFileColumn = docsColumns.some((col: any) => col.name === 'file');
+      
+      if (!hasFileColumn) {
+        debugDocstore("Adding file column to docs table");
+        this.db.exec("ALTER TABLE docs ADD COLUMN file BLOB");
+      }
+    } catch (error) {
+      debugError("Error adding file column to docs table:", error);
+    }
+
+    // Migration: Add metadata column to docs table if it doesn't exist
+    try {
+      // Check if metadata column exists in docs table
+      const docsColumns = this.db.prepare("PRAGMA table_info(docs)").all();
+      const hasMetadataColumn = docsColumns.some((col: any) => col.name === 'metadata');
+      
+      if (!hasMetadataColumn) {
+        debugDocstore("Adding metadata column to docs table");
+        this.db.exec("ALTER TABLE docs ADD COLUMN metadata TEXT NOT NULL DEFAULT ''");
+      }
+    } catch (error) {
+      debugError("Error adding metadata column to docs table:", error);
     }
   }
 
@@ -141,6 +171,8 @@ export class DocStoreSQLite {
         data: row.data?.toString() || "",
         embeddings: embeddingsArray,
         user_id: row.user_id?.toString() || "",
+        file: row.file ? (row.file as Buffer) : undefined,
+        metadata: row.metadata?.toString() || "",
         // aid is not included in the returned Doc object as it's an internal implementation detail
       };
     };
@@ -408,8 +440,8 @@ export class DocStoreSQLite {
     // Use INSERT OR REPLACE to handle both insert and update in a single atomic operation
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO docs (
-        id, docstore_id, timestamp, created_at, type, data, embeddings, user_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        id, docstore_id, timestamp, created_at, type, data, embeddings, user_id, file, metadata
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -420,7 +452,9 @@ export class DocStoreSQLite {
       doc.type,
       doc.data,
       embeddingsBlob,
-      user_id || doc.user_id || ""
+      user_id || doc.user_id || "",
+      doc.file || null,
+      doc.metadata || ""
     );
     
     return Promise.resolve();
@@ -465,6 +499,8 @@ export class DocStoreSQLite {
       data: row.data?.toString() || "",
       embeddings: embeddingsArray,
       user_id: row.user_id?.toString() || "",
+      file: row.file ? (row.file as Buffer) : undefined,
+      metadata: row.metadata?.toString() || "",
     };
     
     return Promise.resolve(doc);
@@ -651,6 +687,8 @@ export class DocStoreSQLite {
         data: row.data?.toString() || "",
         embeddings: embeddingsArray,
         user_id: row.user_id?.toString() || "",
+        file: row.file ? (row.file as Buffer) : undefined,
+        metadata: row.metadata?.toString() || "",
       };
     });
     

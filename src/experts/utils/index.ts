@@ -27,13 +27,21 @@ Then for each hashtag, come up with 4 additional variations of it and add variat
 Return ONLY a JSON array of hashtags - english, lowercase, without # symbol, with - instead of spaces, with no explanation or other text.
 Example response: ["bitcoin", "programming", "javascript", "webapps", "openprotocols"]`;
 
+    const MAX_SIZE = 100000; // 100 kb
+    let size = 0;
+    const input_posts = [];
+    while (posts.length > 0 && size < MAX_SIZE) {
+      const post = posts.shift()!;
+      if (size + post.content.length > MAX_SIZE)
+        break;
+      size += post.content.length;
+      input_posts.push({ content: post.content });
+    }
+
     const input = JSON.stringify(
       {
         profile: profile,
-        posts: posts.map((p) => ({
-          // cut other fields from the prompt
-          content: p.content,
-        })),
+        posts: input_posts,
       },
       null,
       2

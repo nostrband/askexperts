@@ -1,4 +1,3 @@
-import { Event, nip19, validateEvent } from "nostr-tools";
 import { Ask, ExpertBid, Prompt } from "../common/types.js";
 import { debugExpert, debugError } from "../common/debug.js";
 import { FORMAT_OPENAI, FORMAT_TEXT } from "../common/constants.js";
@@ -8,13 +7,13 @@ import { Doc, DocStoreClient } from "../docstore/interfaces.js";
 import { DocstoreToRag, createRagEmbeddings } from "../rag/index.js";
 import { DBExpert } from "../db/interfaces.js";
 import { str2arr } from "../common/utils.js";
-import { extractHashtags } from "./index.js";
+import { Prompts } from "./Prompts.js";
 
 /**
- * NostrExpert implementation for NIP-174
- * Provides an expert that imitates a Nostr user based on their profile and posts
+ * RagExpert implementation for NIP-174
+ * Provides expert access to context using docstore and rag
  */
-export class NostrExpert {
+export class RagExpert {
   /**
    * OpenaiExpertBase instance
    */
@@ -23,19 +22,13 @@ export class NostrExpert {
   /** Expert info */
   private expert: DBExpert;
 
-  /**
-   * Public key of the Nostr user to imitate
-   */
-  private pubkey: string;
-
   /** Hashtags we're watching */
   private discovery_hashtags: string[] = [];
 
   /**
-   * Crawled data
+   * Documents
    */
-  private profile?: any;
-  private posts: Event[] = [];
+  private docs: Doc[] = [];
 
   /**
    * RAG embeddings provider
@@ -62,23 +55,24 @@ export class NostrExpert {
    */
   private docstoreId: string;
 
+  /**
+   * Docstore-to-rag sync object
+   */
   private syncController?: { stop: () => void };
 
   /**
-   * Creates a new NostrExpert instance
+   * Creates a new RagExpert instance
    *
    * @param options - Configuration options
    */
   constructor(options: {
     openaiExpert: OpenaiProxyExpertBase;
     expert: DBExpert;
-    pubkey: string;
     ragDB: RagDB;
     docStoreClient: DocStoreClient;
     docstoreId: string;
   }) {
     this.expert = options.expert;
-    this.pubkey = options.pubkey;
     this.openaiExpert = options.openaiExpert;
 
     // Store RAG database
@@ -100,16 +94,12 @@ export class NostrExpert {
       this.onGetInvoiceDescription.bind(this);
   }
 
-  private pubkeyNickname() {
-    return this.expert.nickname || this.pubkey.substring(0, 6);
-  }
-
   /**
    * Starts the expert and crawls the Nostr profile
    */
   async start(): Promise<void> {
     try {
-      debugExpert(`Starting NostrExpert for pubkey: ${this.pubkey}`);
+      debugExpert(`Starting RagExpert`);
 
       // Get docstore to determine model
       const docstore = await this.docStoreClient.getDocstore(this.docstoreId);
@@ -132,32 +122,13 @@ export class NostrExpert {
       );
 
       // Sync from docstore to RAG
-      let count = 0;
       const decoder = new TextDecoder();
       await new Promise<void>(async (resolve) => {
         this.syncController = await this.docstoreToRag.sync({
           docstore_id: this.docstoreId,
           collection_name: collectionName,
           onDoc: async (doc: Doc) => {
-            count++;
-            const data = doc.file ? decoder.decode(doc.file) : doc.data;
-            const event = JSON.parse(data);
-            if (!validateEvent(event)) return false;
-            if (event.pubkey !== this.pubkey) return false;
-            switch (event.kind) {
-              case 1:
-                this.posts.push(event);
-                break;
-              case 0:
-                try {
-                  this.profile = JSON.parse(event.content);
-                } catch {
-                  debugError("Bad profile event content", event.content);
-                }
-                break;
-              default:
-                return false;
-            }
+            this.docs.push(doc);
             return true;
           },
           onEof: resolve,
@@ -165,59 +136,32 @@ export class NostrExpert {
       });
 
       debugExpert(
-        `Completed syncing docstore to RAG collection ${collectionName}, post ${this.posts.length}, docs ${count}`
+        `Completed syncing docstore to RAG collection ${collectionName}, docs ${this.docs.length}`
       );
 
+      // Parse hashtags
       this.discovery_hashtags = str2arr(this.expert.discovery_hashtags) || [];
-      if (!this.discovery_hashtags.length) {
-        // Extract hashtags from profile info
-        const extractedHashtags = await this.extractHashtags(); // this.profileInfo
-        debugExpert(
-          `Extracted hashtags: ${extractedHashtags.sort().join(", ")}`
-        );
-        this.discovery_hashtags = extractedHashtags;
-      }
-
-      // Create the system prompt with the profile data
-      let systemPrompt = this.expert.system_prompt;
-      if (!systemPrompt) {
-        systemPrompt = `You will be given a person's profile in json format below. Also, for every user's message a relevant
-selection of person's posts will be prepended to user message in this format:
-'
-### CONTEXT
-[<person's posts>]
-### Message
-<user message>
-'
-Act like you are that person - when users talk to you, look through the person's profile
-and posts and reply as if you were that person, preserve their unique style, their opinions and their preferences.
-
-${JSON.stringify(this.profile)}`;
-      }
 
       // Set hashtags to openaiExpert.server.hashtags
-      this.openaiExpert.server.hashtags = [
-        this.pubkey,
-        nip19.npubEncode(this.pubkey),
-        ...this.discovery_hashtags,
-      ];
+      this.openaiExpert.server.hashtags = [...this.discovery_hashtags];
+
+      const system_prompt =
+        this.expert.system_prompt || Prompts.defaultExpertPrompt();
 
       // Set onGetSystemPrompt to return the static systemPrompt
       this.openaiExpert.onGetSystemPrompt = (_: Prompt) =>
-        Promise.resolve(systemPrompt);
+        Promise.resolve(system_prompt);
 
       // Set nickname and description to openaiExpert.server
-      this.openaiExpert.server.nickname = this.pubkeyNickname();
-      this.openaiExpert.server.description = await this.getDescription();
+      this.openaiExpert.server.nickname = this.expert.nickname || "";
+      this.openaiExpert.server.description = this.expert.description || "";
 
       // Start the OpenAI expert
       await this.openaiExpert.start();
 
-      debugExpert(
-        `NostrExpert started successfully for pubkey: ${this.pubkey}`
-      );
+      debugExpert(`RagExpert started successfully`);
     } catch (error) {
-      debugError("Error starting NostrExpert:", error);
+      debugError("Error starting RagExpert:", error);
       throw error;
     }
   }
@@ -231,75 +175,39 @@ ${JSON.stringify(this.profile)}`;
   private async onAsk(ask: Ask): Promise<ExpertBid | undefined> {
     try {
       const tags = ask.hashtags;
-      debugExpert("ask", ask);
 
       // Check if the ask is relevant to this expert
-      if (
-        !tags.includes(this.pubkey) &&
-        !tags.includes(nip19.npubEncode(this.pubkey)) &&
-        !tags.find((s) => this.discovery_hashtags.includes(s))
-      ) {
+      if (!tags.find((s) => this.discovery_hashtags.includes(s))) {
         return undefined;
       }
 
-      debugExpert(`NostrExpert received ask: ${ask.id}`);
+      debugExpert(`RagExpert received ask: ${ask.id}`);
 
       // Return a bid with our offer
       return {
-        offer: await this.getDescription(),
+        offer: this.expert.description || "I can answer your question",
       };
     } catch (error) {
-      debugError("Error handling ask in NostrExpert:", error);
+      debugError("Error handling ask in RagExpert:", error);
       return undefined;
     }
-  }
-
-  private async getDescription(): Promise<string> {
-    if (this.expert.description) return this.expert.description;
-    return `I am imitating ${this.pubkeyNickname()} pubkey ${
-      this.pubkey
-    } (${nip19.npubEncode(
-      this.pubkey
-    )}), ask me questions and I can answer like them. Profile description of ${this.pubkeyNickname()}: 
-${this.profile?.about || "-"}`;
   }
 
   /**
    * Disposes of resources when the expert is no longer needed
    */
   async [Symbol.asyncDispose]() {
-    debugExpert("Clearing NostrExpert");
+    debugExpert("Clearing RagExpert");
     this.docstoreToRag[Symbol.dispose]();
     this.syncController?.stop();
   }
 
-  /**
-   * Extracts hashtags from profile information using OpenAI
-   *
-   * @returns Promise resolving to an array of hashtags
-   */
-  private async extractHashtags(): Promise<string[]> {
-    return extractHashtags(
-      this.openaiExpert.openai,
-      this.openaiExpert.model,
-      this.profile,
-      this.posts
-        .sort((a, b) => a.created_at - b.created_at)
-        .slice(-Math.min(this.posts.length, 500))
-        .map((p) => ({
-          content: p.content,
-        }))
-    );
-  }
-
   private ragCollectionName() {
-    return `expert_${this.pubkey}`;
+    return `expert_${this.expert.pubkey}`;
   }
 
   private onGetInvoiceDescription(prompt: Prompt): Promise<string> {
-    return Promise.resolve(
-      `Payment to expert ${this.pubkey.substring(0, 10)}...`
-    );
+    return Promise.resolve(`Payment to expert ${this.expert.pubkey}...`);
   }
 
   /**
@@ -314,7 +222,7 @@ ${this.profile?.about || "-"}`;
       // have any relevant knowledge and quote should include this error
       const notFound = new Error("Expert has no knowledge on the subject");
 
-      if (!this.ragEmbeddings || !this.posts.length) {
+      if (!this.ragEmbeddings || !this.docs.length) {
         throw notFound;
       }
 
@@ -375,13 +283,6 @@ ${this.profile?.about || "-"}`;
       const results = batchResults
         .flat()
         .sort((a, b) => a.distance - b.distance);
-      // console.log(
-      //   "results",
-      //   JSON.stringify(results.map((r) => ({
-      //     d: r.distance,
-      //     post: this.profileInfo?.posts.find((p) => p.id === r.metadata.postId),
-      //   })))
-      // );
       if (!results.length) {
         throw notFound;
       }
@@ -393,38 +294,31 @@ ${this.profile?.about || "-"}`;
       );
 
       // Collect post IDs from all results
-      const postIds = new Map<string, number>();
+      const docIds = new Map<string, number>();
       for (const result of results) {
         if (result.metadata && result.metadata.id) {
-          const postDistance = Math.min(
+          const docDistance = Math.min(
             result.distance,
-            postIds.get(result.metadata.id) || result.distance
+            docIds.get(result.metadata.id) || result.distance
           );
-          postIds.set(result.metadata.id, postDistance);
+          docIds.set(result.metadata.id, docDistance);
         }
       }
 
       // Find matching posts in profileInfo
-      const matchingPosts = this.posts
-        .filter((post) => postIds.has(post.id))
-        .sort((a, b) => postIds.get(b.id)! - postIds.get(a.id)!);
+      const matchingDocs = this.docs
+        .filter((doc) => docIds.has(doc.id))
+        .sort((a, b) => docIds.get(b.id)! - docIds.get(a.id)!);
 
       // Nothing?
-      if (!matchingPosts.length) {
+      if (!matchingDocs.length) {
         throw notFound;
       }
 
       // Remove useless fields, return as string
-      const context = matchingPosts.map((p) => {
-        const post: any = { content: p.content, created_at: p.created_at };
-        // if (p.in_reply_to)
-        //   post.in_reply_to = {
-        //     content: p.in_reply_to.content,
-        //     pubkey: p.in_reply_to.pubkey,
-        //   };
-        return post;
+      const context = matchingDocs.map((d) => {
+        return { content: d.data, metadata: d.metadata || "" };
       });
-      // console.log("context", context);
       return JSON.stringify(context, null, 2);
     } catch (error) {
       debugError("Error generating prompt context:", error);

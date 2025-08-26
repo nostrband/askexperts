@@ -59,6 +59,11 @@ export class OpenaiProxyExpertBase {
   #model: string;
 
   /**
+   * Temperature for model responses (0-2)
+   */
+  #temperature?: number;
+
+  /**
    * Creates a new OpenaiExpert instance
    *
    * @param options - Configuration options
@@ -67,11 +72,13 @@ export class OpenaiProxyExpertBase {
     server: AskExpertsServer;
     openai: OpenaiInterface;
     model: string;
+    temperature?: number;
     onGetContext?: (prompt: Prompt) => Promise<string>;
     onGetSystemPrompt?: (prompt: Prompt) => Promise<string>;
     onGetInvoiceDescription?: (prompt: Prompt) => Promise<string>;
   }) {
     this.#model = options.model;
+    this.#temperature = options.temperature;
     this.#onGetContext = options.onGetContext;
     this.#onGetSystemPrompt = options.onGetSystemPrompt;
     this.#onGetInvoiceDescription = options.onGetInvoiceDescription;
@@ -146,6 +153,24 @@ export class OpenaiProxyExpertBase {
   }
 
   /**
+   * Gets the temperature setting for model responses
+   * 
+   * @returns The temperature value or undefined if not set
+   */
+  get temperature(): number | undefined {
+    return this.#temperature;
+  }
+
+  /**
+   * Sets the temperature for model responses
+   * 
+   * @param value - Temperature value between 0 and 2, or undefined to use model default
+   */
+  set temperature(value: number | undefined) {
+    this.#temperature = value;
+  }
+
+  /**
    * Handles prompt events
    *
    * @param prompt - The prompt event
@@ -198,15 +223,12 @@ export class OpenaiProxyExpertBase {
       case FORMAT_OPENAI: {
         // For OpenAI format, we will pass the content directly to the OpenAI API
         content = prompt.content as ChatCompletionCreateParams;
-
-        // Ensure proper model
-        content.model = this.model;
         break;
       }
       case FORMAT_TEXT: {
         // For text format, convert to a single user message
         content = {
-          model: this.model,
+          model: this.model, // Include model property to satisfy TypeScript
           messages: [
             {
               role: "user" as const,
@@ -218,6 +240,14 @@ export class OpenaiProxyExpertBase {
       }
       default:
         throw new Error(`Unsupported format: ${prompt.format}`);
+    }
+
+    // Ensure proper model
+    content.model = this.model;
+
+    // Set temperature if defined
+    if (this.#temperature !== undefined) {
+      content.temperature = this.#temperature;
     }
 
     // If system prompt is set, replace all system/developer roles with user
@@ -244,11 +274,11 @@ export class OpenaiProxyExpertBase {
       const lastMessage = content.messages[content.messages.length - 1];
       if (typeof lastMessage.content === "string") {
         lastMessage.content = `
-### Context
-${contextText}
-
-### User Message
+**User Message**
 ${lastMessage.content}
+
+**Context**
+${contextText}
 `;
       }
     }

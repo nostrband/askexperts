@@ -52,8 +52,8 @@ export async function updateExpert(
     // Update type if specified
     if (options.type) {
       // Validate type
-      if (options.type !== "nostr" && options.type !== "openai") {
-        throw new Error('Type must be either "nostr" or "openai"');
+      if (options.type !== "rag" && options.type !== "openai") {
+        throw new Error('Type must be either "rag" or "openai"');
       }
       expert.type = options.type;
       changes = true;
@@ -114,7 +114,7 @@ export function registerUpdateCommand(program: Command): void {
     .description("Update an existing expert in the database")
     .argument("<pubkey>", "Public key of the expert to update")
     .option("-w, --wallet <name>", "Wallet name to use")
-    .option("-t, --type <type>", "Type of expert (nostr or openai)")
+    .option("-t, --type <type>", "Type of expert (rag or openai)")
     .option("-n, --nickname <name>", "Nickname for the expert")
     .option("-e, --env <key:value...>", "Environment variables in key:value format")
     .option("-s, --docstores <id...>", "Docstore IDs to use")

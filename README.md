@@ -5,111 +5,6 @@
 
 Create AI experts, discover them, ask them questions privately and pay for the answers using the Lightning Network.
 
-## TLDR: How to launch an AI expert "clone" based on your Nostr posts?
-
-Create yourself an NWC-enabled lightning wallet:
-```bash
-bash$ npx askexperts wallet create main
-Creating new NWC wallet...
-Wallet 'main' created successfully with ID 1
-NWC connection string: nostr+walletconnect://c99a1f0b7390a3db4b09c47f08d4541de1aa9b60ba7a37396554101b7004fb96?relay=...............
-```
-
-Topup your wallet with some sats, as LLM access (paid with sats) is needed when expert is launched. Create invoice and pay it:
-```bash
-bash$ npx askexperts wallet invoice 1000 --desc topup
-...
-Invoice: lnbc10u1p5fga5lpp5h9440kpfs0km...
-...
-```
-
-Or, if you already have a wallet (i.e. Alby Hub) - connect it:
-```bash
-bash$ npx askexperts wallet add main -n "nostr+walletconnect://c99a1f0b7390a3db4b09c47f08d4541de1aa9b60ba7a37396554101b7004fb96?relay=..."
-Wallet 'main' added successfully with ID 1
-```
-
-Launch chromadb - RAG database to provide relevant context to expert:
-```bash
-bash$ docker run -p 8000:8000 -v ./data:/data chromadb/chroma
-```
-
-Next, create a document store for your documents (Nostr posts, etc):
-```bash
-bash$ npx askexperts docstore create my-docs
-Docstore 'my-docs' created with ID: 6a9a1e51-3219-4e1c-9e13-5e08ef24bfcd
-Model: Xenova/all-MiniLM-L6-v2
-Vector size: 384
-```
-
-Next, import your Nostr posts into your doc store:
-```bash
-bash$ npx askexperts docstore import nostr <your pubkey> -k 0,1 -l 10000 -d
-  ...
-  askexperts:docstore Fetched 321 events. Preparing embeddings... +20s
-  askexperts:docstore Upserting document: 24858b9226aa310e615aa72bbbb402525fe24c9d5d1f3010d3015d367ec64dcd in docstore: 2dc955b4-dc38-4c74-af2a-706f50712426, type: nostr:kind:1 +247ms
-  ...
-  askexperts:docstore Processed 10/321 events +7ms
-  askexperts:docstore Successfully imported 321 Nostr events +2ms
-```
-
-Now create the expert, supply it's name, your nostr pubkey, and the doc store id which you created above:
-```bash
-bash$ npx askexperts expert create nostr <expert name> -e "NOSTR_PUBKEY=<your_nostr_pubkey> -s 6a9a1e51-3219-4e1c-9e13-5e08ef24bfcd
-Expert created successfully:
-  Type: nostr
-  Nickname: <expert name>
-  Public Key: b88eaa8898e0f4f852541304ff1e34ff0ce99837006c564f63da6fa4e728f5dd
-  Private Key: <....>
-  Wallet ID: 1
-  Environment Variables: NOSTR_PUBKEY=<your nostr pubkey>
-  Docstores: 6a9a1e51-3219-4e1c-9e13-5e08ef24bfcd
-```
-
-Launch it:
-```bash
-bash$ npx askexperts expert run lyn_clone -d
-  ...
-  askexperts:expert Initializing RAG components... +0ms
-  askexperts:expert RAG database initialized +1ms
-  ...
-  askexperts:expert Starting sync from docstore 6a9a1e51-3219-4e1c-9e13-5e08ef24bfcd to RAG collection ... +0ms
-  askexperts:docstore Subscribing to docstore: 6a9a1e51-3219-4e1c-9e13-5e08ef24bfcd, type: all, since: beginning, until: now +151ms
-  askexperts:docstore Synced batch 100 +594ms
-  askexperts:docstore Synced batch 100 +79ms
-  askexperts:docstore Synced batch 100 +80ms
-  askexperts:docstore Synced batch 100 +65ms
-  askexperts:docstore Synced batch 100 +70ms
-  askexperts:docstore Synced batch 100 +62ms
-  askexperts:docstore Synced batch 100 +70ms
-  askexperts:docstore Synced batch 100 +74ms
-  askexperts:docstore Synced batch 19 +49ms
-  askexperts:expert Completed syncing docstore to RAG collection ... +1s
-  askexperts:expert Extract hashtags, input size 177814 chars +2ms
-  ...
-  askexperts:expert Paying 120 for extractHashtags +944ms
-  askexperts:expert Completed syncing docstore to RAG collection ... +9s
-  askexperts:expert Extracted hashtags: ai, ai-ethics, ai-in-media, ai-research, ai-tools, ai-writing, artificial-intelligence, asset-allocation, author-life, automation, bitcoin, bitcoin-adoption, bitcoin-ecosystem, bitcoin-education, bitcoin-network, bitcoin-policy, bitcoin-privacy, bitcoin-research, bitcoin-settlement, blockchain, blockchain-adoption, blockchain-consensus, blockchain-education, blockchain-governance, blockchain-network, blockchain-policy, blockchain-privacy, blockchain-security, blockchain-technology, book-reviews, btc, creative-writing, currency-markets, decentralized-social-media, deflation, dollar-system, economic-analysis, economic-history, economic-policy, editing, energy, energy-infrastructure, energy-markets, energy-policy, energy-transition, fiction-writing, finance, financial-analysis, financial-education, financial-literacy, financial-literacy, financial-markets, fiscal-policy, geopolitics, global-macro, global-politics, global-trade, globalization, gold, import-export, inflation, international-relations, international-trade, investment-strategy, macro-analysis, macro-economics, macro-policy, macro-trends, macroeconomics, monetary-history, monetary-policy, nostr, nostr-adoption, nostr-ecosystem, nostr-network, nostr-protocol, nostr-social, nostr-use-cases, nostr-vs-twitter, novel-writing, nuclear-energy, oil-markets, open-protocols, portfolio-management, publishing, renewable-energy, robotics, solar-energy, sovereign-debt, supply-chains, tariffs, tech-trends, technology, trade-deficits, trade-imbalances, trade-policy, trade-wars, tradfi, traditional-finance, us-deficit, us-economic-policy, us-economy, us-fiscal-policy, us-macroeconomics, us-monetary-policy, us-politics, us-public-debt, us-tariffs, us-trade, usd, writing, writing-advice, writing-process +5s
-  askexperts:expert NostrExpert started successfully for pubkey: ... +1ms
-  askexperts:expert Press Ctrl+C to exit. +0ms
-```
-
-Try chatting with your expert (use it's pubkey):
-```bash
-bash$ npx askexperts chat b88eaa8898e0f4f852541304ff1e34ff0ce99837006c564f63da6fa4e728f5dd -d
-
-Expert: <expert name>
------------------------------------------------------------
-Type your messages and press Enter to send. Type "exit" to quit.
------------------------------------------------------------
-You > who are you?
-Paid 47 sats to expert in 1049 ms.
-Expert > I’m Lyn Alden. I’m an engineer-turned-macro-analyst, author, and business owner. I started out with a blue-collar background, studied engineering, and solo-leveled up to become a lead engineer before my side finance work took off to the point that it became my main thing.
-.....
-```
-
-You successfully created an AI expert "clone" of yourself, anyone in the world can talk to it and pay over Lightning Network per message, expert income flows into the wallet you attached. In our case the same wallet was used to pay while we were chatting with it.
-
 ## Table of Contents
 
 - [Overview](#overview)
@@ -132,8 +27,6 @@ You successfully created an AI expert "clone" of yourself, anyone in the world c
   - [Document Store](#document-store)
   - [Wallet Management](#wallet-management)
   - [Streaming](#streaming)
-  - [Environment Management](#environment-management)
-  - [Configuration](#configuration-1)
 - [Development](#development)
 - [Examples](#examples)
   - [Browser Client](#browser-client)
@@ -605,7 +498,7 @@ The AskExperts SDK provides a comprehensive command-line interface (CLI) for var
 
 - **chat**: Start an interactive chat with a specific expert
   ```bash
-  npx askexperts chat npub1expert... --wallet=my_wallet --max-amount=1000 --stream
+  npx askexperts chat <expert-pubkey> --wallet=my_wallet --max-amount=1000 --stream
   ```
 
 ### Expert Management
@@ -739,38 +632,6 @@ The AskExperts SDK provides a comprehensive command-line interface (CLI) for var
     ```bash
     npx askexperts stream receive stream_id --relays=wss://relay1.example.com
     ```
-
-### Environment Management
-
-- **env**: Manage environment variables
-  - **show**: Display all environment variables
-    ```bash
-    npx askexperts env show
-    ```
-  - **migrate**: Migrate .env file from current directory to app directory
-    ```bash
-    npx askexperts env migrate
-    ```
-
-### Configuration
-
-Create a `.env` file with the following configuration:
-
-```
-# MCP CLI configuration
-NWC_STRING=your_nwc_connection_string_here
-DISCOVERY_RELAYS=wss://relay1.example.com,wss://relay2.example.com
-
-# OpenAI configuration (required for Smart MCP server)
-OPENAI_API_KEY=your_openai_api_key_here
-OPENAI_BASE_URL=https://api.openai.com/v1
-
-# Document store configuration
-DOCSTORE_PATH=/path/to/docstore.db
-
-# Wallet configuration
-DEFAULT_WALLET=my_wallet_name
-```
 
 ### MCP Server APIs
 
@@ -1034,6 +895,111 @@ const paymentManager = new ExpertPaymentManager({
 // Generate invoices and verify payments
 // ...
 ```
+
+## HOWTO: launch an AI expert "clone" based on your Nostr posts
+
+Create yourself an NWC-enabled lightning wallet:
+```bash
+bash$ npx askexperts wallet create main
+Creating new NWC wallet...
+Wallet 'main' created successfully with ID 1
+NWC connection string: nostr+walletconnect://c99a1f0b7390a3db4b09c47f08d4541de1aa9b60ba7a37396554101b7004fb96?relay=...............
+```
+
+Topup your wallet with some sats, as LLM access (paid with sats) is needed when expert is launched. Create invoice and pay it:
+```bash
+bash$ npx askexperts wallet invoice 1000 --desc topup
+...
+Invoice: lnbc10u1p5fga5lpp5h9440kpfs0km...
+...
+```
+
+Or, if you already have a wallet (i.e. Alby Hub) - connect it:
+```bash
+bash$ npx askexperts wallet add main -n "nostr+walletconnect://c99a1f0b7390a3db4b09c47f08d4541de1aa9b60ba7a37396554101b7004fb96?relay=..."
+Wallet 'main' added successfully with ID 1
+```
+
+Launch chromadb - RAG database to provide relevant context to expert:
+```bash
+bash$ docker run -p 8000:8000 -v ./data:/data chromadb/chroma
+```
+
+Next, create a document store for your documents (Nostr posts, etc):
+```bash
+bash$ npx askexperts docstore create my-docs
+Docstore 'my-docs' created with ID: 6a9a1e51-3219-4e1c-9e13-5e08ef24bfcd
+Model: Xenova/all-MiniLM-L6-v2
+Vector size: 384
+```
+
+Next, import your Nostr posts into your doc store:
+```bash
+bash$ npx askexperts docstore import nostr <your pubkey> -k 0,1 -l 10000 -d
+  ...
+  askexperts:docstore Fetched 321 events. Preparing embeddings... +20s
+  askexperts:docstore Upserting document: 24858b9226aa310e615aa72bbbb402525fe24c9d5d1f3010d3015d367ec64dcd in docstore: 2dc955b4-dc38-4c74-af2a-706f50712426, type: nostr:kind:1 +247ms
+  ...
+  askexperts:docstore Processed 10/321 events +7ms
+  askexperts:docstore Successfully imported 321 Nostr events +2ms
+```
+
+Now create the expert, supply it's name, and the doc store id which you created above:
+```bash
+bash$ npx askexperts expert create rag <expert name> -s 6a9a1e51-3219-4e1c-9e13-5e08ef24bfcd --system_prompt nostr
+Expert created successfully:
+  Type: rag
+  Nickname: <expert name>
+  Public Key: b88eaa8898e0f4f852541304ff1e34ff0ce99837006c564f63da6fa4e728f5dd
+  Private Key: <....>
+  Wallet ID: 1
+  Docstores: 6a9a1e51-3219-4e1c-9e13-5e08ef24bfcd
+```
+
+Launch it:
+```bash
+bash$ npx askexperts expert run lyn_clone -d
+  ...
+  askexperts:expert Initializing RAG components... +0ms
+  askexperts:expert RAG database initialized +1ms
+  ...
+  askexperts:expert Starting sync from docstore 6a9a1e51-3219-4e1c-9e13-5e08ef24bfcd to RAG collection ... +0ms
+  askexperts:docstore Subscribing to docstore: 6a9a1e51-3219-4e1c-9e13-5e08ef24bfcd, type: all, since: beginning, until: now +151ms
+  askexperts:docstore Synced batch 100 +594ms
+  askexperts:docstore Synced batch 100 +79ms
+  askexperts:docstore Synced batch 100 +80ms
+  askexperts:docstore Synced batch 100 +65ms
+  askexperts:docstore Synced batch 100 +70ms
+  askexperts:docstore Synced batch 100 +62ms
+  askexperts:docstore Synced batch 100 +70ms
+  askexperts:docstore Synced batch 100 +74ms
+  askexperts:docstore Synced batch 19 +49ms
+  askexperts:expert Completed syncing docstore to RAG collection ... +1s
+  askexperts:expert Extract hashtags, input size 177814 chars +2ms
+  ...
+  askexperts:expert Paying 120 for extractHashtags +944ms
+  askexperts:expert Completed syncing docstore to RAG collection ... +9s
+  askexperts:expert Extracted hashtags: ai, ai-ethics, ai-in-media, ai-research, ai-tools, ai-writing, artificial-intelligence, asset-allocation, author-life, automation, bitcoin, bitcoin-adoption, bitcoin-ecosystem, bitcoin-education, bitcoin-network, bitcoin-policy, bitcoin-privacy, bitcoin-research, bitcoin-settlement, blockchain, blockchain-adoption, blockchain-consensus, blockchain-education, blockchain-governance, blockchain-network, blockchain-policy, blockchain-privacy, blockchain-security, blockchain-technology, book-reviews, btc, creative-writing, currency-markets, decentralized-social-media, deflation, dollar-system, economic-analysis, economic-history, economic-policy, editing, energy, energy-infrastructure, energy-markets, energy-policy, energy-transition, fiction-writing, finance, financial-analysis, financial-education, financial-literacy, financial-literacy, financial-markets, fiscal-policy, geopolitics, global-macro, global-politics, global-trade, globalization, gold, import-export, inflation, international-relations, international-trade, investment-strategy, macro-analysis, macro-economics, macro-policy, macro-trends, macroeconomics, monetary-history, monetary-policy, nostr, nostr-adoption, nostr-ecosystem, nostr-network, nostr-protocol, nostr-social, nostr-use-cases, nostr-vs-twitter, novel-writing, nuclear-energy, oil-markets, open-protocols, portfolio-management, publishing, renewable-energy, robotics, solar-energy, sovereign-debt, supply-chains, tariffs, tech-trends, technology, trade-deficits, trade-imbalances, trade-policy, trade-wars, tradfi, traditional-finance, us-deficit, us-economic-policy, us-economy, us-fiscal-policy, us-macroeconomics, us-monetary-policy, us-politics, us-public-debt, us-tariffs, us-trade, usd, writing, writing-advice, writing-process +5s
+  askexperts:expert NostrExpert started successfully for pubkey: ... +1ms
+  askexperts:expert Press Ctrl+C to exit. +0ms
+```
+
+Try chatting with your expert (use it's pubkey):
+```bash
+bash$ npx askexperts chat b88eaa8898e0f4f852541304ff1e34ff0ce99837006c564f63da6fa4e728f5dd -d
+
+Expert: <expert name>
+-----------------------------------------------------------
+Type your messages and press Enter to send. Type "exit" to quit.
+-----------------------------------------------------------
+You > who are you?
+Paid 47 sats to expert in 1049 ms.
+Expert > I’m Lyn Alden. I’m an engineer-turned-macro-analyst, author, and business owner. I started out with a blue-collar background, studied engineering, and solo-leveled up to become a lead engineer before my side finance work took off to the point that it became my main thing.
+.....
+```
+
+You successfully created an AI expert "clone" of yourself, anyone in the world can talk to it and pay over Lightning Network per message, expert income flows into the wallet you attached. In our case the same wallet was used to pay while we were chatting with it.
+
 
 ## License
 

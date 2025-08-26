@@ -16,6 +16,7 @@ import {
   enableAllDebug,
 } from "../../../../common/debug.js";
 import { createRagEmbeddings } from "../../../../rag/index.js";
+import { createDocImporter } from "../../../../import/index.js";
 
 /**
  * Options for the nostr import command
@@ -87,16 +88,20 @@ export async function importNostr(
     const embeddings = createRagEmbeddings(docstore.model);
     await embeddings.start();
 
+    // Get markdown importer
+    const importer = await createDocImporter("nostr");
+
     // Process each event
     let successCount = 0;
     for (const event of events) {
       try {
-        // Convert event to text, only take content and text as the
-        // rest is probably noise
-        const eventText = JSON.stringify([event.content, ...event.tags]);
+
+        // Convert to doc
+        const doc = await importer.createDoc(event);
+        doc.docstore_id = docstore.id;
 
         // Generate embeddings
-        const chunks = await embeddings.embed(eventText);
+        const chunks = await embeddings.embed(doc.data);
 
         // Convert embeddings from number[][] to Float32Array[]
         const float32Embeddings = chunks.map((c) => {
@@ -106,19 +111,7 @@ export async function importNostr(
           }
           return float32Array;
         });
-
-        // Create document
-        const timestamp = Math.floor(Date.now() / 1000);
-
-        const doc: Doc = {
-          id: event.id,
-          docstore_id: docstore.id,
-          timestamp: timestamp,
-          created_at: event.created_at,
-          type: `nostr:kind:${event.kind}`,
-          data: JSON.stringify(event),
-          embeddings: float32Embeddings,
-        };
+        doc.embeddings = float32Embeddings;
 
         // Add to docstore
         await docstoreClient.upsert(doc);

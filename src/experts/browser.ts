@@ -6,3 +6,4 @@
 export { Nostr } from './utils/Nostr.js';
 export { parseExpertProfile } from './utils/Nostr.js';
 export { extractHashtags } from './utils/index.js'
+export { Prompts } from './Prompts.js';

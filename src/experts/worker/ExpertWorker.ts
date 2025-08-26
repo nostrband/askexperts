@@ -15,6 +15,7 @@ import dotenv from "dotenv";
 import { DocStoreLocalClient } from "../../docstore/DocStoreLocalClient.js";
 import { hexToBytes } from "nostr-tools/utils";
 import { str2arr } from "../../common/utils.js";
+import { RagExpert } from "../RagExpert.js";
 
 /**
  * Interface for tracking running experts
@@ -82,14 +83,14 @@ export class ExpertWorker {
     try {
       // Get or create payment manager for this expert's wallet
       let paymentManager: LightningPaymentManager;
-      if (this.paymentManagers.has(expert.wallet_id || '')) {
-        paymentManager = this.paymentManagers.get(expert.wallet_id || '')!;
+      if (this.paymentManagers.has(expert.wallet_id || "")) {
+        paymentManager = this.paymentManagers.get(expert.wallet_id || "")!;
         debugExpert(
           `Reusing existing payment manager for wallet ID ${expert.wallet_id}`
         );
       } else {
         paymentManager = new LightningPaymentManager(nwcString);
-        this.paymentManagers.set(expert.wallet_id || '', paymentManager);
+        this.paymentManagers.set(expert.wallet_id || "", paymentManager);
         debugExpert(
           `Created new payment manager for wallet ID ${expert.wallet_id}`
         );
@@ -107,7 +108,7 @@ export class ExpertWorker {
       if (expert.type === "nostr") {
         // Parse docstores - exactly one must be specified
         const parsedDocstores = ExpertWorker.parseDocstoreIdsList(
-          expert.docstores || '',
+          expert.docstores || "",
           this.defaultDocStoreUrl
         );
         if (parsedDocstores.length !== 1) {
@@ -124,6 +125,33 @@ export class ExpertWorker {
           ExpertWorker.createDocStoreClientFromParsed(parsedDocstore, privkey);
 
         result = await this.startNostrExpert(
+          expert,
+          this.pool,
+          paymentManager,
+          this.ragDB,
+          expertDocStoreClient,
+          expertStopPromise
+        );
+      } else if (expert.type === "rag") {
+        // Parse docstores - exactly one must be specified
+        const parsedDocstores = ExpertWorker.parseDocstoreIdsList(
+          expert.docstores || "",
+          this.defaultDocStoreUrl
+        );
+        if (parsedDocstores.length !== 1) {
+          throw new Error(
+            `Expert ${expert.nickname} must have exactly one docstore specified, found ${parsedDocstores.length}`
+          );
+        }
+        const parsedDocstore = parsedDocstores[0];
+
+        // Create the appropriate DocStoreClient based on the docstore ID format,
+        // Authenticate using expert privkey
+        const privkey = expert.privkey ? hexToBytes(expert.privkey) : undefined;
+        const expertDocStoreClient =
+          ExpertWorker.createDocStoreClientFromParsed(parsedDocstore, privkey);
+
+        result = await this.startRagExpert(
           expert,
           this.pool,
           paymentManager,
@@ -235,7 +263,7 @@ export class ExpertWorker {
     const privkey = new Uint8Array(Buffer.from(expert.privkey!, "hex"));
 
     // Parse environment variables if not provided
-    const expertEnvVars = dotenv.parse(expert.env || '');
+    const expertEnvVars = dotenv.parse(expert.env || "");
 
     // Target nostr pubkey
     const nostrPubkey = expertEnvVars.NOSTR_PUBKEY;
@@ -251,7 +279,7 @@ export class ExpertWorker {
 
     // Parse docstores - exactly one must be specified
     const parsedDocstores = ExpertWorker.parseDocstoreIdsList(
-      expert.docstores || '',
+      expert.docstores || "",
       this.defaultDocStoreUrl
     );
     if (parsedDocstores.length !== 1) {
@@ -330,6 +358,121 @@ export class ExpertWorker {
   }
 
   /**
+   * Start a rag expert
+   *
+   * @param expert The expert to start
+   * @param pool SimplePool instance
+   * @param paymentManager Payment manager
+   * @param ragDB RAG database
+   * @param docStoreClient DocStore client
+   * @param onStop Promise that resolves when the expert should be stopped
+   */
+  public async startRagExpert(
+    expert: DBExpert,
+    pool: SimplePool,
+    paymentManager: LightningPaymentManager,
+    ragDB: RagDB,
+    docStoreClient: DocStoreClient,
+    onStop: Promise<void>
+  ): Promise<{ disposed: Promise<void> }> {
+    // Get private key from the expert
+    if (!expert.privkey) {
+      throw new Error(
+        `Expert ${expert.nickname} (${expert.pubkey}) does not have a private key`
+      );
+    }
+    const privkey = new Uint8Array(Buffer.from(expert.privkey!, "hex"));
+
+    // Parse environment variables if not provided
+    const expertEnvVars = dotenv.parse(expert.env || "");
+
+    // Get model and margin from environment or use defaults
+    const model = expert.model || "openai/gpt-oss-120b";
+    const margin = parseFloat(expert.price_margin || "0.1");
+
+    // Parse docstores - exactly one must be specified
+    const parsedDocstores = ExpertWorker.parseDocstoreIdsList(
+      expert.docstores || "",
+      this.defaultDocStoreUrl
+    );
+    if (parsedDocstores.length !== 1) {
+      throw new Error(
+        `Expert ${expert.nickname} must have exactly one docstore specified, found ${parsedDocstores.length}`
+      );
+    }
+    const parsedDocstore = parsedDocstores[0];
+    const docstoreId = parsedDocstore.id;
+
+    // Get API key from environment
+    const apiKey = expertEnvVars.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+    const baseURL =
+      expertEnvVars.OPENAI_BASE_URL || process.env.OPENAI_BASE_URL;
+
+    // Create OpenAI interface instance
+    const openai = createOpenAI({
+      apiKey,
+      baseURL,
+      margin,
+      pool,
+      paymentManager,
+    });
+
+    // Create server
+    const server = new AskExpertsServer({
+      privkey,
+      pool,
+      paymentManager,
+      description: expert.description,
+      discoveryRelays: str2arr(expert.discovery_relays),
+      hashtags: str2arr(expert.discovery_hashtags),
+      nickname: expert.nickname,
+      picture: expert.picture,
+      profileHashtags: str2arr(expert.hashtags),
+    });
+
+    // Create OpenaiProxyExpertBase instance
+    const openaiExpert = new OpenaiProxyExpertBase({
+      server,
+      openai,
+      model,
+    });
+
+    if (expert.temperature)
+      openaiExpert.temperature = parseFloat(expert.temperature);
+
+    // Create the expert
+    const ragExpert = new RagExpert({
+      openaiExpert,
+      expert,
+      ragDB,
+      docStoreClient,
+      docstoreId,
+    });
+
+    // Start the expert
+    await ragExpert.start();
+
+    // Create a promise that will resolve when all resources are disposed
+    let disposeResolve: () => void;
+    const disposedPromise = new Promise<void>((resolve) => {
+      disposeResolve = resolve;
+    });
+
+    // Destroy on stop signal
+    onStop.then(async () => {
+      try {
+        await ragExpert[Symbol.asyncDispose]();
+        await openaiExpert[Symbol.asyncDispose]();
+        await server[Symbol.asyncDispose]();
+      } finally {
+        disposeResolve();
+      }
+    });
+
+    return { disposed: disposedPromise };
+  }
+
+  /**
    * Start an OpenRouter expert
    *
    * @param expert The expert to start
@@ -352,7 +495,7 @@ export class ExpertWorker {
     const privkey = new Uint8Array(Buffer.from(expert.privkey!, "hex"));
 
     // Parse environment variables if not provided
-    const expertEnvVars = dotenv.parse(expert.env || '');
+    const expertEnvVars = dotenv.parse(expert.env || "");
 
     const margin = parseFloat(expert.price_margin || "0.1");
 
