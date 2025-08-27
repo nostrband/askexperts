@@ -18,6 +18,7 @@ interface WorkerCommandOptions extends ExpertCommandOptions {
   ragHost?: string;
   ragPort?: number;
   reconnectDelay?: number;
+  expertTypes?: string[];
 }
 
 /**
@@ -68,6 +69,7 @@ export async function startWorker(
       ragPort,
       reconnectDelay,
       defaultDocStoreUrl,
+      expert_types: options.expertTypes
     });
 
     // Start worker
@@ -124,8 +126,19 @@ export function registerWorkerCommand(program: Command): void {
       "Reconnection delay in milliseconds (default: 5000)",
       parseInt
     )
-    .action(async (options: WorkerCommandOptions) => {
+    .option(
+      "--expert-types <types>",
+      "Comma-separated list of expert types this worker should handle"
+    )
+    .action(async (cmdOptions: any) => {
       try {
+        const options: WorkerCommandOptions = { ...cmdOptions };
+        
+        // Parse expert-types if provided
+        if (typeof cmdOptions.expertTypes === 'string') {
+          options.expertTypes = cmdOptions.expertTypes.split(',').map((type: string) => type.trim());
+        }
+        
         await startWorker(options);
       } catch (error) {
         debugError("Error starting worker:", error);

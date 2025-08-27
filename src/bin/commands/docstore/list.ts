@@ -52,9 +52,13 @@ export async function listDocs(
             `Updated at: ${new Date(doc.timestamp * 1000).toISOString()}`
           );
           console.log(
-            `Data: ${doc.data.substring(0, 100)}${
-              doc.data.length > 100 ? "..." : ""
-            }`
+            `Metadata: ${doc.metadata}`
+          );
+          console.log(
+            `Data: ${doc.data}`
+            // `Data: ${doc.data.substring(0, 100)}${
+            //   doc.data.length > 100 ? "..." : ""
+            // }`
           );
           console.log("---");
 

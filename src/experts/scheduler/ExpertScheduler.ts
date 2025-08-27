@@ -8,6 +8,8 @@ import {
   WorkerConnection,
   WorkerToSchedulerMessage,
   SchedulerToWorkerMessage,
+  WorkerToSchedulerMessages,
+  QueuedExpert,
 } from "./interfaces.js";
 import { debugError, debug } from "../../common/debug.js";
 
@@ -25,10 +27,10 @@ export class ExpertScheduler {
 
   // Expert state tracking
   private expertStates: Map<string, ExpertStateInfo> = new Map();
-  private expertQueue: string[] = [];
+  private expertQueue: QueuedExpert[] = [];
 
   // Worker connection tracking
-  private workers: Map<string, WorkerConnection> = new Map();
+  private workers: Map<string, WorkerConnection & { expertTypes?: string[] }> = new Map();
 
   // Reconnection timers for workers
   private reconnectionTimers: Map<string, NodeJS.Timeout> = new Map();
@@ -269,7 +271,7 @@ export class ExpertScheduler {
           }
 
           // Process the expert
-          this.processExpert(expert);
+          await this.processExpert(expert);
         }
 
         // Increment the last timestamp to avoid getting the same experts again
@@ -298,7 +300,7 @@ export class ExpertScheduler {
    *
    * @param expert Expert from the database
    */
-  private processExpert(expert: DBExpert): void {
+  private async processExpert(expert: DBExpert): Promise<void> {
     // Check if the expert is disabled
     if (expert.disabled) {
       // Check if the expert is running
@@ -318,7 +320,7 @@ export class ExpertScheduler {
         debugScheduler(
           `Expert ${expert.pubkey} is enabled in database but not in state tracking, queueing it`
         );
-        this.queueExpert(expert.pubkey);
+        await this.queueExpert(expert.pubkey);
       } else {
         debugScheduler(
           `Loaded expert ${expert.pubkey} state ${expertState.state} worker ${expertState.workerId}`
@@ -355,7 +357,7 @@ export class ExpertScheduler {
             );
 
             // Reset state
-            this.queueExpert(expert.pubkey);
+            await this.queueExpert(expert.pubkey);
             break;
           }
           case "queued": {
@@ -374,7 +376,7 @@ export class ExpertScheduler {
    *
    * @param pubkey Expert pubkey
    */
-  public queueExpert(pubkey: string): void {
+  public async queueExpert(pubkey: string): Promise<void> {
     // Check if expert is already in a state
     let expertState = this.expertStates.get(pubkey);
     if (expertState) {
@@ -403,13 +405,22 @@ export class ExpertScheduler {
       };
     }
 
-    // Add expert to queue
-    this.expertQueue.push(pubkey);
+    // Get the expert from DB to get its type
+    let expertType: string | undefined;
+    try {
+      const expert = await this.db.getExpert(pubkey);
+      expertType = expert?.type;
+    } catch (error) {
+      debugError(`Error fetching expert type for ${pubkey}:`, error);
+    }
+
+    // Add expert to queue with type information
+    this.expertQueue.push({ pubkey, type: expertType });
 
     // Update expert state
     this.expertStates.set(pubkey, expertState);
 
-    debugScheduler(`Expert ${pubkey} queued`);
+    debugScheduler(`Expert ${pubkey} queued${expertType ? ` with type ${expertType}` : ''}`);
 
     // Check if any workers need jobs
     this.assignJobsToWorkers();
@@ -420,7 +431,7 @@ export class ExpertScheduler {
    *
    * @param workerId Worker ID
    */
-  private handleWorkerDisconnect(workerId: string): void {
+  private async handleWorkerDisconnect(workerId: string): Promise<void> {
     const worker = this.workers.get(workerId);
     if (!worker) {
       return;
@@ -436,7 +447,7 @@ export class ExpertScheduler {
       );
 
       // Set a timer to requeue the experts if the worker doesn't reconnect
-      const timer = setTimeout(() => {
+      const timer = setTimeout(async () => {
         debugScheduler(
           `Worker ${workerId} did not reconnect within timeout, requeuing experts`
         );
@@ -450,7 +461,7 @@ export class ExpertScheduler {
               debugScheduler(`Requeuing expert ${expertPubkey}`);
 
               // Reset their state
-              this.queueExpert(expertPubkey);
+              await this.queueExpert(expertPubkey);
             }
           }
         }
@@ -492,7 +503,7 @@ export class ExpertScheduler {
         break;
 
       case "need_job":
-        this.handleNeedJobMessage(workerId);
+        this.handleNeedJobMessage(workerId, message.data);
         break;
 
       case "started":
@@ -585,7 +596,7 @@ export class ExpertScheduler {
           );
 
           // Remove from queue if present
-          const queueIndex = this.expertQueue.indexOf(expertPubkey);
+          const queueIndex = this.expertQueue.findIndex(item => item.pubkey === expertPubkey);
           if (queueIndex !== -1) {
             this.expertQueue.splice(queueIndex, 1);
           }
@@ -649,46 +660,56 @@ export class ExpertScheduler {
    * Handle a 'need_job' message from a worker
    *
    * @param workerId Worker ID
+   * @param data The need_job message data
    */
-  private handleNeedJobMessage(workerId: string): void {
+  private handleNeedJobMessage(workerId: string, data?: WorkerToSchedulerMessages['need_job']): void {
     const worker = this.workers.get(workerId);
     if (!worker) {
       return;
     }
 
-    debugScheduler(`Worker ${workerId} needs a job`);
+    const expertTypes = data?.expert_types;
+    if (expertTypes && expertTypes.length > 0) {
+      debugScheduler(`Worker ${workerId} needs a job with expert types: ${expertTypes.join(', ')}`);
+    } else {
+      debugScheduler(`Worker ${workerId} needs a job (any expert type)`);
+    }
 
-    // Mark worker as needing a job
+    // Mark worker as needing a job and store expert types
     worker.needsJob = true;
+    worker.expertTypes = expertTypes;
 
     // Only try to assign a job if the worker is ready
     if (worker.ready) {
       debugScheduler(`Worker ${workerId} is ready, trying to assign a job`);
 
       // Try to assign a job immediately
-      const assigned = this.assignJobToWorker(workerId);
+      this.assignJobToWorker(workerId).then(assigned => {
+        // If no job was assigned, set a timer to check again later
+        if (!assigned) {
+          debugScheduler(
+            `No job available for worker ${workerId}, setting timer`
+          );
 
-      // If no job was assigned, set a timer to check again later
-      if (!assigned) {
-        debugScheduler(
-          `No job available for worker ${workerId}, setting timer`
-        );
-
-        // Clear any existing timer
-        if (worker.jobTimer) {
-          clearTimeout(worker.jobTimer);
-        }
-
-        // Set a timer to check for jobs again in 60 seconds
-        worker.jobTimer = setTimeout(() => {
-          debugScheduler(`Job timer expired for worker ${workerId}`);
-
-          // If worker still needs a job, send no_job message
-          if (worker.needsJob) {
-            this.sendNoJobMessage(workerId);
+          // Clear any existing timer
+          if (worker.jobTimer) {
+            clearTimeout(worker.jobTimer);
           }
-        }, 60000); // 60 second timeout
-      }
+
+          // Set a timer to check for jobs again in 60 seconds
+          worker.jobTimer = setTimeout(() => {
+            debugScheduler(`Job timer expired for worker ${workerId}`);
+
+            // If worker still needs a job, send no_job message
+            if (worker.needsJob) {
+              this.sendNoJobMessage(workerId);
+            }
+          }, 60000); // 60 second timeout
+        }
+      }).catch(error => {
+        debugError(`Error assigning job to worker ${workerId}:`, error);
+      });
+
     } else {
       debugScheduler(
         `Worker ${workerId} is not ready yet, waiting for 'experts' message before assigning a job`
@@ -772,7 +793,9 @@ export class ExpertScheduler {
     // Find workers that need jobs
     for (const [workerId, worker] of this.workers.entries()) {
       if (worker.needsJob) {
-        this.assignJobToWorker(workerId);
+        this.assignJobToWorker(workerId).catch(error => {
+          debugError(`Error assigning job to worker ${workerId}:`, error);
+        });
       }
     }
   }
@@ -783,7 +806,13 @@ export class ExpertScheduler {
    * @param workerId Worker ID
    * @returns True if a job was assigned, false otherwise
    */
-  private assignJobToWorker(workerId: string): boolean {
+  /**
+   * Assign a job to a specific worker
+   *
+   * @param workerId Worker ID
+   * @returns Promise resolving to true if a job was assigned, false otherwise
+   */
+  private async assignJobToWorker(workerId: string): Promise<boolean> {
     const worker = this.workers.get(workerId);
     if (!worker || !worker.needsJob || !worker.ready) {
       return false;
@@ -794,49 +823,93 @@ export class ExpertScheduler {
       return false;
     }
 
-    // Get the next expert from the queue
-    const expertPubkey = this.expertQueue.shift()!;
+    // Mark worker as no longer needing a job
+    worker.needsJob = false;
 
-    // Get the expert from the database
-    this.db
-      .getExpert(expertPubkey)
-      .then(async (expert) => {
-        if (!expert) {
-          debugError(`Expert ${expertPubkey} not found in database`);
-          return;
+    try {
+      // Get the expert types this worker can handle
+      const expertTypes = worker.expertTypes;
+      
+      // Variable to store the selected expert
+      let selectedExpert: QueuedExpert | undefined;
+      let expertIndex: number = -1;
+      
+      if (expertTypes && expertTypes.length > 0) {
+        // If worker has type restrictions, search for matching expert
+        for (let i = 0; i < this.expertQueue.length; i++) {
+          const queuedExpert = this.expertQueue[i];
+          
+          // Check if the expert type matches any of the worker's accepted types
+          if (queuedExpert.type && expertTypes.includes(queuedExpert.type)) {
+            // Found a match
+            selectedExpert = queuedExpert;
+            expertIndex = i;
+            break;
+          }
         }
+        
+        // If a match was found, remove it from the queue
+        if (selectedExpert && expertIndex !== -1) {
+          this.expertQueue.splice(expertIndex, 1);
+        } else {
+          debugScheduler(
+            `No matching expert found for worker ${workerId} with types ${expertTypes.join(', ')}`
+          );
+          return false;
+        }
+      } else {
+        // If no type restrictions, just take the next expert from the queue
+        if (this.expertQueue.length > 0) {
+          selectedExpert = this.expertQueue.shift()!;
+        } else {
+          return false;
+        }
+      }
 
-        // Send job to worker
-        await this.sendJobToWorker(workerId, expert);
+      // Extract the pubkey from the selected expert
+      const expertPubkey = selectedExpert.pubkey;
 
-        // Update expert state
-        this.expertStates.set(expertPubkey, {
+      // At this point expertPubkey should be defined
+      if (!expertPubkey) {
+        debugError(`Failed to select an expert for worker ${workerId}`);
+        return false;
+      }
+
+      // Get the expert from the database
+      const expert = await this.db.getExpert(expertPubkey);
+      
+      if (!expert) {
+        debugError(`Expert ${expertPubkey} not found in database`);
+        // Put back in queue, keeping the same type if it was provided in selectedExpert
+        this.expertQueue.push({
           pubkey: expertPubkey,
-          state: "starting",
-          workerId,
-          timestamp: Date.now(),
+          type: selectedExpert?.type
         });
-
-        // Mark worker as no longer needing a job
-        worker.needsJob = false;
-
-        // Clear any job timer
-        if (worker.jobTimer) {
-          clearTimeout(worker.jobTimer);
-          worker.jobTimer = undefined;
-        }
-      })
-      .catch((error) => {
-        debugError(
-          `Error getting expert ${expertPubkey} from database:`,
-          error
-        );
-
-        // Put the expert back in the queue
-        this.expertQueue.push(expertPubkey);
+        return false;
+      }
+      
+      // Send job to worker
+      await this.sendJobToWorker(workerId, expert);
+      
+      // Update expert state
+      this.expertStates.set(expertPubkey, {
+        pubkey: expertPubkey,
+        state: "starting",
+        workerId,
+        timestamp: Date.now(),
       });
-
-    return true;
+            
+      // Clear any job timer
+      if (worker.jobTimer) {
+        clearTimeout(worker.jobTimer);
+        worker.jobTimer = undefined;
+      }
+      
+      return true;
+    } catch (error) {
+      debugError(`Error assigning job to worker ${workerId}:`, error);
+      return false;
+    }
   }
 
   /**
@@ -883,7 +956,7 @@ export class ExpertScheduler {
       this.sendMessageToWorker(workerId, message);
 
       // Set a timer to check if the expert starts within 60 seconds
-      const timer = setTimeout(() => {
+      const timer = setTimeout(async () => {
         debugScheduler(
           `Start timeout for expert ${expert.pubkey} on worker ${workerId}`
         );
@@ -906,8 +979,11 @@ export class ExpertScheduler {
             timestamp: Date.now(),
           });
 
-          // Add expert back to the queue
-          this.expertQueue.push(expert.pubkey);
+          // Add expert back to the queue with type information
+          this.expertQueue.push({
+            pubkey: expert.pubkey,
+            type: expert.type
+          });
         }
 
         // Remove the timer
@@ -1073,7 +1149,7 @@ export class ExpertScheduler {
       this.sendMessageToWorker(workerId, message);
 
       // Set a timer to check if the expert restarts within 60 seconds
-      const timer = setTimeout(() => {
+      const timer = setTimeout(async () => {
         debugScheduler(
           `Restart timeout for expert ${expertPubkey} on worker ${workerId}`
         );
@@ -1096,8 +1172,21 @@ export class ExpertScheduler {
             timestamp: Date.now(),
           });
 
-          // Add expert back to the queue
-          this.expertQueue.push(expertPubkey);
+          // Get the expert from the database to get its type
+          try {
+            const expertObj = await this.db.getExpert(expertPubkey);
+            // Add expert back to the queue with type information
+            this.expertQueue.push({
+              pubkey: expertPubkey,
+              type: expertObj?.type
+            });
+          } catch (error) {
+            debugError(`Error fetching expert type for requeuing ${expertPubkey}:`, error);
+            // Add without type information if we couldn't get it
+            this.expertQueue.push({
+              pubkey: expertPubkey
+            });
+          }
         }
 
         // Remove the timer

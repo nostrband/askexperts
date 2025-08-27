@@ -126,6 +126,20 @@ export class DocStoreSQLite {
     } catch (error) {
       debugError("Error adding metadata column to docs table:", error);
     }
+
+    // Migration: Add embedding_offsets column to docs table if it doesn't exist
+    try {
+      // Check if embedding_offsets column exists in docs table
+      const docsColumns = this.db.prepare("PRAGMA table_info(docs)").all();
+      const hasEmbeddingOffsetsColumn = docsColumns.some((col: any) => col.name === 'embedding_offsets');
+      
+      if (!hasEmbeddingOffsetsColumn) {
+        debugDocstore("Adding embedding_offsets column to docs table");
+        this.db.exec("ALTER TABLE docs ADD COLUMN embedding_offsets BLOB DEFAULT NULL");
+      }
+    } catch (error) {
+      debugError("Error adding embedding_offsets column to docs table:", error);
+    }
   }
 
   /**
@@ -161,6 +175,12 @@ export class DocStoreSQLite {
       if (row.embeddings) {
         embeddingsArray = this.blobToFloat32Arrays(row.embeddings as Buffer, row.docstore_id.toString());
       }
+      
+      // Convert embedding_offsets from BLOB to Uint32Array
+      let embeddingOffsets: Uint32Array | undefined = undefined;
+      if (row.embedding_offsets) {
+        embeddingOffsets = this.blobToUint32Array(row.embedding_offsets as Buffer);
+      }
   
       return {
         id: row.id?.toString() || "",
@@ -170,6 +190,7 @@ export class DocStoreSQLite {
         type: row.type?.toString() || "",
         data: row.data?.toString() || "",
         embeddings: embeddingsArray,
+        embedding_offsets: embeddingOffsets,
         user_id: row.user_id?.toString() || "",
         file: row.file ? (row.file as Buffer) : undefined,
         metadata: row.metadata?.toString() || "",
@@ -376,6 +397,26 @@ export class DocStoreSQLite {
     
     return embeddings;
   }
+  
+  /**
+   * Convert a Uint32Array to a Uint8Array blob for storage
+   * @param offsets - Uint32Array containing offsets
+   * @returns Uint8Array blob for storage
+   */
+  private uint32ArrayToBlob(offsets: Uint32Array): Uint8Array {
+    // Create a Uint8Array from the buffer of the Uint32Array
+    return new Uint8Array(offsets.buffer);
+  }
+  
+  /**
+   * Convert a Uint8Array blob back to a Uint32Array
+   * @param blob - Uint8Array blob containing offsets
+   * @returns Uint32Array of offsets
+   */
+  private blobToUint32Array(blob: Buffer | Uint8Array): Uint32Array {
+    // Create a Uint32Array view of the blob
+    return new Uint32Array(blob.buffer.slice(blob.byteOffset, blob.byteOffset + blob.byteLength));
+  }
 
   // This method is no longer needed as we pass docstore_id directly to blobToFloat32Arrays
 
@@ -440,9 +481,15 @@ export class DocStoreSQLite {
     // Use INSERT OR REPLACE to handle both insert and update in a single atomic operation
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO docs (
-        id, docstore_id, timestamp, created_at, type, data, embeddings, user_id, file, metadata
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        id, docstore_id, timestamp, created_at, type, data, embeddings, embedding_offsets, user_id, file, metadata
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
+    
+    // Convert embedding_offsets to blob if present
+    let embeddingOffsetsBlob: Uint8Array | null = null;
+    if (doc.embedding_offsets && doc.embedding_offsets.length > 0) {
+      embeddingOffsetsBlob = this.uint32ArrayToBlob(doc.embedding_offsets);
+    }
 
     stmt.run(
       doc.id,
@@ -452,6 +499,7 @@ export class DocStoreSQLite {
       doc.type,
       doc.data,
       embeddingsBlob,
+      embeddingOffsetsBlob,
       user_id || doc.user_id || "",
       doc.file || null,
       doc.metadata || ""
@@ -488,6 +536,12 @@ export class DocStoreSQLite {
     if (row.embeddings) {
       embeddingsArray = this.blobToFloat32Arrays(row.embeddings as Buffer, docstore_id);
     }
+    
+    // Convert embedding_offsets from BLOB to Uint32Array
+    let embeddingOffsets: Uint32Array | undefined = undefined;
+    if (row.embedding_offsets) {
+      embeddingOffsets = this.blobToUint32Array(row.embedding_offsets as Buffer);
+    }
 
     // Convert row to Doc interface
     const doc = {
@@ -498,6 +552,7 @@ export class DocStoreSQLite {
       type: row.type?.toString() || "",
       data: row.data?.toString() || "",
       embeddings: embeddingsArray,
+      embedding_offsets: embeddingOffsets,
       user_id: row.user_id?.toString() || "",
       file: row.file ? (row.file as Buffer) : undefined,
       metadata: row.metadata?.toString() || "",
@@ -677,6 +732,12 @@ export class DocStoreSQLite {
       if (row.embeddings) {
         embeddingsArray = this.blobToFloat32Arrays(row.embeddings as Buffer, docstore_id);
       }
+      
+      // Convert embedding_offsets from BLOB to Uint32Array
+      let embeddingOffsets: Uint32Array | undefined = undefined;
+      if (row.embedding_offsets) {
+        embeddingOffsets = this.blobToUint32Array(row.embedding_offsets as Buffer);
+      }
 
       return {
         id: row.id?.toString() || "",
@@ -686,6 +747,7 @@ export class DocStoreSQLite {
         type: row.type?.toString() || "",
         data: row.data?.toString() || "",
         embeddings: embeddingsArray,
+        embedding_offsets: embeddingOffsets,
         user_id: row.user_id?.toString() || "",
         file: row.file ? (row.file as Buffer) : undefined,
         metadata: row.metadata?.toString() || "",

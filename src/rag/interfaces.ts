@@ -1,3 +1,5 @@
+import { Doc } from "../docstore/interfaces.js";
+
 /**
  * Represents a chunk of text with its position information and embedding.
  */
@@ -25,13 +27,41 @@ export interface RagEmbeddings {
    */
   start(): Promise<void>;
 
+  // Model name
+  getModelName(): string;
+
+  // Size of embeddings vector
+  getVectorSize(): number;
+
   /**
    * Embeds the given text by splitting it into chunks and generating embeddings.
    * @param text The text to embed
    * @returns Promise resolving to an array of chunks with their embeddings
    * @throws Error if start() has not been called
    */
-  embed(text: string): Promise<Chunk[]>;
+  embed(text: string, onProgress?: (done: number, total: number) => void): Promise<Chunk[]>;
+  
+  /**
+   * Embeds a document by processing its data field and updating its embeddings and embedding_offsets.
+   * @param doc The document to embed
+   * @param onProgress Optional callback function that reports progress of embedding
+   * @returns Promise resolving to the document with updated embeddings and embedding_offsets
+   * @throws Error if start() has not been called
+   */
+  embedDoc(doc: Doc, onProgress?: (done: number, total: number) => void): Promise<Doc>;
+}
+
+export interface RagMetadata {
+  id: string;
+  docstore_id: string;
+  type: string;
+  timestamp: number;
+  created_at: number;
+  chunk: number;
+  offset_start: number;
+  offset_end: number;
+  doc_metadata: string;
+  extra: string;
 }
 
 /**
@@ -42,11 +72,14 @@ export interface RagResult {
   id: string;
   /** The embedding vector */
   vector: number[];
+  /** Matching doc chunk */
+  data: string;
   /** Additional metadata associated with the vector */
-  metadata: any;
+  metadata: RagMetadata;
   /** Distance/similarity score between the query vector and this result */
   distance: number;
 }
+
 
 /**
  * Document to be stored in the RAG database
@@ -57,7 +90,9 @@ export interface RagDocument {
   /** The embedding vector */
   vector: number[];
   /** Additional metadata to store with the vector */
-  metadata: any;
+  metadata: RagMetadata;
+  /** Document chunk */
+  data: string;
 }
 
 /**
@@ -72,7 +107,7 @@ export interface RagDB {
    * @param vector The embedding vector (array of numbers)
    * @param metadata Additional metadata to store with the vector
    */
-  store(collectionName: string, id: string, vector: number[], metadata: any): Promise<void>;
+  store(collectionName: string, document: RagDocument): Promise<void>;
   
   /**
    * Stores multiple vector embeddings with associated metadata in the specified collection.

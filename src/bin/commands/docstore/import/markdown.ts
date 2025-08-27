@@ -77,23 +77,13 @@ export async function importMarkdown(
     const markdownImporter = await createDocImporter("markdown");
     
     // Create document from markdown
-    const doc = await markdownImporter.createDoc(markdownContent);
+    let doc = await markdownImporter.createDoc(markdownContent);
     
-    // Generate embeddings
-    const chunks = await embeddings.embed(markdownContent);
-
-    // Convert embeddings from number[][] to Float32Array[]
-    const float32Embeddings = chunks.map((c) => {
-      const float32Array = new Float32Array(c.embedding.length);
-      for (let i = 0; i < c.embedding.length; i++) {
-        float32Array[i] = c.embedding[i];
-      }
-      return float32Array;
-    });
-
-    // Create final document with docstore ID and embeddings
+    // Set docstore ID
     doc.docstore_id = docstore.id;
-    doc.embeddings = float32Embeddings;
+    
+    // Generate embeddings and update doc with embeddings and embedding_offsets
+    doc = await embeddings.embedDoc(doc);
 
     // Add to docstore
     await docstoreClient.upsert(doc);

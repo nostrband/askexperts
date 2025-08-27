@@ -37,15 +37,28 @@ export async function addDoc(
       });
     }
 
-    // Generate embeddings
+    // Initialize embeddings
     console.log("Generating embeddings...");
     const embeddings = createRagEmbeddings(docstore.model);
     await embeddings.start();
-    const chunks = await embeddings.embed(docData);
 
-    // Create document
+    // Create document with basic info
     const docId = options.id || randomUUID();
     const timestamp = Math.floor(Date.now() / 1000);
+    
+    // Create a minimal doc object
+    let doc: Doc = {
+      id: docId,
+      docstore_id: docstore.id,
+      timestamp: timestamp,
+      created_at: timestamp,
+      type: options.type || "",
+      data: docData,
+      embeddings: [],
+    };
+    
+    // Generate embeddings and update doc with embeddings and embedding_offsets
+    doc = await embeddings.embedDoc(doc);
 
     // Get the docstore to check if it has model and vector_size set
     const docstores = await docstoreClient.listDocstores();
@@ -59,7 +72,7 @@ export async function addDoc(
     if (!targetDocstore.model || !targetDocstore.vector_size) {
       // Use the model from the embeddings
       const model = embeddings.getModelName();
-      const vector_size = chunks[0].embedding.length;
+      const vector_size = embeddings.getVectorSize();
       
       // Update the docstore with model and vector_size
       console.log(`Updating docstore with model: ${model}, vector_size: ${vector_size}`);
@@ -75,25 +88,6 @@ export async function addDoc(
       // For now, we'll just log this - in a real implementation, we would update the docstore
       console.log(`Docstore updated: ${JSON.stringify(updatedDocstore)}`);
     }
-    
-    // Convert embeddings from number[][] to Float32Array[]
-    const float32Embeddings = chunks.map(c => {
-      const float32Array = new Float32Array(c.embedding.length);
-      for (let i = 0; i < c.embedding.length; i++) {
-        float32Array[i] = c.embedding[i];
-      }
-      return float32Array;
-    });
-    
-    const doc: Doc = {
-      id: docId,
-      docstore_id: docstore.id,
-      timestamp: timestamp,
-      created_at: timestamp,
-      type: options.type || "",
-      data: docData,
-      embeddings: float32Embeddings,
-    };
 
     await docstoreClient.upsert(doc);
     console.log(`Document added with ID: ${docId}`);

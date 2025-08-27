@@ -1,6 +1,12 @@
 import { debugDocstore } from "../common/debug.js";
 import { DocStoreClient, Doc, Subscription } from "../docstore/interfaces.js";
-import { RagDB, RagDocument } from "./interfaces.js";
+import { RagDB, RagDocument, RagMetadata } from "./interfaces.js";
+
+export type OnDocMetaCallback = (
+  doc: Doc,
+  embedding: number[],
+  metadata: RagMetadata
+) => Promise<RagMetadata>;
 
 /**
  * Options for syncing documents from a docstore to a RagDB
@@ -17,8 +23,10 @@ export interface SyncOptions {
   /** Optional callback to let client watch the docs and filter them */
   onDoc?: (doc: Doc) => Promise<boolean>;
   /** Optional callback to customize metadata for each document */
-  onDocMeta?: (doc: Doc, embedding: number[]) => Promise<any>;
+  onDocMeta?: OnDocMetaCallback;
 }
+
+const CHUNK_EXTENSION = 300;
 
 /**
  * Class to sync documents from a DocStore to a RagDB
@@ -46,7 +54,7 @@ export class DocstoreToRag {
    */
   private async docToRagDocuments(
     doc: Doc,
-    onDocMeta?: (doc: Doc, embedding: number[]) => Promise<any>
+    onDocMeta?: OnDocMetaCallback
   ): Promise<RagDocument[]> {
     // Skip documents without embeddings
     if (!doc.embeddings || doc.embeddings.length === 0) {
@@ -67,24 +75,44 @@ export class DocstoreToRag {
         const vector = vectors[i];
 
         // Create default metadata (excluding data and embeddings)
-        let metadata = {
+        let metadata: RagMetadata = {
           id: doc.id,
           docstore_id: doc.docstore_id,
           type: doc.type,
           timestamp: doc.timestamp,
           created_at: doc.created_at,
           chunk: i,
+          offset_start: -1,
+          offset_end: -1,
+          doc_metadata: doc.metadata || "",
+          extra: "",
         };
+        let data: string = "";
+        if (doc.embedding_offsets) {
+          metadata.offset_start = doc.embedding_offsets[i];
+          if (i < vectors.length - 1) {
+            metadata.offset_end = doc.embedding_offsets[i + 1];
+          } else {
+            metadata.offset_end = doc.data.length;
+          }
+          const start = Math.max(0, metadata.offset_start - CHUNK_EXTENSION);
+          const end = Math.min(
+            doc.data.length,
+            metadata.offset_start + CHUNK_EXTENSION
+          );
+          data = doc.data.substring(start, end);
+        }
 
         // Use custom metadata if callback provided
         if (onDocMeta) {
-          metadata = await onDocMeta(doc, vector);
+          metadata = await onDocMeta(doc, vector, metadata);
         }
 
         ragDocuments.push({
           id: `${doc.docstore_id}:${doc.id}:${i}`,
           vector,
           metadata,
+          data,
         });
       }
 

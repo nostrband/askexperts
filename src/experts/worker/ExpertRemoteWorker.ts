@@ -29,6 +29,8 @@ export interface ExpertRemoteWorkerOptions {
   reconnectDelay?: number;
   /** Default docstore url */
   defaultDocStoreUrl?: string;
+  /** Expert types this worker will handle (if specified) */
+  expert_types?: string[];
 }
 
 /**
@@ -45,6 +47,9 @@ export class ExpertRemoteWorker {
 
   // Worker ID
   private workerId: string;
+  
+  // Expert types filter
+  private expert_types?: string[];
 
   /**
    * Create a new ExpertRemoteWorker
@@ -59,6 +64,9 @@ export class ExpertRemoteWorker {
 
     // Generate a unique worker ID
     this.workerId = generateUUID();
+    
+    // Store expert types filter if provided
+    this.expert_types = options.expert_types;
 
     // Create ExpertWorker instance
     this.worker = new ExpertWorker(
@@ -280,6 +288,7 @@ export class ExpertRemoteWorker {
       type: "need_job",
       data: {
         workerId: this.workerId,
+        expert_types: this.expert_types,
       },
     };
 

@@ -5,6 +5,7 @@
 import { Doc } from "../docstore/interfaces.js";
 import { NostrImporter } from "./nostr.js";
 import { MarkdownImporter } from "./markdown.js";
+import { TwitterImporter } from "./twitter.js";
 
 /**
  * Interface for document importers
@@ -31,6 +32,8 @@ export async function createDocImporter(type: string): Promise<DocImporter> {
       return new NostrImporter();
     case "markdown":
       return new MarkdownImporter();
+    case "twitter":
+      return new TwitterImporter();
     default:
       throw new Error(`Unsupported document importer type: ${type}`);
   }

@@ -19,6 +19,14 @@ export interface ExpertStateInfo {
 }
 
 /**
+ * Interface for queued expert
+ */
+export interface QueuedExpert {
+  pubkey: string;
+  type?: string;  // Optional type of the expert
+}
+
+/**
  * Interface for worker connection tracking
  */
 export interface WorkerConnection {
@@ -44,6 +52,7 @@ export interface WorkerToSchedulerMessages {
   // Worker requests a job
   need_job: {
     workerId: string;
+    expert_types?: string[];  // Optional list of expert types this worker can handle
   };
   
   // Worker confirms expert started

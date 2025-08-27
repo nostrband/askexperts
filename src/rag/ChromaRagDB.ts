@@ -1,5 +1,5 @@
-import { ChromaClient, Collection } from "chromadb";
-import { RagDB, RagResult, RagDocument } from "./interfaces.js";
+import { ChromaClient, Collection, Metadata } from "chromadb";
+import { RagDB, RagResult, RagDocument, RagMetadata } from "./interfaces.js";
 import { OpenAIEmbeddingFunction } from "@chroma-core/openai";
 
 /**
@@ -33,7 +33,7 @@ export class ChromaRagDB implements RagDB {
         // interferes with our own (same) embedder, so we provide a fake one here.
         embeddingFunction: new OpenAIEmbeddingFunction({
           modelName: "text-embedding-3-small",
-          apiKey: "dummy", 
+          apiKey: "dummy",
         }),
       });
       this.collections.set(collectionName, collection);
@@ -49,19 +49,8 @@ export class ChromaRagDB implements RagDB {
    * @param vector The embedding vector (array of numbers)
    * @param metadata Additional metadata to store with the vector
    */
-  async store(
-    collectionName: string,
-    id: string,
-    vector: number[],
-    metadata: any
-  ): Promise<void> {
-    const collection = await this.getCollection(collectionName);
-
-    await collection.add({
-      ids: [id],
-      embeddings: [vector],
-      metadatas: [metadata],
-    });
+  async store(collectionName: string, doc: RagDocument): Promise<void> {
+    return this.storeBatch(collectionName, [doc]);
   }
 
   /**
@@ -74,13 +63,14 @@ export class ChromaRagDB implements RagDB {
     documents: RagDocument[]
   ): Promise<void> {
     if (documents.length === 0) return;
-    
+
     const collection = await this.getCollection(collectionName);
 
-    await collection.add({
-      ids: documents.map(doc => doc.id),
-      embeddings: documents.map(doc => doc.vector),
-      metadatas: documents.map(doc => doc.metadata),
+    await collection.upsert({
+      ids: documents.map((doc) => doc.id),
+      embeddings: documents.map((doc) => doc.vector),
+      metadatas: documents.map((doc) => doc.metadata as any),
+      documents: documents.map((doc) => doc.data),
     });
   }
 
@@ -101,13 +91,14 @@ export class ChromaRagDB implements RagDB {
     const results = await collection.query({
       queryEmbeddings: [vector],
       nResults: limit,
-      include: ["embeddings", "metadatas", "distances"],
+      include: ["embeddings", "metadatas", "documents", "distances"],
     });
     const rows = results.rows()[0];
     return rows.map((r) => ({
       id: r.id,
       vector: r.embedding!,
-      metadata: r.metadata!,
+      data: r.document || "",
+      metadata: r.metadata! as unknown as RagMetadata,
       distance: r.distance!,
     }));
   }
@@ -125,20 +116,21 @@ export class ChromaRagDB implements RagDB {
     limit: number
   ): Promise<RagResult[][]> {
     if (vectors.length === 0) return [];
-    
+
     const collection = await this.getCollection(collectionName);
 
     const results = await collection.query({
       queryEmbeddings: vectors,
       nResults: limit,
-      include: ["embeddings", "metadatas", "distances"],
+      include: ["embeddings", "metadatas", "documents", "distances"],
     });
-    
-    return results.rows().map(rows =>
-      rows.map(r => ({
+
+    return results.rows().map((rows) =>
+      rows.map((r) => ({
         id: r.id,
         vector: r.embedding!,
-        metadata: r.metadata!,
+        data: r.document || "",
+        metadata: r.metadata! as unknown as RagMetadata,
         distance: r.distance!,
       }))
     );

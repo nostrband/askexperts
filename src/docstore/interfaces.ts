@@ -15,6 +15,7 @@ export interface Doc {
   type: string; // Nostr, tweet, etc
   data: string; // Markdown content for LLM
   embeddings: Float32Array[]; // Array of embedding vectors
+  embedding_offsets?: Uint32Array; // Array of offsets for each embedding chunk
   user_id?: string; // User ID associated with the document
   file?: Uint8Array; // Optional binary file data
   metadata?: string; // Optional metadata string

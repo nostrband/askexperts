@@ -97,21 +97,11 @@ export async function importNostr(
       try {
 
         // Convert to doc
-        const doc = await importer.createDoc(event);
+        let doc = await importer.createDoc(event);
         doc.docstore_id = docstore.id;
 
-        // Generate embeddings
-        const chunks = await embeddings.embed(doc.data);
-
-        // Convert embeddings from number[][] to Float32Array[]
-        const float32Embeddings = chunks.map((c) => {
-          const float32Array = new Float32Array(c.embedding.length);
-          for (let i = 0; i < c.embedding.length; i++) {
-            float32Array[i] = c.embedding[i];
-          }
-          return float32Array;
-        });
-        doc.embeddings = float32Embeddings;
+        // Generate embeddings and update doc with embeddings and embedding_offsets
+        doc = await embeddings.embedDoc(doc);
 
         // Add to docstore
         await docstoreClient.upsert(doc);

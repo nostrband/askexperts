@@ -24,7 +24,7 @@ export async function createDocstore(
     // load embeddings to learn the vector size
     const embeddings = createRagEmbeddings(options.model);
     await embeddings.start();
-    const vectorSize = await embeddings.getVectorSize();
+    const vectorSize = embeddings.getVectorSize();
     const model = embeddings.getModelName();
 
     const docstore = await createDocstoreClient(options);

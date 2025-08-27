@@ -18,17 +18,17 @@ export class MarkdownImporter implements DocImporter {
    * @param data - Markdown string content
    * @returns Promise resolving to a Doc object
    */
-  async createDoc(data: string): Promise<Doc> {
-    // Validate that the input is a string
-    if (typeof data !== "string") {
-      throw new Error("Invalid Markdown: input must be a string");
-    }
-
+  async createDoc(file: { url: string; content: string }): Promise<Doc> {
     // Create timestamps (current time in seconds)
     const timestamp = Math.floor(Date.now() / 1000);
-    
+
+    // Metadata
+    const metadata = `
+url: ${file.url}
+`;
+
     // Content hash
-    const id = bytesToHex(sha256(data));
+    const id = bytesToHex(sha256(file.content + file.url));
 
     // Create Doc object
     const doc: Doc = {
@@ -37,9 +37,9 @@ export class MarkdownImporter implements DocImporter {
       timestamp,
       created_at: timestamp, // Same as timestamp for new documents
       type: "markdown",
-      data, // Use the markdown string directly as the data field
+      data: file.content, // Use the markdown string directly as the data field
+      metadata,
       embeddings: [],
-      // leaving file and metadata empty
     };
 
     return doc;
