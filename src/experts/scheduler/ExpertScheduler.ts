@@ -855,6 +855,10 @@ export class ExpertScheduler {
           debugScheduler(
             `No matching expert found for worker ${workerId} with types ${expertTypes.join(', ')}`
           );
+
+          // Re-arm
+          worker.needsJob = true;
+
           return false;
         }
       } else {
@@ -1022,7 +1026,8 @@ export class ExpertScheduler {
     // Send message to worker
     this.sendMessageToWorker(workerId, message);
 
-    // Mark worker as no longer needing a job
+    // Mark worker as no longer needing a job,
+    // as worker should now re-raise this flag themselves
     worker.needsJob = false;
 
     // Clear any job timer
