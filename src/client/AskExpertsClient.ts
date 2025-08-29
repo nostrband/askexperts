@@ -82,6 +82,7 @@ import {
  * AskExpertsClient class for NIP-174 protocol
  */
 import { AskExpertsClientInterface } from "./AskExpertsClientInterface.js";
+import { ChatCompletionCreateParams } from "openai/resources";
 
 interface PromptPayload {
   format: PromptFormat;
@@ -357,7 +358,6 @@ export class AskExpertsClient implements AskExpertsClientInterface {
 
     return bids;
   }
-
 
   /**
    * Fetches expert profiles from relays
@@ -839,7 +839,7 @@ export class AskExpertsClient implements AskExpertsClientInterface {
               );
 
               // According to NIP-174, chunks are just raw data
-              // Process each chunk individually and return one reply per chunk
+              // Process each chunk individually and yield Reply objects
               try {
                 // Process each chunk from the stream as it arrives
                 for await (const chunk of streamReader) {
@@ -848,15 +848,39 @@ export class AskExpertsClient implements AskExpertsClientInterface {
                       throw new Error(
                         "String reply expected for OpenAI format"
                       );
-                    // Parse the content from JSONL format
-                    for (const line of chunk.split("\n")) {
-                      if (!line.trim()) continue;
 
+                    // We are streaming either because the reply is
+                    // big, or because it was requested by openai
+                    // request format, in the latter case each chunk
+                    // is parsed line by line to yield openai-format
+                    // chunk Reply
+                    const isOpenaiStreaming = !!(
+                      prompt.content as ChatCompletionCreateParams
+                    ).stream;
+                    if (isOpenaiStreaming) {
+                      // Parse the chunks from JSONL format
+                      for (const line of chunk.split("\n")) {
+                        if (!line.trim()) continue;
+
+                        const reply: Reply = {
+                          pubkey: expertPubkey,
+                          promptId: prompt.id,
+                          done: false,
+                          content: JSON.parse(line),
+                          event,
+                        };
+
+                        // Yield the reply for each chunk
+                        yield reply;
+                      }
+                    } else {
+                      // We aren't streaming, we're just getting
+                      // a big reply
                       const reply: Reply = {
                         pubkey: expertPubkey,
                         promptId: prompt.id,
                         done: false,
-                        content: JSON.parse(line),
+                        content: chunk,
                         event,
                       };
 
@@ -997,7 +1021,9 @@ export class AskExpertsClient implements AskExpertsClientInterface {
 
     // Determine format and streaming
     // Assume the first supported format, fallback to text
-    const format = params.format || supportedFormats[0] || FORMAT_TEXT;
+    const format =
+      params.format ||
+      (typeof params.content === "string" ? FORMAT_TEXT : FORMAT_OPENAI);
 
     // Check if format is supported
     if (supportedFormats.length > 0 && !supportedFormats.includes(format)) {

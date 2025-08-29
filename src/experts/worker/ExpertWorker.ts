@@ -3,10 +3,12 @@ import { DBExpert } from "../../db/interfaces.js";
 import { NostrExpert } from "../../experts/NostrExpert.js";
 import { OpenaiProxyExpertBase } from "../../experts/OpenaiProxyExpertBase.js";
 import { OpenaiProxyExpert } from "../../experts/OpenaiProxyExpert.js";
+import { SystemPromptExpert } from "../SystemPromptExpert.js";
 import { debugError, debugExpert } from "../../common/debug.js";
 import { ChromaRagDB, RagDB } from "../../rag/index.js";
 import { createOpenAI } from "../../openai/index.js";
 import { AskExpertsServer } from "../../server/AskExpertsServer.js";
+import { AskExpertsServerLogger } from "../../common/types.js";
 import { LightningPaymentManager } from "../../payments/LightningPaymentManager.js";
 import { DocStoreClient } from "../../docstore/interfaces.js";
 import { DocStoreWebSocketClient } from "../../docstore/DocStoreWebSocketClient.js";
@@ -36,6 +38,7 @@ export class ExpertWorker {
   private pool: SimplePool;
   private ragDB: RagDB;
   private defaultDocStoreUrl?: string;
+  private logger?: AskExpertsServerLogger;
 
   /**
    * Get the pubkeys of all running experts
@@ -57,11 +60,13 @@ export class ExpertWorker {
     pool: SimplePool,
     ragHost?: string,
     ragPort?: number,
-    defaultDocStoreUrl?: string
+    defaultDocStoreUrl?: string,
+    logger?: AskExpertsServerLogger
   ) {
     this.pool = pool;
     this.defaultDocStoreUrl = defaultDocStoreUrl;
     this.ragDB = new ChromaRagDB(ragHost, ragPort);
+    this.logger = logger;
     debugExpert("ExpertWorker initialized with RAG database");
   }
 
@@ -104,35 +109,7 @@ export class ExpertWorker {
 
       let result: { disposed: Promise<void> };
 
-      // Start the expert based on its type
-      if (expert.type === "nostr") {
-        // Parse docstores - exactly one must be specified
-        const parsedDocstores = ExpertWorker.parseDocstoreIdsList(
-          expert.docstores || "",
-          this.defaultDocStoreUrl
-        );
-        if (parsedDocstores.length !== 1) {
-          throw new Error(
-            `Expert ${expert.nickname} must have exactly one docstore specified, found ${parsedDocstores.length}`
-          );
-        }
-        const parsedDocstore = parsedDocstores[0];
-
-        // Create the appropriate DocStoreClient based on the docstore ID format,
-        // Authenticate using expert privkey
-        const privkey = expert.privkey ? hexToBytes(expert.privkey) : undefined;
-        const expertDocStoreClient =
-          ExpertWorker.createDocStoreClientFromParsed(parsedDocstore, privkey);
-
-        result = await this.startNostrExpert(
-          expert,
-          this.pool,
-          paymentManager,
-          this.ragDB,
-          expertDocStoreClient,
-          expertStopPromise
-        );
-      } else if (expert.type === "rag") {
+      if (expert.type === "rag") {
         // Parse docstores - exactly one must be specified
         const parsedDocstores = ExpertWorker.parseDocstoreIdsList(
           expert.docstores || "",
@@ -153,18 +130,22 @@ export class ExpertWorker {
 
         result = await this.startRagExpert(
           expert,
-          this.pool,
           paymentManager,
-          this.ragDB,
           expertDocStoreClient,
           expertStopPromise
         );
-      } else if (expert.type === "openrouter") {
-        result = await ExpertWorker.startOpenRouterExpert(
+      } else if (expert.type === "system_prompt") {
+        // Start a SystemPromptExpert (no docstore required)
+        result = await this.startSystemPromptExpert(
           expert,
-          this.pool,
           paymentManager,
           expertStopPromise
+        );
+      } else if (expert.type === "openrouter") {
+        result = await this.startOpenRouterExpert(
+          expert,
+          paymentManager,
+          expertStopPromise,
         );
       } else {
         throw new Error(`Unknown expert type: ${expert.type}`);
@@ -315,6 +296,7 @@ export class ExpertWorker {
       nickname: expert.nickname,
       picture: expert.picture,
       profileHashtags: str2arr(expert.hashtags),
+      logger: this.logger,
     });
 
     // Create OpenaiProxyExpertBase instance
@@ -349,6 +331,7 @@ export class ExpertWorker {
         await nostrExpert[Symbol.asyncDispose]();
         await openaiExpert[Symbol.asyncDispose]();
         await server[Symbol.asyncDispose]();
+        openai[Symbol.dispose]();
       } finally {
         disposeResolve();
       }
@@ -361,17 +344,13 @@ export class ExpertWorker {
    * Start a rag expert
    *
    * @param expert The expert to start
-   * @param pool SimplePool instance
    * @param paymentManager Payment manager
-   * @param ragDB RAG database
    * @param docStoreClient DocStore client
    * @param onStop Promise that resolves when the expert should be stopped
    */
   public async startRagExpert(
     expert: DBExpert,
-    pool: SimplePool,
     paymentManager: LightningPaymentManager,
-    ragDB: RagDB,
     docStoreClient: DocStoreClient,
     onStop: Promise<void>
   ): Promise<{ disposed: Promise<void> }> {
@@ -413,14 +392,14 @@ export class ExpertWorker {
       apiKey,
       baseURL,
       margin,
-      pool,
+      pool: this.pool,
       paymentManager,
     });
 
     // Create server
     const server = new AskExpertsServer({
       privkey,
-      pool,
+      pool: this.pool,
       paymentManager,
       description: expert.description,
       discoveryRelays: str2arr(expert.discovery_relays),
@@ -428,6 +407,7 @@ export class ExpertWorker {
       nickname: expert.nickname,
       picture: expert.picture,
       profileHashtags: str2arr(expert.hashtags),
+      logger: this.logger,
     });
 
     // Create OpenaiProxyExpertBase instance
@@ -444,7 +424,7 @@ export class ExpertWorker {
     const ragExpert = new RagExpert({
       openaiExpert,
       expert,
-      ragDB,
+      ragDB: this.ragDB,
       docStoreClient,
       docstoreId,
     });
@@ -464,6 +444,106 @@ export class ExpertWorker {
         await ragExpert[Symbol.asyncDispose]();
         await openaiExpert[Symbol.asyncDispose]();
         await server[Symbol.asyncDispose]();
+        openai[Symbol.dispose]();
+      } finally {
+        disposeResolve();
+      }
+    });
+
+    return { disposed: disposedPromise };
+  }
+
+  /**
+   * Start a system prompt expert
+   *
+   * @param expert The expert to start
+   * @param paymentManager Payment manager
+   * @param onStop Promise that resolves when the expert should be stopped
+   */
+  public async startSystemPromptExpert(
+    expert: DBExpert,
+    paymentManager: LightningPaymentManager,
+    onStop: Promise<void>
+  ): Promise<{ disposed: Promise<void> }> {
+    // Get private key from the expert
+    if (!expert.privkey) {
+      throw new Error(
+        `Expert ${expert.nickname} (${expert.pubkey}) does not have a private key`
+      );
+    }
+    const privkey = new Uint8Array(Buffer.from(expert.privkey!, "hex"));
+
+    // Parse environment variables if not provided
+    const expertEnvVars = dotenv.parse(expert.env || "");
+
+    // Get model and margin from environment or use defaults
+    const model = expert.model || "openai/gpt-4.1";
+    const margin = parseFloat(expert.price_margin || "0.1");
+
+    // Get API key from environment
+    const apiKey = expertEnvVars.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+    const baseURL =
+      expertEnvVars.OPENAI_BASE_URL || process.env.OPENAI_BASE_URL;
+
+    // Create OpenAI interface instance
+    const openai = createOpenAI({
+      apiKey,
+      baseURL,
+      margin,
+      pool: this.pool,
+      paymentManager,
+    });
+
+    // Create server
+    const server = new AskExpertsServer({
+      privkey,
+      pool: this.pool,
+      paymentManager,
+      description: expert.description,
+      discoveryRelays: str2arr(expert.discovery_relays),
+      hashtags: str2arr(expert.discovery_hashtags),
+      nickname: expert.nickname,
+      picture: expert.picture,
+      profileHashtags: str2arr(expert.hashtags),
+      logger: this.logger,
+    });
+
+    // Create OpenaiProxyExpertBase instance
+    const openaiExpert = new OpenaiProxyExpertBase({
+      server,
+      openai,
+      model,
+    });
+
+    if (expert.temperature)
+      openaiExpert.temperature = parseFloat(expert.temperature);
+
+    // Create the expert - much simpler than RagExpert (no docstore or RAG)
+    const systemPromptExpert = new SystemPromptExpert({
+      openaiExpert,
+      expert,
+    });
+
+    // Start the expert
+    await systemPromptExpert.start();
+
+    debugExpert(
+      `Started SystemPromptExpert ${expert.nickname} (${expert.pubkey}) with model ${model}`
+    );
+
+    // Create a promise that will resolve when all resources are disposed
+    let disposeResolve: () => void;
+    const disposedPromise = new Promise<void>((resolve) => {
+      disposeResolve = resolve;
+    });
+
+    // Destroy on stop signal
+    onStop.then(async () => {
+      try {
+        await systemPromptExpert[Symbol.asyncDispose]();
+        await openaiExpert[Symbol.asyncDispose]();
+        await server[Symbol.asyncDispose]();
+        openai[Symbol.dispose]();
       } finally {
         disposeResolve();
       }
@@ -476,15 +556,13 @@ export class ExpertWorker {
    * Start an OpenRouter expert
    *
    * @param expert The expert to start
-   * @param pool SimplePool instance
    * @param paymentManager Payment manager
    * @param onStop Promise that resolves when the expert should be stopped
    */
-  public static async startOpenRouterExpert(
+  public async startOpenRouterExpert(
     expert: DBExpert,
-    pool: SimplePool,
     paymentManager: LightningPaymentManager,
-    onStop: Promise<void>
+    onStop: Promise<void>,
   ): Promise<{ disposed: Promise<void> }> {
     // Get private key from the expert
     if (!expert.privkey) {
@@ -518,7 +596,7 @@ export class ExpertWorker {
     // Create server
     const server = new AskExpertsServer({
       privkey,
-      pool,
+      pool: this.pool,
       paymentManager,
       description: expert.description,
       discoveryRelays: str2arr(expert.discovery_relays),
@@ -526,6 +604,7 @@ export class ExpertWorker {
       nickname: expert.nickname,
       picture: expert.picture,
       profileHashtags: str2arr(expert.hashtags),
+      logger: this.logger,
     });
 
     // Create OpenaiProxyExpert instance
@@ -553,6 +632,7 @@ export class ExpertWorker {
       try {
         await openaiExpert[Symbol.asyncDispose]();
         await server[Symbol.asyncDispose]();
+        openai[Symbol.dispose]();
       } finally {
         disposeResolve();
       }

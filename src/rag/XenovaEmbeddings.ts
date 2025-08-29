@@ -47,7 +47,7 @@ export class XenovaEmbeddings implements RagEmbeddings {
       throw new Error("Embedder is already initialized");
     }
     this.embedder = await pipeline("feature-extraction", this.model);
-    this.vectorSize = (await this.embedText('')).length;
+    this.vectorSize = (await this.embedText("")).length;
   }
 
   /**
@@ -118,26 +118,29 @@ export class XenovaEmbeddings implements RagEmbeddings {
    * @param text The text to embed
    * @returns Promise resolving to an array of chunks with their embeddings
    */
-  async embed(text: string, onProgress?: (done: number, total: number) => void): Promise<Chunk[]> {
+  async embed(
+    text: string,
+    onProgress?: (done: number, total: number) => Promise<void>
+  ): Promise<Chunk[]> {
     const chunks = this.splitTextIntoChunks(text);
-    
+
     const chunksWithEmbeddings: Chunk[] = [];
     for (let i = 0; i < chunks.length; i++) {
       const chunk = chunks[i];
       const embedding = await this.embedText(chunk.text);
-      
+
       // Create a new chunk with the embedding property
       const chunkWithEmbedding: Chunk = {
         ...chunk,
         embedding,
       };
-      
+
       chunksWithEmbeddings.push(chunkWithEmbedding);
-      
+
       // Call the progress callback with current progress
-      if (onProgress) onProgress(i, chunks.length);
+      if (onProgress) await onProgress(i, chunks.length);
     }
-    
+
     return chunksWithEmbeddings;
   }
 
@@ -147,7 +150,10 @@ export class XenovaEmbeddings implements RagEmbeddings {
    * @returns Promise resolving to the document with updated embeddings and embedding_offsets
    * @throws Error if start() has not been called
    */
-  async embedDoc(doc: Doc, onProgress?: (done: number, total: number) => void): Promise<Doc> {
+  async embedDoc(
+    doc: Doc,
+    onProgress?: (done: number, total: number) => Promise<void>
+  ): Promise<Doc> {
     if (!this.embedder) {
       throw new Error("Embedder is not initialized. Call start() first.");
     }
@@ -155,7 +161,7 @@ export class XenovaEmbeddings implements RagEmbeddings {
     // Generate chunks with embeddings from the document's data
     // Pass the onProgress callback to the embed method
     const chunks = await this.embed(doc.data, onProgress);
-    
+
     // Convert embeddings from number[][] to Float32Array[]
     const float32Embeddings = chunks.map((c) => {
       const float32Array = new Float32Array(c.embedding.length);
@@ -164,17 +170,17 @@ export class XenovaEmbeddings implements RagEmbeddings {
       }
       return float32Array;
     });
-    
+
     // Create a Uint32Array of offsets from the chunks
     const offsets = new Uint32Array(chunks.length);
     for (let i = 0; i < chunks.length; i++) {
       offsets[i] = chunks[i].offset;
     }
-    
+
     // Update the document with embeddings and offsets
     doc.embeddings = float32Embeddings;
     doc.embedding_offsets = offsets;
-    
+
     return doc;
   }
 }

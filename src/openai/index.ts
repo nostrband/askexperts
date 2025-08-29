@@ -51,6 +51,9 @@ export interface OpenaiInterface {
     model: string,
     content: ChatCompletionCreateParams
   ): Promise<{ amountSats: number; quoteId: string }>;
+
+  /** Destructor */
+  [Symbol.dispose](): void;
 }
 
 /**

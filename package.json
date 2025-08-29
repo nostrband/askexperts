@@ -1,6 +1,6 @@
 {
   "name": "askexperts",
-  "version": "0.7.87",
+  "version": "0.7.99",
   "description": "AskExperts SDK: build and use AI experts - ask them questions and pay with bitcoin on an open protocol",
   "main": "dist/index.js",
   "type": "module",
@@ -10,7 +10,7 @@
   "scripts": {
     "build": "tsc && npm run build:modules",
     "build:client": "npm run build:client:node && npm run build:client:browser && npm run build:client:index && npm run build:client:files",
-    "build:client:node": "esbuild src/client/index.ts --bundle --platform=node --target=node18 --format=esm --outfile=dist/client/index.node.js",
+    "build:client:node": "esbuild src/client/index.ts --bundle --platform=node --target=node18 --format=esm --outfile=dist/client/index.node.js --external:tty --external:debug",
     "build:client:browser": "esbuild src/client/index.ts --bundle --platform=browser --target=es2020 --format=esm --outfile=dist/client/index.browser.js --external:stream --external:events --external:zlib --external:util --external:crypto --external:fs --external:path --external:os --external:http --external:https --external:net --external:tls --external:child_process --external:worker_threads --external:readline --external:assert --external:buffer --external:../proxy/* --external:../mcp/AskExpertsHttp* --external:../bin/* --external:../expert/* --external:ws",
     "build:client:index": "echo \"export * from './index.node.js';\" > dist/client/index.js",
     "build:client:files": "cp -r dist/src/client/* dist/client/; cp dist/client/index.d.ts  dist/client/index.browser.d.ts; cp dist/client/index.d.ts  dist/client/index.node.d.ts",

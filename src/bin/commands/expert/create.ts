@@ -59,8 +59,8 @@ export async function createExpert(
     else enableErrorDebug();
 
     // Validate type
-    if (type !== "rag" && type !== "openrouter") {
-      throw new Error('Type must be either "rag" or "openrouter"');
+    if (type !== "rag" && type !== "openrouter" && type !== "system_prompt") {
+      throw new Error('Type must be either "rag", "openrouter", or "system_prompt"');
     }
 
     const db = await createDBClientForCommands(options);
@@ -150,7 +150,7 @@ export function registerCreateCommand(program: Command): void {
   const command = program
     .command("create")
     .description("Create a new expert in the database")
-    .argument("<type>", "Type of expert (rag or openrouter)")
+    .argument("<type>", "Type of expert (rag, openrouter, or system_prompt)")
     .argument("<nickname>", "Nickname for the expert")
     .option(
       "-w, --wallet <name>",

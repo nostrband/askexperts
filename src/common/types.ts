@@ -375,3 +375,17 @@ export type OnPromptPriceCallback = (prompt: Prompt) => Promise<ExpertPrice>;
  * Called after payment verification to process the prompt
  */
 export type OnPromptPaidCallback = (prompt: Prompt, quote: ExpertQuote) => Promise<ExpertReplies | ExpertReply>;
+
+/**
+ * Logger interface for AskExpertsServer
+ */
+export interface AskExpertsServerLogger {
+  /**
+   * Log a message
+   *
+   * @param type - Type of log message (e.g., 'info', 'error', 'debug')
+   * @param content - Content of the log message
+   * @param promptId - Optional prompt ID for context
+   */
+  log(type: string, content: string, promptId?: string): void;
+}

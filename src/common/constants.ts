@@ -43,7 +43,7 @@ export const SEARCH_RELAYS = ["wss://relay.nostr.band/all"];
 export const DEFAULT_DISCOVERY_TIMEOUT = 10000;
 export const DEFAULT_FETCH_EXPERTS_TIMEOUT = 5000;
 export const DEFAULT_QUOTE_TIMEOUT = 10000;
-export const DEFAULT_REPLY_TIMEOUT = 60000;
+export const DEFAULT_REPLY_TIMEOUT = 120000;
 
 
 // Default maximum number of parallel payments

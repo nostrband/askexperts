@@ -380,47 +380,6 @@ The proxy exposes the following endpoints:
 - `GET /health`: Health check endpoint
 - `POST /chat/completions`: OpenAI Chat Completions API endpoint
 
-Example using fetch with streaming:
-
-```javascript
-const response = await fetch('http://localhost:3002/chat/completions', {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${NWC_STRING}`
-  },
-  body: JSON.stringify({
-    model: 'expert_pubkey_here?max_amount_sats=1000',
-    messages: [
-      {
-        role: 'user',
-        content: 'Hello! Can you tell me about Bitcoin?'
-      }
-    ],
-    stream: true
-  })
-});
-
-// Process the stream
-const reader = response.body.getReader();
-const decoder = new TextDecoder();
-
-while (true) {
-  const { done, value } = await reader.read();
-  if (done) break;
-  
-  const chunk = decoder.decode(value);
-  // Process each SSE chunk
-  const lines = chunk.split('\n\n');
-  for (const line of lines) {
-    if (line.startsWith('data: ') && line !== 'data: [DONE]') {
-      const data = JSON.parse(line.substring(6));
-      console.log(data.choices[0].delta.content || '');
-    }
-  }
-}
-```
-
 Example using the OpenAI Node.js client:
 
 ```javascript
@@ -462,6 +421,48 @@ for await (const chunk of stream) {
 ```
 
 A complete example is available in the `examples/openai-proxy-client.js` file.
+
+Example using fetch with streaming:
+
+```javascript
+const response = await fetch('http://localhost:3002/chat/completions', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${NWC_STRING}`
+  },
+  body: JSON.stringify({
+    model: 'expert_pubkey_here?max_amount_sats=1000',
+    messages: [
+      {
+        role: 'user',
+        content: 'Hello! Can you tell me about Bitcoin?'
+      }
+    ],
+    stream: true
+  })
+});
+
+// Process the stream
+const reader = response.body.getReader();
+const decoder = new TextDecoder();
+
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+  
+  const chunk = decoder.decode(value);
+  // Process each SSE chunk
+  const lines = chunk.split('\n\n');
+  for (const line of lines) {
+    if (line.startsWith('data: ') && line !== 'data: [DONE]') {
+      const data = JSON.parse(line.substring(6));
+      console.log(data.choices[0].delta.content || '');
+    }
+  }
+}
+```
+
 
 ## CLI Commands
 

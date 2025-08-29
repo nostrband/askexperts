@@ -6,6 +6,7 @@
 import { SimplePool, Event, Filter, getPublicKey } from "nostr-tools";
 import { z } from "zod";
 import { debugExpert, debugError } from "../common/debug.js";
+import { AskExpertsServerLogger } from "../common/types.js";
 
 import {
   EVENT_KIND_ASK,
@@ -172,6 +173,11 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
   #onProof?: OnProofCallback;
 
   /**
+   * Logger instance for logging server events
+   */
+  #logger?: AskExpertsServerLogger;
+
+  /**
    * Active ask subscription
    */
   private askSub?: { close: () => void };
@@ -254,6 +260,7 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
     paymentMethods?: PaymentMethod[];
     pool: SimplePool;
     streamFactory?: StreamFactory;
+    logger?: AskExpertsServerLogger;
     nickname?: string;
     description?: string;
     profileHashtags?: string[];
@@ -282,6 +289,9 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
 
     // Set the required pool
     this.pool = options.pool;
+    
+    // Set the logger if provided
+    this.#logger = options.logger;
   }
 
   // Getters and setters for private members
@@ -402,6 +412,14 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
     this.#streamFactory = value;
   }
 
+  get logger() {
+    return this.#logger;
+  }
+
+  set logger(value: AskExpertsServerLogger | undefined) {
+    this.#logger = value;
+  }
+
   /**
    * Starts the expert by subscribing to asks and prompts
    */
@@ -421,6 +439,14 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
 
     // Subscribe to prompts
     this.subscribeToPrompts();
+  }
+
+  private log(type: string, content: string | any, promptId?: string) {
+    if (!this.#logger) return;
+    if (typeof content === 'string')
+      this.#logger.log(type, content, promptId)
+    else
+      this.#logger.log(type, JSON.stringify(content), promptId)
   }
 
   /**
@@ -619,6 +645,7 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
 
       // Call the onAsk callback
       const bid = await this.#onAsk(ask);
+      this.log("ask", { ask, bid });
 
       // If the callback returns a bid, send it
       if (bid) {
@@ -826,13 +853,14 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
         try {
           // Call the onPrompt callback
           const expertQuote = await this.#onPrompt(prompt);
+          this.log("prompt", { prompt, expertQuote }, prompt.id);
 
           // Create a full Quote from the ExpertQuote
           const quote: Quote = {
             pubkey: this.pubkey,
             promptId: prompt.id,
             invoices: expertQuote.invoices,
-            event: prompt.event, // Temporary placeholder, will be set in sendQuote
+            event: undefined as unknown as Event, // we'll be filled in sendQuote
           };
 
           await this.sendQuote(prompt, quote);
@@ -1023,6 +1051,7 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
 
           // Call the onProof callback with prompt, expertQuote, and proof
           const result = await this.#onProof(prompt, expertQuote, proof);
+          this.log("reply", { proof, result }, prompt.id);
 
           let useStreaming: boolean;
           if (Symbol.asyncIterator in result) {

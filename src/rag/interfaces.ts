@@ -39,7 +39,7 @@ export interface RagEmbeddings {
    * @returns Promise resolving to an array of chunks with their embeddings
    * @throws Error if start() has not been called
    */
-  embed(text: string, onProgress?: (done: number, total: number) => void): Promise<Chunk[]>;
+  embed(text: string, onProgress?: (done: number, total: number) => Promise<void>): Promise<Chunk[]>;
   
   /**
    * Embeds a document by processing its data field and updating its embeddings and embedding_offsets.
@@ -48,7 +48,7 @@ export interface RagEmbeddings {
    * @returns Promise resolving to the document with updated embeddings and embedding_offsets
    * @throws Error if start() has not been called
    */
-  embedDoc(doc: Doc, onProgress?: (done: number, total: number) => void): Promise<Doc>;
+  embedDoc(doc: Doc, onProgress?: (done: number, total: number) => Promise<void>): Promise<Doc>;
 }
 
 export interface RagMetadata {

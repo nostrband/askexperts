@@ -9,6 +9,7 @@ import {
 } from "../scheduler/interfaces.js";
 import { debugError, debug } from "../../common/debug.js";
 import { generateUUID } from "../../common/uuid.js";
+import { AskExpertsServerLogger } from "../../common/types.js";
 
 // Create a debug function for the worker
 const debugWorker = debug("askexperts:remoteworker");
@@ -31,6 +32,8 @@ export interface ExpertRemoteWorkerOptions {
   defaultDocStoreUrl?: string;
   /** Expert types this worker will handle (if specified) */
   expert_types?: string[];
+  /** Logger for server events */
+  logger?: AskExpertsServerLogger;
 }
 
 /**
@@ -73,7 +76,8 @@ export class ExpertRemoteWorker {
       options.pool,
       options.ragHost,
       options.ragPort,
-      options.defaultDocStoreUrl
+      options.defaultDocStoreUrl,
+      options.logger
     );
 
     debugWorker(

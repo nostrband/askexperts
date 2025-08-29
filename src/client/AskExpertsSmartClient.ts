@@ -403,7 +403,8 @@ Return nothing else, only bid ids.
    * Disposes of resources when the object is no longer needed
    */
   [Symbol.dispose](): void {
-    // Dispose of the paying client
+    // Dispose of stuff
     this.client[Symbol.dispose]();
+    this.openai[Symbol.dispose]();
   }
 }

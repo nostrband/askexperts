@@ -605,6 +605,16 @@ export class OpenaiAskExperts implements OpenaiInterface {
       "8b022e7a1cc6b57a86cf8def0274086e1e04600dd687631b1db2cb5e3b6b6bdb",
     "openai/gpt-oss-20b:free":
       "ce0b57d3d734f05b86d876f328ce1920a0d4e436e16090d2975a6e956e057aa2",
+    "openai/gpt-5":
+      "fb486fef98be667e7aa9376d09efa634264bd9ca2c2cc89b3c37c111ad94d86e",
+    "openai/gpt-5-nano":
+      "d74ae38880f613a93c8dc3e8c5ec6613f34cc5c96d4c38ee8030058b0a934ee0",
+    "openai/gpt-5-mini":
+      "f98e8f13fdf06e6676e1ae414262e629870fac3c340a3ecd18ef201ed4622802",
+    "openai/gpt-5-chat":
+      "7da89a0ed47ef042b195c833c6f383ec9035c3f5d409a6ce431254e718044813",
+    "x-ai/grok-code-fast-1":
+      "5178bc6dedd3e95e12a13711693c2917cbb305195ca0862abb75dc407ffc5572",
   };
 
   /**
@@ -813,7 +823,7 @@ export class OpenaiAskExperts implements OpenaiInterface {
     }
 
     // Create a promise that will be wrapped in an APIPromise-like object
-    const promise = this.createChatCompletion(quoteData.content, { quoteId });
+    const promise = this.createChatCompletion(quoteId);
 
     // Add properties to make it look like an APIPromise
     // This is a simplified version that mimics the structure
@@ -828,17 +838,12 @@ export class OpenaiAskExperts implements OpenaiInterface {
    * Approves the payment for the quote and returns the result
    *
    * @param body - Chat completion parameters
-   * @param options - Optional parameters including quoteId
    * @returns Promise resolving to chat completion or chunks
    */
   private async createChatCompletion(
-    body: ChatCompletionCreateParams,
-    options?: any
+    quoteId: string
   ): Promise<ChatCompletion | AsyncIterable<ChatCompletionChunk>> {
     try {
-      // Get the quote ID from the options
-      const quoteId = options?.quoteId;
-
       if (!quoteId) {
         throw new Error("quoteId is required in options");
       }
@@ -957,7 +962,7 @@ export class OpenaiAskExperts implements OpenaiInterface {
   /**
    * Disposes of resources when the instance is no longer needed
    */
-  [Symbol.dispose](): void {
+  [Symbol.dispose]() {
     // Dispose of the client
     this.client[Symbol.dispose]();
   }

@@ -4,12 +4,13 @@
  */
 
 import { SimplePool } from "nostr-tools";
-import { 
-  PromptFormat, 
-  PaymentMethod, 
-  OnAskCallback, 
-  OnPromptCallback, 
-  OnProofCallback 
+import {
+  PromptFormat,
+  PaymentMethod,
+  OnAskCallback,
+  OnPromptCallback,
+  OnProofCallback,
+  AskExpertsServerLogger
 } from "../common/types.js";
 import { StreamFactory } from "../stream/index.js";
 
@@ -94,6 +95,12 @@ export interface AskExpertsServerBaseInterface {
    */
   get streamFactory(): StreamFactory;
   set streamFactory(value: StreamFactory);
+
+  /**
+   * Logger instance for logging server events
+   */
+  get logger(): AskExpertsServerLogger | undefined;
+  set logger(value: AskExpertsServerLogger | undefined);
 
   /**
    * Symbol.asyncDispose method for resource cleanup

@@ -14,6 +14,7 @@ import {
   ExpertReply,
   OnPromptPriceCallback,
   OnPromptPaidCallback,
+  AskExpertsServerLogger,
 } from "../common/types.js";
 import { debugError } from "../common/debug.js";
 import { StreamFactory } from "../stream/index.js";
@@ -79,6 +80,7 @@ export class AskExpertsServer
     paymentMethods?: string[];
     pool: SimplePool;
     streamFactory?: StreamFactory;
+    logger?: AskExpertsServerLogger;
     nickname?: string;
     description?: string;
     profileHashtags?: string[];
@@ -98,6 +100,7 @@ export class AskExpertsServer
       paymentMethods: options.paymentMethods,
       pool: options.pool,
       streamFactory: options.streamFactory,
+      logger: options.logger,
       nickname: options.nickname,
       description: options.description,
       profileHashtags: options.profileHashtags,

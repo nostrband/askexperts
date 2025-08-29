@@ -9,6 +9,7 @@ import { OpenaiInterface } from "./index.js";
 import { OpenRouter } from "../experts/utils/OpenRouter.js";
 import { PricingResult } from "../experts/utils/ModelPricing.js";
 import { debugExpert } from "../common/debug.js";
+import { DEFAULT_REPLY_TIMEOUT } from "../common/constants.js";
 
 /**
  * Helper function to process an AsyncIterable with a side effect
@@ -19,8 +20,8 @@ async function* tapAsyncIterable<T>(
   inspect: (item: T) => void | Promise<void>
 ): AsyncIterable<T> {
   for await (const item of source) {
-    await inspect(item);  // run your side-effect or inspection
-    yield item;           // pass the item through unchanged
+    await inspect(item); // run your side-effect or inspection
+    yield item; // pass the item through unchanged
   }
 }
 
@@ -57,10 +58,13 @@ export class OpenaiOpenRouter implements OpenaiInterface {
   /**
    * Map of active quotes with their model and content
    */
-  private activeQuotes: Map<string, {
-    model: string,
-    content: ChatCompletionCreateParams
-  }> = new Map();
+  private activeQuotes: Map<
+    string,
+    {
+      model: string;
+      content: ChatCompletionCreateParams;
+    }
+  > = new Map();
 
   /**
    * Creates a new OpenaiOpenRouter instance
@@ -69,11 +73,7 @@ export class OpenaiOpenRouter implements OpenaiInterface {
    * @param openRouter - The OpenRouter instance for pricing
    * @param margin - Profit margin (default: 0)
    */
-  constructor(
-    openai: OpenAI,
-    openRouter: OpenRouter,
-    margin: number = 0
-  ) {
+  constructor(openai: OpenAI, openRouter: OpenRouter, margin: number = 0) {
     this.openai = openai;
     this.openRouter = openRouter;
     this.margin = margin;
@@ -82,7 +82,7 @@ export class OpenaiOpenRouter implements OpenaiInterface {
   /**
    * Gets pricing information for a model in sats per million tokens
    * Delegates to the OpenRouter instance
-   * 
+   *
    * @param model - Model ID
    * @returns Promise resolving to pricing information or undefined if not available
    */
@@ -108,7 +108,7 @@ export class OpenaiOpenRouter implements OpenaiInterface {
   /**
    * Estimates the price of processing a prompt
    * Implements the logic from OpenaiProxyExpertBase.onPromptPrice
-   * 
+   *
    * @param model - Model ID
    * @param content - The chat completion parameters
    * @returns Promise resolving to the estimated price object
@@ -116,15 +116,13 @@ export class OpenaiOpenRouter implements OpenaiInterface {
   async getQuote(
     model: string,
     content: ChatCompletionCreateParams
-  ): Promise<{ amountSats: number, quoteId: string }> {
+  ): Promise<{ amountSats: number; quoteId: string }> {
     try {
       // Calculate the number of tokens in the content
       let inputTokenCount = 0;
-      
+
       // For OpenAI format, count tokens in each message
-      inputTokenCount = this.countTokens(
-        JSON.stringify(content.messages)
-      );
+      inputTokenCount = this.countTokens(JSON.stringify(content.messages));
 
       // Use the average output count for pricing
       const outputTokenCount = this.avgOutputCount;
@@ -133,7 +131,9 @@ export class OpenaiOpenRouter implements OpenaiInterface {
       const pricing = await this.pricing(model);
       if (!pricing) {
         // Generate a unique quote ID even for error cases
-        const quoteId = `openrouter-error-${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+        const quoteId = `openrouter-error-${Date.now()}-${Math.random()
+          .toString(36)
+          .substring(2, 15)}`;
         return { amountSats: 0, quoteId };
       }
 
@@ -145,22 +145,26 @@ export class OpenaiOpenRouter implements OpenaiInterface {
       );
 
       // Generate a unique quote ID
-      const quoteId = `openrouter-${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
-      
+      const quoteId = `openrouter-${Date.now()}-${Math.random()
+        .toString(36)
+        .substring(2, 15)}`;
+
       // Store the model and content in the activeQuotes map
       this.activeQuotes.set(quoteId, {
         model,
-        content
+        content,
       });
 
       return {
         amountSats: totalPrice,
-        quoteId
+        quoteId,
       };
     } catch (error) {
       console.error("Error estimating price:", error);
       // Generate a unique quote ID for error cases
-      const quoteId = `openrouter-error-${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+      const quoteId = `openrouter-error-${Date.now()}-${Math.random()
+        .toString(36)
+        .substring(2, 15)}`;
       return { amountSats: 0, quoteId };
     }
   }
@@ -176,31 +180,36 @@ export class OpenaiOpenRouter implements OpenaiInterface {
   execute(
     quoteId: string,
     options?: any
-  ): APIPromise<ChatCompletion> | APIPromise<AsyncIterable<ChatCompletionChunk>> {
+  ):
+    | APIPromise<ChatCompletion>
+    | APIPromise<AsyncIterable<ChatCompletionChunk>> {
     // Get the stored model and content from the activeQuotes map
     const quoteData = this.activeQuotes.get(quoteId);
-    
+
     if (!quoteData) {
       throw new Error(`No active quote found for ID: ${quoteId}`);
     }
-    
+
     // Use the stored content
     const body = quoteData.content;
-    
+
     // Handle streaming responses
     if (body.stream === true) {
       // Call the underlying OpenAI client to get the stream
-      const resultPromise = this.openai.chat.completions.create(body, options) as APIPromise<AsyncIterable<ChatCompletionChunk>>;
-      
+      const resultPromise = this.openai.chat.completions.create(body, {
+        ...(options || {}),
+        timeout: DEFAULT_REPLY_TIMEOUT,
+      }) as APIPromise<AsyncIterable<ChatCompletionChunk>>;
+
       // Return a new promise that will resolve to a wrapped AsyncIterable
-      return resultPromise.then(stream => {
+      return resultPromise.then((stream) => {
         let accumulatedContent = "";
-        
+
         // Use tapAsyncIterable to process each chunk while passing it through
         return tapAsyncIterable(stream, async (chunk) => {
           // Accumulate the content from each chunk
           accumulatedContent += chunk.choices[0]?.delta?.content || "";
-          
+
           // When we receive the last chunk, update the average output count
           if (chunk.choices[0]?.finish_reason !== null) {
             this.updateAverageOutputCount(accumulatedContent);
@@ -209,18 +218,23 @@ export class OpenaiOpenRouter implements OpenaiInterface {
       }) as APIPromise<AsyncIterable<ChatCompletionChunk>>;
     } else {
       // Handle non-streaming responses
-      const result = this.openai.chat.completions.create(body, options) as APIPromise<ChatCompletion>;
-      
+      const result = this.openai.chat.completions.create(body, {
+        ...(options || {}),
+        timeout: DEFAULT_REPLY_TIMEOUT,
+      }) as APIPromise<ChatCompletion>;
+
       // Update the average output token count when the result is available
-      result.then(response => {
-        if ('choices' in response) {
-          const output = response.choices[0]?.message?.content || "";
-          this.updateAverageOutputCount(output);
-        }
-      }).catch(error => {
-        console.error("Error processing completion result:", error);
-      });
-      
+      result
+        .then((response) => {
+          if ("choices" in response) {
+            const output = response.choices[0]?.message?.content || "";
+            this.updateAverageOutputCount(output);
+          }
+        })
+        .catch((error) => {
+          console.error("Error processing completion result:", error);
+        });
+
       return result;
     }
   }
@@ -243,4 +257,6 @@ export class OpenaiOpenRouter implements OpenaiInterface {
       `Updated average output token count: ${this.avgOutputCount} (based on ${this.outputCount} outputs)`
     );
   }
+
+  [Symbol.dispose]() {}
 }
