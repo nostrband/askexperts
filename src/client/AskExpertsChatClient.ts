@@ -188,6 +188,7 @@ export class AskExpertsChatClient {
       let expertReply: string = "";
 
       // Iterate through the replies
+      const container = this.options.stream ? "delta" : "message";
       for await (const reply of replies) {
         if (reply.done) {
           debugClient(`Received final reply from expert ${this.expertPubkey}`);
@@ -197,9 +198,7 @@ export class AskExpertsChatClient {
           if (reply.content) {
             if (format === FORMAT_OPENAI) {
               chunk =
-                reply.content.choices[0]?.[
-                  this.options.stream ? "delta" : "message"
-                ].content;
+                reply.content.choices[0]?.[container].content;
             } else {
               chunk = reply.content;
             }
@@ -209,7 +208,7 @@ export class AskExpertsChatClient {
         } else {
           debugClient(`Received chunk from expert ${this.expertPubkey}`);
           if (!reply.content) continue;
-          const chunk = reply.content.choices[0]?.delta.content;
+          const chunk = reply.content.choices[0]?.[container].content;
           if (this.options.stream) onStream!(chunk);
           expertReply += chunk;
         }
