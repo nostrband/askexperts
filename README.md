@@ -368,13 +368,13 @@ The OpenAI API Proxy supports the following options:
 
 The proxy implements the OpenAI Chat Completions API, with a few key differences:
 
-1. The `model` parameter is used to specify the expert's pubkey
-   - You can optionally append query parameters using the format: `expert_pubkey?max_amount_sats=N`
-   - `max_amount_sats` limits the maximum amount in satoshis that will be accepted in the `onQuote` handler
+1. The `model` parameter can contain any well-known name like `openai/gpt-5` and the matching expert will be chosen, or you might use it to specify the expert's pubkey directly:
+   - You can optionally append query parameters to the model name using the format: `<well-known-name | expert-pubkey>?max_amount_sats=N`
+   - `max_amount_sats` limits the maximum amount in satoshis that will be paid to the expert
    - If the invoice amount exceeds this limit, the request will be rejected
 2. The `Authorization: Bearer <nwcString>` header should contain your NWC connection string for payments
-3. The proxy handles all the NIP-174 protocol details, including payments
-4. The proxy supports both streaming and non-streaming responses
+
+The proxy handles all the NIP-174 protocol details, including payments. It supports both streaming and non-streaming responses.
 
 The proxy exposes the following endpoints:
 - `GET /health`: Health check endpoint
