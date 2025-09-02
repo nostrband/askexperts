@@ -22,6 +22,7 @@ export interface OpenRouterExpertsCommandOptions extends ExpertCommandOptions {
   models?: string[];
   debug?: boolean;
   wallet?: string;
+  user?: string;
 }
 
 /**
@@ -319,6 +320,10 @@ export function registerOpenRouterCommand(program: Command): void {
     .option(
       "-w, --wallet <name>",
       "Wallet name to use (uses default if not provided)"
+    )
+    .option(
+      "--user <user_id>",
+      "User ID to connect as (uses current user if not provided)"
     )
     .option("-d, --debug", "Enable debug logging")
     .action(async (options) => {

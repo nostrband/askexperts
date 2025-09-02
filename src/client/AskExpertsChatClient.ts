@@ -192,26 +192,22 @@ export class AskExpertsChatClient {
       for await (const reply of replies) {
         if (reply.done) {
           debugClient(`Received final reply from expert ${this.expertPubkey}`);
-
-          // OpenAI format response
-          let chunk = "";
-          if (reply.content) {
-            if (format === FORMAT_OPENAI) {
-              chunk =
-                reply.content.choices[0]?.[container].content;
-            } else {
-              chunk = reply.content;
-            }
-            if (this.options.stream) onStream!(chunk);
-            expertReply += chunk;
-          }
         } else {
           debugClient(`Received chunk from expert ${this.expertPubkey}`);
-          if (!reply.content) continue;
-          const chunk = reply.content.choices[0]?.[container].content;
-          if (this.options.stream) onStream!(chunk);
-          expertReply += chunk;
         }
+        if (!reply.content) continue;
+
+        let chunk = "";
+        if (format === FORMAT_OPENAI && this.options.stream) {
+          // OpenAI streaming replies are valid jsons
+          // parsed into objects
+          chunk = reply.content.choices[0]?.delta.content;
+        } else {
+          // Just a final chunk of a big reply
+          chunk = reply.content;
+        }
+        if (this.options.stream) onStream!(chunk);
+        expertReply += chunk;
       }
 
       // Add the full expert's response to the message history

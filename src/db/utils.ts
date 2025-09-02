@@ -26,10 +26,11 @@ export function getDB(): DB {
  * @returns A DB remote client instance
  */
 export async function createDBRemoteClient(
-  url: string
+  url: string,
+  user_id?: string
 ): Promise<DBRemoteClient> {
-  // Get the current user ID
-  const userId = getCurrentUserId();
+  // Get the user ID (either specified or current)
+  const userId = user_id || getCurrentUserId();
 
   // Get the user's private key
   const user = await getDB().getUser(userId);
@@ -41,7 +42,7 @@ export async function createDBRemoteClient(
   const privkey = hexToBytes(user.privkey);
 
   // Return a new DBRemoteClient instance with the new object-based constructor
-  return new DBRemoteClient({ url, privateKey: privkey });
+  return new DBRemoteClient({ url, privateKey: privkey, user_id });
 }
 
 /**
@@ -49,9 +50,9 @@ export async function createDBRemoteClient(
  * @param url Optional URL for remote DB client
  * @returns A DB client instance (DBClient if url is undefined, DBRemoteClient otherwise)
  */
-export async function createDBClient(url?: string): Promise<DBInterface> {
-  if (url) return createDBRemoteClient(url);
+export async function createDBClient(url?: string, user_id?: string): Promise<DBInterface> {
+  if (url) return createDBRemoteClient(url, user_id);
 
   // Return a new DBClient instance
-  return new DBClient();
+  return new DBClient(false, user_id);
 }

@@ -20,12 +20,15 @@ export interface DBRemoteClientOptions {
    * Can be a string or a callback function that returns a Promise<string>
    */
   token?: string | (() => Promise<string>);
+  /** Optional user_id to connect as (overrides current user) */
+  user_id?: string;
 }
 
 export class DBRemoteClient implements DBInterface {
   private baseUrl: string;
   private privateKey?: Uint8Array;
   #token?: string | (() => Promise<string>);
+  private user_id?: string;
 
   /**
    * Creates a new DBRemoteClient instance
@@ -37,6 +40,7 @@ export class DBRemoteClient implements DBInterface {
     this.baseUrl = this.baseUrl.endsWith("/") ? this.baseUrl.slice(0, -1) : this.baseUrl;
     this.privateKey = options.privateKey;
     this.#token = options.token;
+    this.user_id = options.user_id;
 
     debugDB(`Connecting to remote DB server at ${options.url}`);
   }

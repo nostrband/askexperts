@@ -14,10 +14,13 @@ export class DBClient implements DBInterface {
 
   /**
    * Creates a new DBClient instance
+   * @param no_user - Whether to use the current user or not
+   * @param user_id - Optional user_id to use instead of the current user
    */
-  constructor(no_user?: boolean) {
+  constructor(no_user?: boolean, user_id?: string) {
     this.db = getDB();
     this.no_user = no_user;
+    this.#user_id = user_id;
   }
 
   private user_id() {
