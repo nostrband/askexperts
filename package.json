@@ -1,6 +1,6 @@
 {
   "name": "askexperts",
-  "version": "0.7.110",
+  "version": "0.7.111",
   "description": "AskExperts SDK: build and use AI experts - ask them questions and pay with bitcoin on an open protocol",
   "main": "dist/index.js",
   "type": "module",

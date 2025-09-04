@@ -344,7 +344,7 @@ The `Authorization: Bearer <nwcString>` header should contain your NWC connectio
 
 ### OpenAI API Proxy
 
-The OpenAI API Proxy provides an OpenAI-compatible interface to the AskExperts protocol, allowing you to use any OpenAI client library to interact with NIP-174 experts. To try with our hosted version, use `https://openai.askexperts.io/`.
+The OpenAI API Proxy provides an OpenAI-compatible interface to the AskExperts protocol, allowing you to use any OpenAI client library to interact with NIP-174 experts. To try with our hosted version, use `https://proxy.askexperts.io/`, the base path is `/api/v1/` (like on OpenRouter).
 
 #### Running the OpenAI API Proxy
 
@@ -353,7 +353,7 @@ The OpenAI API Proxy provides an OpenAI-compatible interface to the AskExperts p
 npx askexperts proxy --port=3002
 
 # With specific base path and relays
-npx askexperts proxy --port=3002 --base-path=/v1 --relays=wss://relay1.example.com,wss://relay2.example.com
+npx askexperts proxy --port=3002 --base-path=/v1 --relays=wss://relay1.askexperts.io,wss://relay2.askexperts.io
 
 # Enable debug logging
 npx askexperts proxy --debug
@@ -379,6 +379,7 @@ The proxy handles all the NIP-174 protocol details, including payments. It suppo
 The proxy exposes the following endpoints:
 - `GET /health`: Health check endpoint
 - `POST /chat/completions`: OpenAI Chat Completions API endpoint
+- `GET /models`: List of models, in OpenRouter format
 
 Example using the OpenAI Node.js client:
 

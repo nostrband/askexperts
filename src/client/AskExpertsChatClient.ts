@@ -14,6 +14,7 @@ import { debugError, debugClient } from "../common/debug.js";
 import { Expert, FetchExpertsParams } from "../common/types.js";
 import { SimplePool } from "nostr-tools";
 import { StreamFactory } from "../stream/interfaces.js";
+import { ChatCompletionChunk } from "openai/resources";
 
 /**
  * Options for the chat client
@@ -201,7 +202,13 @@ export class AskExpertsChatClient {
         if (format === FORMAT_OPENAI && this.options.stream) {
           // OpenAI streaming replies are valid jsons
           // parsed into objects
-          chunk = reply.content.choices[0]?.delta.content;
+          const payload = reply.content as ChatCompletionChunk;
+          const content = payload.choices[0]?.delta.content;
+          if (typeof content === 'string') 
+            chunk = content;
+          // FIXME so can it be an array?
+          // else if (Array.isArray(content))
+          //   chunk = content
         } else {
           // Just a final chunk of a big reply
           chunk = reply.content;

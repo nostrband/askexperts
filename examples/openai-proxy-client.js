@@ -21,7 +21,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 // Configuration
-const PROXY_URL = process.env.PROXY_URL || 'https://openai.askexperts.io';
+const PROXY_URL = process.env.PROXY_URL || 'https://proxy.askexperts.io';
 const NWC_STRING = process.env.NWC_STRING || '';
 
 if (!NWC_STRING) throw new Error("NWC_STRING required");
