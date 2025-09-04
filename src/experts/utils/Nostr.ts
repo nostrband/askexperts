@@ -2,6 +2,8 @@ import { SimplePool, Event, Filter } from "nostr-tools";
 import { fetchFromRelays } from "../../common/relay.js";
 import { debugError, debugExpert } from "../../common/debug.js";
 import { Expert, PromptFormat, PaymentMethod } from "../../common/types.js";
+import { FetchExpertsParams } from "../../common/types.js";
+import { DEFAULT_DISCOVERY_RELAYS, DEFAULT_FETCH_EXPERTS_TIMEOUT, EVENT_KIND_EXPERT_PROFILE } from "../../common/constants.js";
 
 /**
  * Parse an expert profile event into an Expert object
@@ -162,9 +164,7 @@ export class Nostr {
           relayListEvents[0]
         );
 
-        // If no relay list found, use outbox relays for both read and write
-        const effectiveReadRelays =
-          readRelays.length > 0 ? readRelays : Nostr.OUTBOX_RELAYS;
+        // If no relay list found, use outbox relays
         const effectiveWriteRelays =
           writeRelays.length > 0 ? writeRelays : Nostr.OUTBOX_RELAYS;
         debugExpert(`Fetched relays for ${pubkey}: ${effectiveWriteRelays}`);
@@ -378,4 +378,67 @@ export class Nostr {
 
     return finalEvents;
   }
+}
+
+/**
+ * Fetches expert profiles from relays
+ *
+ * @param params - Parameters for fetching expert profiles
+ * @param pool - SimplePool instance for relay operations
+ * @returns Promise resolving to array of Expert objects
+ */
+export async function fetchExperts(params: FetchExpertsParams, pool: SimplePool): Promise<Expert[]> {
+  // Validate parameters
+  if (!params.pubkeys || params.pubkeys.length === 0) {
+    throw new Error("At least one pubkey is required");
+  }
+
+  // Set default values
+  const relays = params.relays || DEFAULT_DISCOVERY_RELAYS;
+
+  // Create a filter for expert profile events
+  const filter = {
+    kinds: [EVENT_KIND_EXPERT_PROFILE],
+    authors: params.pubkeys,
+    since: Math.floor(Date.now() / 1000) - 86400, // Get events from the last day
+    limit: params.pubkeys.length,
+  };
+
+  // Fetch expert profile events
+  const events = await fetchFromRelays(
+    filter,
+    relays,
+    pool,
+    DEFAULT_FETCH_EXPERTS_TIMEOUT
+  );
+
+  // Process events into Expert objects
+  const experts: Expert[] = [];
+  // Use a Map to store created_at timestamp for each pubkey
+  const expertTimestamps = new Map<string, number>();
+
+  for (const event of events) {
+    // Check if we've seen this pubkey before
+    if (expertTimestamps.has(event.pubkey)) {
+      // Only replace if this event is newer
+      if (event.created_at > expertTimestamps.get(event.pubkey)!) {
+        // Remove the older expert from the results
+        const index = experts.findIndex((e) => e.pubkey === event.pubkey);
+        if (index !== -1) {
+          experts.splice(index, 1);
+        }
+      } else {
+        continue;
+      }
+    }
+    
+    // First/Newer expert
+    const expert = parseExpertProfile(event);
+    if (expert) {
+      experts.push(expert);
+      expertTimestamps.set(event.pubkey, event.created_at);
+    }
+  }
+
+  return experts;
 }

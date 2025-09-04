@@ -68,8 +68,8 @@ async function testOpenaiExpert() {
       description: '',
       system_prompt: '',
       nickname: ''
-    }
-    //    systemPrompt: 'You are a helpful assistant.',
+    },
+    openrouter: openRouter // Pass the openRouter instance created earlier
   });
 
   try {

@@ -94,8 +94,8 @@ export class OpenaiProxyExpertBase {
     const streamFactory = new DefaultStreamFactory();
     streamFactory.writerConfig = {
       minChunkInterval: 1000, // Send a delta every second
-      minChunkSize: 1024,     // Send if >1KB of deltas
-    }
+      minChunkSize: 1024, // Send if >1KB of deltas
+    };
     this.server.streamFactory = streamFactory;
   }
 
@@ -142,7 +142,9 @@ export class OpenaiProxyExpertBase {
     this.#onGetSystemPrompt = value;
   }
 
-  get onGetInvoiceDescription(): ((prompt: Prompt) => Promise<string>) | undefined {
+  get onGetInvoiceDescription():
+    | ((prompt: Prompt) => Promise<string>)
+    | undefined {
     return this.#onGetInvoiceDescription;
   }
 
@@ -154,7 +156,7 @@ export class OpenaiProxyExpertBase {
 
   /**
    * Gets the temperature setting for model responses
-   * 
+   *
    * @returns The temperature value or undefined if not set
    */
   get temperature(): number | undefined {
@@ -163,7 +165,7 @@ export class OpenaiProxyExpertBase {
 
   /**
    * Sets the temperature for model responses
-   * 
+   *
    * @param value - Temperature value between 0 and 2, or undefined to use model default
    */
   set temperature(value: number | undefined) {
@@ -254,7 +256,7 @@ export class OpenaiProxyExpertBase {
     // and prepend our system prompt
     if (systemPrompt) {
       const messages = content.messages.map((msg) => {
-        if (msg.role === "system") {
+        if (msg.role === "system" || msg.role === "developer") {
           return { ...msg, role: "user" as const };
         }
         return msg;
@@ -411,9 +413,6 @@ ${contextText}
 
           // Check if the result is a ChatCompletion
           if ("choices" in completion) {
-            // Extract content in text format
-            const output = completion.choices[0]?.message?.content || "";
-
             switch (prompt.format) {
               case FORMAT_OPENAI:
                 // Return the full API response
@@ -423,7 +422,7 @@ ${contextText}
               case FORMAT_TEXT:
                 // Return the output only
                 return {
-                  content: output,
+                  content: completion.choices[0]?.message?.content || "",
                 };
               default:
                 throw new Error("Unsupported format");

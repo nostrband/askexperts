@@ -8,6 +8,7 @@ import { DocstoreToRag, createRagEmbeddings } from "../rag/index.js";
 import { DBExpert } from "../db/interfaces.js";
 import { str2arr } from "../common/utils.js";
 import { Prompts } from "./Prompts.js";
+import { ChatCompletionCreateParams } from "openai/resources";
 
 const MAX_RESULTS = 50;
 
@@ -235,7 +236,8 @@ export class RagExpert {
 
       if (prompt.format === FORMAT_OPENAI) {
         // For OpenAI format, extract text from up to last 10 messages
-        const messages = prompt.content.messages;
+        const content = prompt.content as ChatCompletionCreateParams;
+        const messages = content.messages;
         if (messages && messages.length > 0) {
           // Get the last user message
           const userMessages = messages
@@ -243,10 +245,13 @@ export class RagExpert {
             .slice(-1);
 
           promptText = userMessages
-            .map((msg: any) =>
+            .map((msg) =>
               typeof msg.content === "string"
                 ? msg.content
-                : JSON.stringify(msg.content)
+                : msg.content
+                    ?.filter((m) => m.type === "text")
+                    .map((m) => m.text)
+                    .join(" ")
             )
             .join("\n");
         }
@@ -283,7 +288,7 @@ export class RagExpert {
       const batchResults = await this.ragDB.searchBatch(
         this.ragCollectionName(),
         recentEmbeddings,
-        limit, // result per query embedding
+        limit // result per query embedding
       );
 
       const results = batchResults.flat();
@@ -300,14 +305,18 @@ export class RagExpert {
       );
 
       // Newer version with data stored in RAG?
-      let context: { id: string; metadata: string; segments: { i: number, c: string }[] }[] = [];
+      let context: {
+        id: string;
+        metadata: string;
+        segments: { i: number; c: string }[];
+      }[] = [];
       if (results[0].data) {
         debugExpert(`Rag matching chunks ${results.length}`);
 
         for (const r of results) {
           const c = context.find((c) => c.id === r.metadata.id);
           if (c) {
-            if (!c.segments.find(s => s.i === r.metadata.chunk))
+            if (!c.segments.find((s) => s.i === r.metadata.chunk))
               c.segments.push({ i: r.metadata.chunk, c: r.data });
           } else {
             context.push({
@@ -349,7 +358,11 @@ export class RagExpert {
 
         // Remove useless fields, return as string
         context = matchingDocs.map((d) => {
-          return { id: d.id, segments: [{ i: 0, c: d.data }], metadata: d.metadata || "" };
+          return {
+            id: d.id,
+            segments: [{ i: 0, c: d.data }],
+            metadata: d.metadata || "",
+          };
         });
       }
 

@@ -7,6 +7,7 @@ import { SystemPromptExpert } from "../SystemPromptExpert.js";
 import { debugError, debugExpert } from "../../common/debug.js";
 import { ChromaRagDB, RagDB } from "../../rag/index.js";
 import { createOpenAI } from "../../openai/index.js";
+import { OpenRouter, getOpenRouter } from "../../experts/utils/OpenRouter.js";
 import { AskExpertsServer } from "../../server/AskExpertsServer.js";
 import { AskExpertsServerLogger } from "../../common/types.js";
 import { LightningPaymentManager } from "../../payments/LightningPaymentManager.js";
@@ -39,6 +40,7 @@ export class ExpertWorker {
   private ragDB: RagDB;
   private defaultDocStoreUrl?: string;
   private logger?: AskExpertsServerLogger;
+  private openrouter: OpenRouter;
 
   /**
    * Get the pubkeys of all running experts
@@ -67,6 +69,7 @@ export class ExpertWorker {
     this.defaultDocStoreUrl = defaultDocStoreUrl;
     this.ragDB = new ChromaRagDB(ragHost, ragPort);
     this.logger = logger;
+    this.openrouter = getOpenRouter();
     debugExpert("ExpertWorker initialized with RAG database");
   }
 
@@ -612,6 +615,7 @@ export class ExpertWorker {
       server,
       openai,
       expert,
+      openrouter: this.openrouter,
     });
 
     // Start the expert

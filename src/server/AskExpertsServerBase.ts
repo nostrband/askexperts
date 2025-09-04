@@ -138,6 +138,11 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
   #picture: string = '';
 
   /**
+   * Custom tags for expert profile
+   */
+  #tags: string[][] = [];
+
+  /**
    * Formats supported by the expert
    */
   #formats: PromptFormat[];
@@ -265,6 +270,7 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
     description?: string;
     profileHashtags?: string[];
     picture?: string;
+    tags?: string[][];
   }) {
     // Required parameters
     this.#privkey = options.privkey;
@@ -278,6 +284,7 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
     this.#hashtags = options.hashtags || [];
     this.#profileHashtags = options.profileHashtags || [];
     this.#picture = options.picture || '';
+    this.#tags = options.tags || [];
     this.#formats = options.formats || [FORMAT_TEXT];
     this.#onAsk = options.onAsk;
     this.#onPrompt = options.onPrompt;
@@ -412,6 +419,15 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
     this.#streamFactory = value;
   }
 
+  get tags() {
+    return this.#tags;
+  }
+
+  set tags(value: string[][]) {
+    this.#tags = value;
+    this.schedulePublishProfile();
+  }
+
   get logger() {
     return this.#logger;
   }
@@ -481,6 +497,7 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
       ["s", "true"],
       ...this.#paymentMethods.map((method) => ["m", method]),
       ...(this.#profileHashtags?.map((tag) => ["t", tag]) || []),
+      ...this.#tags,
     ];
     if (this.#picture) {
       tags.push(["picture", this.#picture]);

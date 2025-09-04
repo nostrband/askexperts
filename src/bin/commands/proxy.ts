@@ -9,6 +9,7 @@ export interface ProxyCommandOptions {
   port: number;
   basePath?: string;
   relays?: string[];
+  index?: string;
 }
 
 /**
@@ -29,7 +30,7 @@ export async function startProxyServer(
 
   try {
     // Create the OpenAI proxy server
-    const proxy = new OpenaiProxy(options.port, options.basePath, discoveryRelays);
+    const proxy = new OpenaiProxy(options.port, options.basePath, discoveryRelays, options.index);
 
     // Handle SIGINT/SIGTERM (Ctrl+C)
     const sigHandler = async () => {
@@ -84,6 +85,10 @@ export function registerProxyCommand(program: Command): void {
       "-r, --relays <items>",
       "Comma-separated list of discovery relays",
       commaSeparatedList
+    )
+    .option(
+      "-i, --index <string>",
+      "Path to HTML file to serve at the root endpoint"
     )
     .option("-d, --debug", "Enable debug logging")
     .action(async (options) => {

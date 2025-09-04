@@ -9,6 +9,7 @@ import { DocstoreToRag, createRagEmbeddings } from "../rag/index.js";
 import { DBExpert } from "../db/interfaces.js";
 import { str2arr } from "../common/utils.js";
 import { extractHashtags } from "./index.js";
+import { ChatCompletionCreateParams } from "openai/resources";
 
 /**
  * NostrExpert implementation for NIP-174
@@ -323,18 +324,22 @@ ${this.profile?.about || "-"}`;
 
       if (prompt.format === FORMAT_OPENAI) {
         // For OpenAI format, extract text from up to last 10 messages
-        const messages = prompt.content.messages;
+        const content = prompt.content as ChatCompletionCreateParams;
+        const messages = content.messages;
         if (messages && messages.length > 0) {
           // Get up to last 10 messages (except for system prompt)
           const userMessages = messages
-            .filter((msg: any) => msg.role !== "system")
+            .filter((msg) => msg.role !== "system" && msg.role !== "developer")
             .slice(-10);
 
           promptText = userMessages
-            .map((msg: any) =>
+            .map((msg) =>
               typeof msg.content === "string"
                 ? msg.content
-                : JSON.stringify(msg.content)
+                : msg.content
+                    ?.filter((m) => m.type === "text")
+                    .map((m) => m.text)
+                    .join(" ")
             )
             .join("\n");
         }

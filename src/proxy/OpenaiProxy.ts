@@ -3,12 +3,12 @@ import cors from "cors";
 import * as http from "http";
 import { z } from "zod";
 import { LightningPaymentManager } from "../payments/LightningPaymentManager.js";
-import { FORMAT_OPENAI } from "../common/constants.js";
-import { Proof, Quote, Prompt } from "../common/types.js";
 import { debugClient, debugError } from "../common/debug.js";
 import { OpenaiAskExperts } from "../openai/OpenaiAskExperts.js";
 import { SimplePool } from "nostr-tools";
 import { ChatCompletionCreateParams } from "openai/resources";
+import { fetchExperts } from "../experts/utils/Nostr.js";
+import { Expert } from "../common/types.js";
 
 /**
  * OpenAI Chat Completions API request schema
@@ -20,24 +20,24 @@ const OpenAIChatCompletionsRequestSchema = z.object({
     .describe(
       "Expert's pubkey, optionally followed by ?max_amount_sats=N to limit payment amount"
     ),
-  messages: z
-    .array(
-      z.object({
-        role: z.string(),
-        content: z.string(),
-        name: z.string().optional(),
-      })
-    )
-    .min(1),
-  temperature: z.number().optional(),
-  top_p: z.number().optional(),
-  n: z.number().optional(),
+  // messages: z
+  //   .array(
+  //     z.object({
+  //       role: z.string(),
+  //       content: z.string(),
+  //       name: z.string().optional(),
+  //     })
+  //   )
+  //   .min(1),
+  // temperature: z.number().optional(),
+  // top_p: z.number().optional(),
+  // n: z.number().optional(),
   stream: z.boolean().optional(),
-  max_tokens: z.number().optional(),
-  presence_penalty: z.number().optional(),
-  frequency_penalty: z.number().optional(),
-  logit_bias: z.record(z.string(), z.number()).optional(),
-  user: z.string().optional(),
+  // max_tokens: z.number().optional(),
+  // presence_penalty: z.number().optional(),
+  // frequency_penalty: z.number().optional(),
+  // logit_bias: z.record(z.string(), z.number()).optional(),
+  // user: z.string().optional(),
 });
 
 /**
@@ -86,10 +86,16 @@ export class OpenaiProxy {
   private app: express.Application;
   private port: number;
   private basePath: string;
+  private indexFile?: string;
   private stopped = true;
   private server?: http.Server;
   private discoveryRelays?: string[];
   private pool = new SimplePool();
+  
+  // Cache for expert data
+  private expertsCache: Map<string, Expert> = new Map();
+  private lastExpertsFetchTime: number = 0;
+  private expertsCacheExpiryTime: number = 10 * 60 * 1000; // 10 minutes in milliseconds
 
   /**
    * Creates a new OpenAIProxy instance
@@ -98,7 +104,7 @@ export class OpenaiProxy {
    * @param basePath - Base path for the API (e.g., '/v1')
    * @param discoveryRelays - Optional array of discovery relay URLs
    */
-  constructor(port: number, basePath?: string, discoveryRelays?: string[]) {
+  constructor(port: number, basePath?: string, discoveryRelays?: string[], indexFile?: string) {
     this.port = port;
     this.basePath = basePath
       ? basePath.startsWith("/")
@@ -106,6 +112,7 @@ export class OpenaiProxy {
         : `/${basePath}`
       : "/";
     this.discoveryRelays = discoveryRelays;
+    this.indexFile = indexFile;
 
     // Create the Express app
     this.app = express();
@@ -123,17 +130,163 @@ export class OpenaiProxy {
    * @private
    */
   private setupRoutes(): void {
+    // Root endpoint to serve static HTML if indexFile is set
+    if (this.indexFile) {
+      this.app.get('/', this.handleRootPath.bind(this));
+    }
+    
     // Health check endpoint
     this.app.get(`${this.basePath}health`, (req: Request, res: Response) => {
       if (this.stopped) res.status(503).json({ error: "Service unavailable" });
       else res.status(200).json({ status: "ok" });
     });
 
+    // OpenAI Models API endpoint
+    this.app.get(`${this.basePath}models`, this.handleModels.bind(this));
+
     // OpenAI Chat Completions API endpoint
     this.app.post(
       `${this.basePath}chat/completions`,
       this.handleChatCompletions.bind(this)
     );
+  }
+
+  /**
+   * Handles requests to the models endpoint
+   * Returns a list of available models based on the EXPERT_ALIASES map
+   *
+   * @param req - Express request object
+   * @param res - Express response object
+   * @private
+   */
+  /**
+   * Fetches experts and updates the cache if needed
+   *
+   * @private
+   * @returns Promise resolving to a map of expert pubkey to Expert object
+   */
+  private async fetchExpertsIfNeeded(): Promise<Map<string, Expert>> {
+    const now = Date.now();
+    
+    // Check if cache is expired or empty
+    if (now - this.lastExpertsFetchTime > this.expertsCacheExpiryTime || this.expertsCache.size === 0) {
+      // Get all expert pubkeys from EXPERT_ALIASES
+      const expertPubkeys = Object.values(OpenaiAskExperts.EXPERT_ALIASES);
+      
+      try {
+        // Fetch experts from nostr
+        const experts = await fetchExperts({ pubkeys: expertPubkeys }, this.pool);
+        
+        // Update the cache
+        this.expertsCache.clear();
+        for (const expert of experts) {
+          this.expertsCache.set(expert.pubkey, expert);
+        }
+        
+        // Update the last fetch time
+        this.lastExpertsFetchTime = now;
+        
+        debugClient(`Fetched ${experts.length} experts for OpenaiProxy`);
+      } catch (error) {
+        debugError("Error fetching experts:", error);
+      }
+    }
+    
+    return this.expertsCache;
+  }
+
+  /**
+   * Handles requests to the models endpoint
+   * Returns a list of available models based on the EXPERT_ALIASES map
+   * and enhances them with expert information including openrouter data if available
+   *
+   * @param req - Express request object
+   * @param res - Express response object
+   * @private
+   */
+  private async handleModels(req: Request, res: Response): Promise<void> {
+    if (this.stopped) {
+      res.status(503).json({ error: "Service unavailable" });
+      return;
+    }
+
+    try {
+      // Fetch experts if cache is expired or empty
+      const expertsMap = await this.fetchExpertsIfNeeded();
+      
+      // Convert the EXPERT_ALIASES map to an array of model objects
+      const models = await Promise.all(
+        Object.entries(OpenaiAskExperts.EXPERT_ALIASES).map(async ([id, expert_pubkey]) => {
+          // Start with the basic model object
+          const modelObj: any = {
+            id,
+            name: id,
+            expert_pubkey
+          };
+          
+          // Find the matching expert from the cache
+          const expert = expertsMap.get(expert_pubkey);
+          
+          if (expert) {
+            // Look for the openrouter tag
+            const openrouterTag = expert.event.tags.find(tag => tag[0] === "openrouter");
+            
+            if (openrouterTag && openrouterTag[1]) {
+              try {
+                // Parse the JSON value from the tag
+                const openrouterData = JSON.parse(openrouterTag[1]);
+                
+                // Use the openrouter data as the model object but ensure expert_pubkey is included
+                return {
+                  ...openrouterData,
+                  expert_pubkey
+                };
+              } catch (error) {
+                debugError(`Error parsing openrouter tag for expert ${expert_pubkey}:`, error);
+              }
+            }
+          }
+          
+          // If no expert found or no openrouter tag, return the basic model object
+          return modelObj;
+        })
+      );
+
+      // Return the models in the OpenAI API format
+      res.status(200).json({
+        data: models
+      });
+    } catch (error) {
+      debugError("Error handling models request:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  }
+
+  /**
+   * Handles requests to the root path, serving the static HTML file
+   *
+   * @param req - Express request object
+   * @param res - Express response object
+   * @private
+   */
+  private handleRootPath(req: Request, res: Response): void {
+    if (this.stopped) {
+      res.status(503).json({ error: "Service unavailable" });
+      return;
+    }
+
+    if (!this.indexFile) {
+      res.status(404).send("Not found");
+      return;
+    }
+
+    try {
+      // Send the static HTML file
+      res.sendFile(this.indexFile, { root: process.cwd() });
+    } catch (error) {
+      debugError(`Error serving index file ${this.indexFile}:`, error);
+      res.status(500).send("Internal server error");
+    }
   }
 
   /**
@@ -166,23 +319,25 @@ export class OpenaiProxy {
       const nwcString = authHeader.substring(7); // Remove 'Bearer ' prefix
 
       // Validate the request body
-      const parseResult = OpenAIChatCompletionsRequestSchema.safeParse(
-        req.body
-      );
+      debugClient(`Chat completions request body '${JSON.stringify(req.body, null, 2)}'`);
+      // const parseResult = OpenAIChatCompletionsRequestSchema.safeParse(
+      //   req.body
+      // );
 
-      if (!parseResult.success) {
-        const errorMessage = parseResult.error.errors
-          .map((err) => `${err.path.join(".")}: ${err.message}`)
-          .join(", ");
+      // if (!parseResult.success) {
+      //   const errorMessage = parseResult.error.errors
+      //     .map((err) => `${err.path.join(".")}: ${err.message}`)
+      //     .join(", ");
 
-        res.status(400).json({
-          error: "Invalid request format",
-          details: errorMessage,
-        });
-        return;
-      }
+      //   res.status(400).json({
+      //     error: "Invalid request format",
+      //     details: errorMessage,
+      //   });
+      //   return;
+      // }
 
-      const requestBody = parseResult.data;
+      // const requestBody = parseResult.data;
+      const requestBody = req.body;
 
       // Extract the expert pubkey and query parameters from the model field
       let expertPubkey = requestBody.model;

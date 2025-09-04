@@ -56,6 +56,16 @@ export class OpenRouter implements ModelPricing {
   private btcUsd?: number;
 
   /**
+   * Last time BTC/USD rate was fetched
+   */
+  private lastBtcUsdFetchTime: number = 0;
+
+  /**
+   * BTC/USD cache expiry time in milliseconds (10 minutes)
+   */
+  private btcUsdCacheExpiryTime: number = 10 * 60 * 1000;
+
+  /**
    * Creates a new OpenRouter instance
    */
   constructor() {
@@ -102,14 +112,8 @@ export class OpenRouter implements ModelPricing {
         throw new Error("Failed to get valid pricing");
       }
 
-      // debugExpert(
-      //   `Fetched USD prices from OpenRouter: input=${inputPriceUsd} usd/token, output=${outputPriceUsd} usd/token`
-      // );
-
-      // If BTC/USD rate is not set, fetch it
-      if (!this.btcUsd) {
-        await this.fetchBtcUsdRate();
-      }
+      // Update BTC/USD rate if needed
+      await this.updateBtcUsdIfNeeded();
 
       if (!this.btcUsd) {
         debugError("Failed to fetch BTC/USD rate");
@@ -185,6 +189,19 @@ export class OpenRouter implements ModelPricing {
   }
 
   /**
+   * Updates the BTC/USD rate if it's older than the expiry time
+   */
+  private async updateBtcUsdIfNeeded(): Promise<void> {
+    const now = Date.now();
+    if (
+      !this.btcUsd ||
+      now - this.lastBtcUsdFetchTime > this.btcUsdCacheExpiryTime
+    ) {
+      await this.fetchBtcUsdRate();
+    }
+  }
+
+  /**
    * Fetches the current BTC/USD exchange rate from Binance
    */
   private async fetchBtcUsdRate(): Promise<void> {
@@ -198,6 +215,7 @@ export class OpenRouter implements ModelPricing {
 
       const data = await response.json();
       this.btcUsd = parseFloat(data.price);
+      this.lastBtcUsdFetchTime = Date.now();
       debugExpert(`Fetched BTC/USD rate: ${this.btcUsd}`);
     } catch (error) {
       debugError("Error fetching BTC/USD rate:", error);

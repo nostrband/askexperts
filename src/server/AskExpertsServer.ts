@@ -85,6 +85,7 @@ export class AskExpertsServer
     description?: string;
     profileHashtags?: string[];
     picture?: string;
+    tags?: string[][];
   }) {
     // Initialize the base class with all options except paymentManager
     super({
@@ -105,6 +106,7 @@ export class AskExpertsServer
       description: options.description,
       profileHashtags: options.profileHashtags,
       picture: options.picture,
+      tags: options.tags,
     });
 
     // Store the payment manager

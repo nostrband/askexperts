@@ -97,6 +97,12 @@ export interface AskExpertsServerBaseInterface {
   set streamFactory(value: StreamFactory);
 
   /**
+   * Custom tags for expert profile
+   */
+  get tags(): string[][];
+  set tags(value: string[][]);
+
+  /**
    * Logger instance for logging server events
    */
   get logger(): AskExpertsServerLogger | undefined;

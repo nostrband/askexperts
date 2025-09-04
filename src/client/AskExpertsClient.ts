@@ -7,7 +7,7 @@ import { Event, SimplePool } from "nostr-tools";
 import { z } from "zod";
 import { debugError } from "../common/debug.js";
 import { parseBolt11 } from "../common/bolt11.js";
-import { parseExpertProfile } from "../experts/utils/Nostr.js";
+import { fetchExperts } from "../experts/utils/Nostr.js";
 
 import {
   AskExpertsError,
@@ -21,7 +21,6 @@ import {
   EVENT_KIND_ASK,
   EVENT_KIND_BID,
   EVENT_KIND_BID_PAYLOAD,
-  EVENT_KIND_EXPERT_PROFILE,
   EVENT_KIND_PROMPT,
   EVENT_KIND_QUOTE,
   EVENT_KIND_PROOF,
@@ -30,7 +29,6 @@ import {
   METHOD_LIGHTNING,
   DEFAULT_DISCOVERY_RELAYS,
   DEFAULT_DISCOVERY_TIMEOUT,
-  DEFAULT_FETCH_EXPERTS_TIMEOUT,
   DEFAULT_QUOTE_TIMEOUT,
   DEFAULT_REPLY_TIMEOUT,
   FORMAT_OPENAI,
@@ -74,7 +72,6 @@ import {
 import {
   publishToRelays,
   subscribeToRelays,
-  fetchFromRelays,
   waitForEvent,
 } from "../common/relay.js";
 
@@ -366,48 +363,21 @@ export class AskExpertsClient implements AskExpertsClientInterface {
    * @returns Promise resolving to array of Expert objects
    */
   async fetchExperts(params: FetchExpertsParams): Promise<Expert[]> {
-    // Validate parameters
-    if (!params.pubkeys || params.pubkeys.length === 0) {
-      throw new AskExpertsError("At least one pubkey is required");
-    }
-
-    // Set default values
-    const relays =
-      params.relays || this.discoveryRelays || DEFAULT_DISCOVERY_RELAYS;
-
-    // Create a filter for expert profile events
-    const filter = {
-      kinds: [EVENT_KIND_EXPERT_PROFILE],
-      authors: params.pubkeys,
-      since: Math.floor(Date.now() / 1000) - 86400, // Get events from the last day
-    };
-
-    // Fetch expert profile events
-    const events = await fetchFromRelays(
-      filter,
-      relays,
-      this.pool,
-      DEFAULT_FETCH_EXPERTS_TIMEOUT
-    );
-
-    // Process events into Expert objects
-    const experts: Expert[] = [];
-    const seenPubkeys = new Set<string>();
-
-    for (const event of events) {
-      // Only take the newest event for each pubkey
-      if (seenPubkeys.has(event.pubkey)) {
-        continue;
+    try {
+      // If discoveryRelays are set but not in params, add them
+      if (this.discoveryRelays && !params.relays) {
+        params = { ...params, relays: this.discoveryRelays };
       }
 
-      const expert = parseExpertProfile(event);
-      if (expert) {
-        experts.push(expert);
-        seenPubkeys.add(event.pubkey);
+      // Call the utility function with this.pool
+      return await fetchExperts(params, this.pool);
+    } catch (error) {
+      // Wrap errors from the utility function in AskExpertsError
+      if (error instanceof Error) {
+        throw new AskExpertsError(error.message);
       }
+      throw error;
     }
-
-    return experts;
   }
 
   /**
