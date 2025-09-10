@@ -269,6 +269,7 @@ export class RagExpert {
         this.ragEmbeddings!,
         this.ragDB,
         this.ragCollectionName(),
+        this.docStoreClient,
         promptText
       );
     } catch (error) {

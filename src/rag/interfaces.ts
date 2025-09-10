@@ -52,15 +52,16 @@ export interface RagEmbeddings {
 }
 
 export interface RagMetadata {
-  id: string;
+  doc_id: string;
+  doc_metadata: string;
+  doc_related_ids: string; // JSON.stringify(array)
+  doc_type: string;
+  doc_timestamp: number;
+  doc_created_at: number;
   docstore_id: string;
-  type: string;
-  timestamp: number;
-  created_at: number;
   chunk: number;
   offset_start: number;
   offset_end: number;
-  doc_metadata: string;
   extra: string;
 }
 
@@ -95,6 +96,11 @@ export interface RagDocument {
   data: string;
 }
 
+export interface RagSearchOptions {
+  ids?: string[];
+  doc_ids?: string[];
+}
+
 /**
  * Interface for RAG database operations.
  * Provides methods for storing and searching vector embeddings.
@@ -121,16 +127,26 @@ export interface RagDB {
    * @param collectionName The name of the collection to search in
    * @param vector The query vector to search for
    * @param limit Maximum number of results to return
+   * @param options Extra search options
    * @returns Promise resolving to an array of RagResult objects
    */
-  search(collectionName: string, vector: number[], limit: number): Promise<RagResult[]>;
+  search(collectionName: string, vector: number[], limit: number, options?: RagSearchOptions): Promise<RagResult[]>;
   
   /**
    * Searches for similar vectors in the specified collection using multiple query vectors.
    * @param collectionName The name of the collection to search in
    * @param vectors Array of query vectors to search for
    * @param limit Maximum number of results to return per query vector
+   * @param options Extra search options
    * @returns Promise resolving to an array of arrays of RagResult objects, one array per query vector
    */
-  searchBatch(collectionName: string, vectors: number[][], limit: number): Promise<RagResult[][]>;
+  searchBatch(collectionName: string, vectors: number[][], limit: number, options?: RagSearchOptions): Promise<RagResult[][]>;
+
+  /**
+   * Get chunks by ids
+   * @param collectionName The name of the collection to get from
+   * @param options Search criteria
+   * @returns Promise resolving to array of results
+   */
+  get(collectionName: string, options: RagSearchOptions): Promise<RagResult[]>;
 }

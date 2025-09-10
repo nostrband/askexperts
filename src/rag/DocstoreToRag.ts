@@ -76,16 +76,17 @@ export class DocstoreToRag {
 
         // Create default metadata (excluding data and embeddings)
         let metadata: RagMetadata = {
-          id: doc.id,
+          doc_id: doc.id,
           docstore_id: doc.docstore_id,
-          type: doc.type,
-          timestamp: doc.timestamp,
-          created_at: doc.created_at,
+          doc_type: doc.type,
+          doc_timestamp: doc.timestamp,
+          doc_created_at: doc.created_at,
           chunk: i,
           offset_start: -1,
           offset_end: -1,
           doc_metadata: doc.metadata || "",
           extra: "",
+          doc_related_ids: JSON.stringify(doc.related_ids || []),
         };
         let data: string = "";
         if (doc.embedding_offsets) {

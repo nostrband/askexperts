@@ -400,12 +400,12 @@ ${this.profile?.about || "-"}`;
       // Collect post IDs from all results
       const postIds = new Map<string, number>();
       for (const result of results) {
-        if (result.metadata && result.metadata.id) {
+        if (result.metadata && result.metadata.doc_id) {
           const postDistance = Math.min(
             result.distance,
-            postIds.get(result.metadata.id) || result.distance
+            postIds.get(result.metadata.doc_id) || result.distance
           );
-          postIds.set(result.metadata.id, postDistance);
+          postIds.set(result.metadata.doc_id, postDistance);
         }
       }
 

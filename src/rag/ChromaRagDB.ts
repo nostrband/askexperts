@@ -1,5 +1,11 @@
 import { ChromaClient, Collection, Metadata } from "chromadb";
-import { RagDB, RagResult, RagDocument, RagMetadata } from "./interfaces.js";
+import {
+  RagDB,
+  RagResult,
+  RagDocument,
+  RagMetadata,
+  RagSearchOptions,
+} from "./interfaces.js";
 import { OpenAIEmbeddingFunction } from "@chroma-core/openai";
 
 /**
@@ -79,28 +85,38 @@ export class ChromaRagDB implements RagDB {
    * @param collectionName The name of the collection to search in
    * @param vector The query vector to search for
    * @param limit Maximum number of results to return
+   * @param options Extra search options
    * @returns Promise resolving to an array of matching records
    */
   async search(
     collectionName: string,
     vector: number[],
-    limit: number
+    limit: number,
+    options?: RagSearchOptions
   ): Promise<RagResult[]> {
-    const collection = await this.getCollection(collectionName);
+    const results = await this.searchBatch(
+      collectionName,
+      [vector],
+      limit,
+      options
+    );
+    return results[0];
 
-    const results = await collection.query({
-      queryEmbeddings: [vector],
-      nResults: limit,
-      include: ["embeddings", "metadatas", "documents", "distances"],
-    });
-    const rows = results.rows()[0];
-    return rows.map((r) => ({
-      id: r.id,
-      vector: r.embedding!,
-      data: r.document || "",
-      metadata: r.metadata! as unknown as RagMetadata,
-      distance: r.distance!,
-    }));
+    // const collection = await this.getCollection(collectionName);
+
+    // const results = await collection.query({
+    //   queryEmbeddings: [vector],
+    //   nResults: limit,
+    //   include: ["embeddings", "metadatas", "documents", "distances"],
+    // });
+    // const rows = results.rows()[0];
+    // return rows.map((r) => ({
+    //   id: r.id,
+    //   vector: r.embedding!,
+    //   data: r.document || "",
+    //   metadata: r.metadata! as unknown as RagMetadata,
+    //   distance: r.distance!,
+    // }));
   }
 
   /**
@@ -113,17 +129,24 @@ export class ChromaRagDB implements RagDB {
   async searchBatch(
     collectionName: string,
     vectors: number[][],
-    limit: number
+    limit: number,
+    options?: RagSearchOptions
   ): Promise<RagResult[][]> {
     if (vectors.length === 0) return [];
 
     const collection = await this.getCollection(collectionName);
 
-    const results = await collection.query({
+    const query: any = {
       queryEmbeddings: vectors,
       nResults: limit,
       include: ["embeddings", "metadatas", "documents", "distances"],
-    });
+    };
+
+    if (options?.ids?.length) query.ids = options.ids;
+    if (options?.doc_ids?.length)
+      query.where = { doc_id: { $in: options.doc_ids } };
+
+    const results = await collection.query(query);
 
     return results.rows().map((rows) =>
       rows.map((r) => ({
@@ -134,5 +157,38 @@ export class ChromaRagDB implements RagDB {
         distance: r.distance!,
       }))
     );
+  }
+
+  /**
+   * Get documents by their IDs from the specified collection.
+   * @param collectionName The name of the collection to get from
+   * @param options Search criteria
+   * @returns Promise resolving to an array of RagResult objects
+   */
+  async get(
+    collectionName: string,
+    options: RagSearchOptions
+  ): Promise<RagResult[]> {
+    if (!options.ids?.length && !options.doc_ids?.length) return [];
+
+    const collection = await this.getCollection(collectionName);
+
+    const query: any = {
+      nResults: 1000, // FIXME wtf?
+      include: ["embeddings", "metadatas", "documents"],
+    };
+    if (options.ids?.length) query.ids = options.ids;
+    if (options.doc_ids?.length)
+      query.where = { doc_id: { $in: options.doc_ids } };
+
+    const results = await collection.query(query);
+
+    return results.rows()[0].map((r) => ({
+      id: r.id,
+      vector: r.embedding!,
+      data: r.document || "",
+      metadata: r.metadata! as unknown as RagMetadata,
+      distance: 0, // No distance is calculated for direct ID retrieval
+    }));
   }
 }

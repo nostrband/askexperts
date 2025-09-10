@@ -19,6 +19,7 @@ export interface Doc {
   user_id?: string; // User ID associated with the document
   file?: Uint8Array; // Optional binary file data
   metadata?: string; // Optional metadata string
+  related_ids?: string[]; // Optional array of related document IDs
 }
 
 /**

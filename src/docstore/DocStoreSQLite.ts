@@ -140,6 +140,20 @@ export class DocStoreSQLite {
     } catch (error) {
       debugError("Error adding embedding_offsets column to docs table:", error);
     }
+
+    // Migration: Add related_ids column to docs table if it doesn't exist
+    try {
+      // Check if related_ids column exists in docs table
+      const docsColumns = this.db.prepare("PRAGMA table_info(docs)").all();
+      const hasRelatedIdsColumn = docsColumns.some((col: any) => col.name === 'related_ids');
+      
+      if (!hasRelatedIdsColumn) {
+        debugDocstore("Adding related_ids column to docs table");
+        this.db.exec("ALTER TABLE docs ADD COLUMN related_ids TEXT DEFAULT NULL");
+      }
+    } catch (error) {
+      debugError("Error adding related_ids column to docs table:", error);
+    }
   }
 
   /**
@@ -181,6 +195,16 @@ export class DocStoreSQLite {
       if (row.embedding_offsets) {
         embeddingOffsets = this.blobToUint32Array(row.embedding_offsets as Buffer);
       }
+      
+      // Parse related_ids from JSON string if it exists
+      let relatedIds: string[] | undefined = undefined;
+      if (row.related_ids) {
+        try {
+          relatedIds = JSON.parse(row.related_ids.toString());
+        } catch (error) {
+          debugError(`Error parsing related_ids JSON for doc ${row.id}:`, error);
+        }
+      }
   
       return {
         id: row.id?.toString() || "",
@@ -194,6 +218,7 @@ export class DocStoreSQLite {
         user_id: row.user_id?.toString() || "",
         file: row.file ? (row.file as Buffer) : undefined,
         metadata: row.metadata?.toString() || "",
+        related_ids: relatedIds,
         // aid is not included in the returned Doc object as it's an internal implementation detail
       };
     };
@@ -481,14 +506,20 @@ export class DocStoreSQLite {
     // Use INSERT OR REPLACE to handle both insert and update in a single atomic operation
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO docs (
-        id, docstore_id, timestamp, created_at, type, data, embeddings, embedding_offsets, user_id, file, metadata
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        id, docstore_id, timestamp, created_at, type, data, embeddings, embedding_offsets, user_id, file, metadata, related_ids
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     
     // Convert embedding_offsets to blob if present
     let embeddingOffsetsBlob: Uint8Array | null = null;
     if (doc.embedding_offsets && doc.embedding_offsets.length > 0) {
       embeddingOffsetsBlob = this.uint32ArrayToBlob(doc.embedding_offsets);
+    }
+    
+    // Convert related_ids to JSON string if present
+    let relatedIdsJson: string | null = null;
+    if (doc.related_ids && doc.related_ids.length > 0) {
+      relatedIdsJson = JSON.stringify(doc.related_ids);
     }
 
     stmt.run(
@@ -502,7 +533,8 @@ export class DocStoreSQLite {
       embeddingOffsetsBlob,
       user_id || doc.user_id || "",
       doc.file || null,
-      doc.metadata || ""
+      doc.metadata || "",
+      relatedIdsJson
     );
     
     return Promise.resolve();
@@ -543,6 +575,16 @@ export class DocStoreSQLite {
       embeddingOffsets = this.blobToUint32Array(row.embedding_offsets as Buffer);
     }
 
+    // Parse related_ids from JSON string if it exists
+    let relatedIds: string[] | undefined = undefined;
+    if (row.related_ids) {
+      try {
+        relatedIds = JSON.parse(row.related_ids.toString());
+      } catch (error) {
+        debugError(`Error parsing related_ids JSON for doc ${row.id}:`, error);
+      }
+    }
+
     // Convert row to Doc interface
     const doc = {
       id: row.id?.toString() || "",
@@ -556,6 +598,7 @@ export class DocStoreSQLite {
       user_id: row.user_id?.toString() || "",
       file: row.file ? (row.file as Buffer) : undefined,
       metadata: row.metadata?.toString() || "",
+      related_ids: relatedIds,
     };
     
     return Promise.resolve(doc);
@@ -738,6 +781,16 @@ export class DocStoreSQLite {
       if (row.embedding_offsets) {
         embeddingOffsets = this.blobToUint32Array(row.embedding_offsets as Buffer);
       }
+      
+      // Parse related_ids from JSON string if it exists
+      let relatedIds: string[] | undefined = undefined;
+      if (row.related_ids) {
+        try {
+          relatedIds = JSON.parse(row.related_ids.toString());
+        } catch (error) {
+          debugError(`Error parsing related_ids JSON for doc ${row.id}:`, error);
+        }
+      }
 
       return {
         id: row.id?.toString() || "",
@@ -751,6 +804,7 @@ export class DocStoreSQLite {
         user_id: row.user_id?.toString() || "",
         file: row.file ? (row.file as Buffer) : undefined,
         metadata: row.metadata?.toString() || "",
+        related_ids: relatedIds,
       };
     });
     

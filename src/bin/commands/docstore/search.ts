@@ -96,6 +96,7 @@ export async function searchDocs(
         embeddings,
         ragDb,
         collectionName,
+        docstoreClient,
         query
       );
       
@@ -134,9 +135,9 @@ export async function searchDocs(
               4
             )}) ---`
           );
-          console.log(`Document ID: ${result.metadata.id}`);
+          console.log(`Document ID: ${result.metadata.doc_id}`);
           console.log(`Chunk: ${result.data}`);
-          const doc = await docstoreClient.get(docstore.id, result.metadata.id);
+          const doc = await docstoreClient.get(docstore.id, result.metadata.doc_id);
           if (doc && doc.type) {
             console.log(`Type: ${doc.type}`);
           }
