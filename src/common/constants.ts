@@ -48,3 +48,5 @@ export const DEFAULT_REPLY_TIMEOUT = 120000;
 
 // Default maximum number of parallel payments
 export const DEFAULT_MAX_PARALLEL_PAYMENTS = 5;
+
+export const DOC_FILE_EXT = ".aedoc";

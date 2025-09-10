@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { registerNostrImportCommand } from "./nostr.js";
 import { registerMarkdownImportCommand } from "./markdown.js";
 import { registerTwitterImportCommand } from "./twitter.js";
+import { registerDirImportCommand } from "./dir.js";
 
 /**
  * Register the import command with its subcommands
@@ -24,4 +25,5 @@ export function registerImportCommand(
   registerNostrImportCommand(importCommand, addCommonOptions);
   registerMarkdownImportCommand(importCommand, addCommonOptions);
   registerTwitterImportCommand(importCommand, addCommonOptions);
+  registerDirImportCommand(importCommand, addCommonOptions);
 }
