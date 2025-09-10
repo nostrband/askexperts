@@ -52,7 +52,7 @@ export type OnPromptCallback = (prompt: Prompt) => Promise<ExpertQuote>;
  */
 export interface ExpertReply {
   /** Reply content */
-  content: any;
+  content: string | Uint8Array;
 }
 
 /**
@@ -281,7 +281,7 @@ export interface Reply {
   done: boolean;
   
   /** Reply content */
-  content: any;
+  content: string | Uint8Array;
   
   /** Original reply event */
   event: Event;

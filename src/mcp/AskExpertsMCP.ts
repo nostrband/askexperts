@@ -517,7 +517,7 @@ export class AskExpertsMCP extends McpServer {
         if (typeof reply.content === "string") {
           content += reply.content;
         } else {
-          content += JSON.stringify(reply.content);
+          content += new TextDecoder().decode(reply.content);
         }
       }
 

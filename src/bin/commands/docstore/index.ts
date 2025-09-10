@@ -34,6 +34,7 @@ export interface DocstoreCommandOptions {
   url?: string;
   collection?: string;
   skipSync?: boolean;
+  context?: boolean;
 }
 
 /**

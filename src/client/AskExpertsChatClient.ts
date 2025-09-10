@@ -14,7 +14,7 @@ import { debugError, debugClient } from "../common/debug.js";
 import { Expert, FetchExpertsParams } from "../common/types.js";
 import { SimplePool } from "nostr-tools";
 import { StreamFactory } from "../stream/interfaces.js";
-import { ChatCompletionChunk } from "openai/resources";
+import { ChatCompletion, ChatCompletionChunk } from "openai/resources";
 
 /**
  * Options for the chat client
@@ -189,7 +189,6 @@ export class AskExpertsChatClient {
       let expertReply: string = "";
 
       // Iterate through the replies
-      const container = this.options.stream ? "delta" : "message";
       for await (const reply of replies) {
         if (reply.done) {
           debugClient(`Received final reply from expert ${this.expertPubkey}`);
@@ -198,23 +197,35 @@ export class AskExpertsChatClient {
         }
         if (!reply.content) continue;
 
-        let chunk = "";
+        const chunk =
+          typeof reply.content === "string"
+            ? reply.content
+            : new TextDecoder().decode(reply.content);
+        
         if (format === FORMAT_OPENAI && this.options.stream) {
-          // OpenAI streaming replies are valid jsons
-          // parsed into objects
-          const payload = reply.content as ChatCompletionChunk;
-          const content = payload.choices[0]?.delta.content;
-          if (typeof content === 'string') 
-            chunk = content;
-          // FIXME so can it be an array?
-          // else if (Array.isArray(content))
-          //   chunk = content
+          for (const line of chunk.split("\n")) {
+            if (!line.trim()) continue;
+
+            const completionChunk = JSON.parse(line) as ChatCompletionChunk;
+            const content = completionChunk.choices[0]?.delta.content;
+            let delta = "";
+            if (typeof content === "string") delta = content;
+            // FIXME so can it be an array?
+            // else if (Array.isArray(content))
+            //   chunk = content
+
+            if (this.options.stream) onStream!(delta);
+            expertReply += delta;
+          }
         } else {
-          // Just a final chunk of a big reply
-          chunk = reply.content;
+          if (this.options.stream) onStream!(chunk);
+          expertReply += chunk;
         }
-        if (this.options.stream) onStream!(chunk);
-        expertReply += chunk;
+      }
+
+      if (expertReply && format === FORMAT_OPENAI && !this.options.stream) {
+        const content = JSON.parse(expertReply) as ChatCompletion;
+        expertReply = content.choices[0].message.content || "";
       }
 
       // Add the full expert's response to the message history

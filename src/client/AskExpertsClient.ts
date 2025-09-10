@@ -79,7 +79,6 @@ import {
  * AskExpertsClient class for NIP-174 protocol
  */
 import { AskExpertsClientInterface } from "./AskExpertsClientInterface.js";
-import { ChatCompletionCreateParams } from "openai/resources";
 
 interface PromptPayload {
   format: PromptFormat;
@@ -813,64 +812,76 @@ export class AskExpertsClient implements AskExpertsClientInterface {
               try {
                 // Process each chunk from the stream as it arrives
                 for await (const chunk of streamReader) {
-                  if (prompt.format === FORMAT_OPENAI) {
-                    if (typeof chunk !== "string")
-                      throw new Error(
-                        "String reply expected for OpenAI format"
-                      );
+                  // Create a Reply object for each chunk
+                  // The chunk itself is the content
+                  const reply: Reply = {
+                    pubkey: expertPubkey,
+                    promptId: prompt.id,
+                    done: false,
+                    content: chunk,
+                    event,
+                  };
 
-                    // We are streaming either because the reply is
-                    // big, or because it was requested by openai
-                    // request format, in the latter case each chunk
-                    // is parsed line by line to yield openai-format
-                    // chunk Reply
-                    const isOpenaiStreaming = !!(
-                      prompt.content as ChatCompletionCreateParams
-                    ).stream;
-                    if (isOpenaiStreaming) {
-                      // Parse the chunks from JSONL format
-                      for (const line of chunk.split("\n")) {
-                        if (!line.trim()) continue;
+                  // Yield the reply for each chunk
+                  yield reply;
+                  // if (prompt.format === FORMAT_OPENAI) {
+                  //   if (typeof chunk !== "string")
+                  //     throw new Error(
+                  //       "String reply expected for OpenAI format"
+                  //     );
 
-                        const reply: Reply = {
-                          pubkey: expertPubkey,
-                          promptId: prompt.id,
-                          done: false,
-                          content: JSON.parse(line),
-                          event,
-                        };
+                  //   // We are streaming either because the reply is
+                  //   // big, or because it was requested by openai
+                  //   // request format, in the latter case each chunk
+                  //   // is parsed line by line to yield openai-format
+                  //   // chunk Reply
+                  //   const isOpenaiStreaming = !!(
+                  //     prompt.content as ChatCompletionCreateParams
+                  //   ).stream;
+                  //   if (isOpenaiStreaming) {
+                  //     // Parse the chunks from JSONL format
+                  //     for (const line of chunk.split("\n")) {
+                  //       if (!line.trim()) continue;
 
-                        // Yield the reply for each chunk
-                        yield reply;
-                      }
-                    } else {
-                      // We aren't streaming, we're just getting
-                      // a big reply
-                      const reply: Reply = {
-                        pubkey: expertPubkey,
-                        promptId: prompt.id,
-                        done: false,
-                        content: chunk,
-                        event,
-                      };
+                  //       const reply: Reply = {
+                  //         pubkey: expertPubkey,
+                  //         promptId: prompt.id,
+                  //         done: false,
+                  //         content: JSON.parse(line),
+                  //         event,
+                  //       };
 
-                      // Yield the reply for each chunk
-                      yield reply;
-                    }
-                  } else {
-                    // Create a Reply object for each chunk
-                    // The chunk itself is the content
-                    const reply: Reply = {
-                      pubkey: expertPubkey,
-                      promptId: prompt.id,
-                      done: false,
-                      content: chunk,
-                      event,
-                    };
+                  //       // Yield the reply for each chunk
+                  //       yield reply;
+                  //     }
+                  //   } else {
+                  //     // We aren't streaming, we're just getting
+                  //     // a big reply
+                  //     const reply: Reply = {
+                  //       pubkey: expertPubkey,
+                  //       promptId: prompt.id,
+                  //       done: false,
+                  //       content: chunk,
+                  //       event,
+                  //     };
 
-                    // Yield the reply for each chunk
-                    yield reply;
-                  }
+                  //     // Yield the reply for each chunk
+                  //     yield reply;
+                  //   }
+                  // } else {
+                  //   // Create a Reply object for each chunk
+                  //   // The chunk itself is the content
+                  //   const reply: Reply = {
+                  //     pubkey: expertPubkey,
+                  //     promptId: prompt.id,
+                  //     done: false,
+                  //     content: chunk,
+                  //     event,
+                  //   };
+
+                  //   // Yield the reply for each chunk
+                  //   yield reply;
+                  // }
                 }
 
                 // After all chunks are processed, yield a final reply with done=true

@@ -338,24 +338,25 @@ ${contextText}
     }
   }
 
-  private produceReplies(
+  private produceStreamReplies(
     stream: AsyncIterable<ChatCompletionChunk>,
     format: PromptFormat
   ): ExpertReplies {
     // Create an async generator function
     const generator = async function* (this: OpenaiProxyExpertBase) {
       for await (const chunk of stream) {
+        if (!chunk.choices[0].delta.content) continue;
         switch (format) {
           case FORMAT_OPENAI:
-            // Return the full API response
+            // Return the full API response in jsonl format
             yield {
-              content: chunk,
+              content: JSON.stringify(chunk) + "\n",
             };
             break;
           case FORMAT_TEXT:
             // Return the text output only
             yield {
-              content: chunk,
+              content: chunk.choices[0].delta.content,
             };
             break;
           default:
@@ -401,7 +402,7 @@ ${contextText}
           // Check if the result is an AsyncIterable
           if (!("choices" in streamResult)) {
             const stream = streamResult as AsyncIterable<ChatCompletionChunk>;
-            const replies = this.produceReplies(stream, prompt.format);
+            const replies = this.produceStreamReplies(stream, prompt.format);
             return replies;
           } else {
             throw new Error(
@@ -417,7 +418,7 @@ ${contextText}
               case FORMAT_OPENAI:
                 // Return the full API response
                 return {
-                  content: completion,
+                  content: JSON.stringify(completion),
                 };
               case FORMAT_TEXT:
                 // Return the output only

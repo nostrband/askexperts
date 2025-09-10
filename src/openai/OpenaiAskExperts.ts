@@ -899,7 +899,16 @@ export class OpenaiAskExperts implements OpenaiInterface {
     replies: Replies
   ): AsyncIterable<ChatCompletionChunk> {
     for await (const reply of replies) {
-      yield reply.content as ChatCompletionChunk;
+      let content = '';
+      if (typeof reply.content === 'string')
+        content = reply.content;
+      else
+        content = new TextDecoder().decode(reply.content);
+
+      for (const line of content.split('\n')) {
+        if (!line.trim()) continue;
+        yield JSON.parse(line) as ChatCompletionChunk;
+      }
     }
   }
 
@@ -915,18 +924,15 @@ export class OpenaiAskExperts implements OpenaiInterface {
     model: string
   ): Promise<ChatCompletion> {
     // Read all replies
-    const allReplies: Reply[] = [];
+    let content = '';
     for await (const reply of replies) {
-      allReplies.push(reply);
+      if (typeof reply.content === 'string')
+        content += reply.content;
+      else
+        content += new TextDecoder().decode(reply.content);
     }
 
-    if (allReplies.length === 1 && typeof allReplies[0].content !== "string") {
-      // The content should be a ChatCompletion object
-      return allReplies[0].content as ChatCompletion;
-    } else {
-      const content = allReplies.map((r) => r.content as string).join("");
-      return JSON.parse(content) as ChatCompletion;
-    }
+    return JSON.parse(content) as ChatCompletion;
   }
 
   /**

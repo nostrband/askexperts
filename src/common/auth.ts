@@ -75,7 +75,7 @@ export async function parseAuthToken(
     // all ok
     return event.pubkey;
   } catch (e) {
-    console.log("Auth error:", e);
+    console.error("Auth error:", e);
     return "";
   }
 }

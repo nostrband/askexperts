@@ -10,7 +10,7 @@ export { Nostr } from "./Nostr.js";
 export { parseExpertProfile } from "./Nostr.js";
 export type { ModelPricing, PricingResult } from "./ModelPricing.js";
 export { OpenRouter } from "./OpenRouter.js";
-
+export { buildContext } from "./context.js";
 
 export async function extractHashtags(
   openai: OpenaiInterface,
@@ -32,8 +32,7 @@ Example response: ["bitcoin", "programming", "javascript", "webapps", "openproto
     const input_posts = [];
     while (posts.length > 0 && size < MAX_SIZE) {
       const post = posts.shift()!;
-      if (size + post.content.length > MAX_SIZE)
-        break;
+      if (size + post.content.length > MAX_SIZE) break;
       size += post.content.length;
       input_posts.push({ content: post.content });
     }

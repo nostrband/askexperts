@@ -15,6 +15,7 @@ import {
   debugError,
   enableAllDebug,
 } from "../../../common/debug.js";
+import { buildContext } from "../../../experts/utils/context.js";
 
 /**
  * Search documents in a docstore using vector similarity
@@ -86,50 +87,66 @@ export async function searchDocs(
       debugDocstore(`Skipping sync (--skip-sync provided), using collection: ${collectionName}`);
     }
 
-    // Now perform the search
-    debugDocstore(`Searching for: "${query}"`);
-
-    // Generate embeddings for the query
-    const queryChunks = await embeddings.embed(query);
-    if (queryChunks.length === 0) {
-      debugError("Failed to generate embeddings for the query");
-      docstoreClient[Symbol.dispose]();
-      process.exit(1);
-    }
-
-    // Use the first chunk's embedding for the search
-    const queryVector = queryChunks[0].embedding;
-
-    // Set default limit if not provided
-    const limit = options.limit || 10;
-
-    // Search for similar documents
-    const results = await ragDb.search(collectionName, queryVector, limit);
-
-    if (results.length === 0) {
-      console.error("No matching documents found");
+    // Check if we should use the context mode
+    if (options.context) {
+      // Use buildContext to generate context for the query
+      debugDocstore(`Generating context for: "${query}"`);
+      
+      const contextResult = await buildContext(
+        embeddings,
+        ragDb,
+        collectionName,
+        query
+      );
+      
+      // Print the context result to console
+      console.log(contextResult);
     } else {
-      debugDocstore(`Found ${results.length} matching documents:`);
+      // Normal search mode
+      debugDocstore(`Searching for: "${query}"`);
 
-      // Use for...of instead of forEach to allow await
-      for (const [index, result] of results.entries()) {
-        console.log(
-          `\n--- Result ${index + 1} (distance: ${result.distance.toFixed(
-            4
-          )}) ---`
-        );
-        console.log(`Document ID: ${result.metadata.id}`);
-        console.log(`Chunk: ${result.data}`);
-        const doc = await docstoreClient.get(docstore.id, result.metadata.id);
-        if (doc && doc.type) {
-          console.log(`Type: ${doc.type}`);
-        }
-        if (doc) {
+      // Generate embeddings for the query
+      const queryChunks = await embeddings.embed(query);
+      if (queryChunks.length === 0) {
+        debugError("Failed to generate embeddings for the query");
+        docstoreClient[Symbol.dispose]();
+        process.exit(1);
+      }
+
+      // Use the first chunk's embedding for the search
+      const queryVector = queryChunks[0].embedding;
+
+      // Set default limit if not provided
+      const limit = options.limit || 10;
+
+      // Search for similar documents
+      const results = await ragDb.search(collectionName, queryVector, limit);
+
+      if (results.length === 0) {
+        console.error("No matching documents found");
+      } else {
+        debugDocstore(`Found ${results.length} matching documents:`);
+
+        // Use for...of instead of forEach to allow await
+        for (const [index, result] of results.entries()) {
           console.log(
-            `Updated at: ${new Date(doc.timestamp * 1000).toISOString()}`
+            `\n--- Result ${index + 1} (distance: ${result.distance.toFixed(
+              4
+            )}) ---`
           );
-          console.log("Content:");
-          console.log(doc.data);
+          console.log(`Document ID: ${result.metadata.id}`);
+          console.log(`Chunk: ${result.data}`);
+          const doc = await docstoreClient.get(docstore.id, result.metadata.id);
+          if (doc && doc.type) {
+            console.log(`Type: ${doc.type}`);
+          }
+          if (doc) {
+            console.log(
+              `Updated at: ${new Date(doc.timestamp * 1000).toISOString()}`
+            );
+            console.log("Content:");
+            console.log(doc.data);
+          }
         }
       }
     }
@@ -186,6 +203,10 @@ export function registerSearchCommand(
     .option(
       "--skip-sync",
       "Skip syncing documents from docstore to RAG (useful for searching in existing collections)"
+    )
+    .option(
+      "--context",
+      "Generate context for the query using buildContext instead of performing regular search"
     )
     .action(searchDocs);
 
