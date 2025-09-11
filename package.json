@@ -168,7 +168,7 @@
     "gpt-tokenizer": "^3.0.1",
     "light-bolt11-decoder": "^3.2.0",
     "nostr-tools": "^2.15.0",
-    "nwc-enclaved-utils": "^2.0.8",
+    "nwc-enclaved-utils": "^2.0.10",
     "openai": "^5.8.3",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3",

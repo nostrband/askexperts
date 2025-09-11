@@ -25,6 +25,7 @@ interface ExtendedWebSocket {
   on: (event: string, listener: (...args: any[]) => void) => void;
   pubkey?: string; // Added pubkey for authenticated connections
   user_info?: UserInfo; // Added user_info for authenticated connections
+  is_dead?: boolean;
 }
 
 /**
@@ -136,11 +137,22 @@ export class DocStoreSQLiteServer {
    * Set up WebSocket server event handlers
    */
   private setupWebSocketServer(): void {
-    this.wss.on("connection", (ws: ExtendedWebSocket) => {
+    this.wss.on("connection", (ws: WebSocket & ExtendedWebSocket) => {
       debugDocstore("New WebSocket connection established");
 
       // Add client to the set
       this.clients.add(ws);
+
+      // Start pinging
+      const interval = setInterval(() => {
+        if (ws.is_dead === true) return ws.terminate();
+        ws.is_dead = true;
+        ws.ping();
+      }, 30000);
+
+      ws.on("pong", () => {
+        ws.is_dead = false;
+      });
 
       // Set up message handler
       ws.on("message", async (data: Buffer) => {
@@ -189,6 +201,8 @@ export class DocStoreSQLiteServer {
       // Set up close handler
       ws.on("close", () => {
         debugDocstore("WebSocket connection closed");
+
+        clearInterval(interval);
 
         // Remove client from the set
         this.clients.delete(ws);
@@ -498,9 +512,9 @@ export class DocStoreSQLiteServer {
     }
 
     // Convert base64 string back to Uint8Array for file
-    if (typeof result.file === 'string') {
+    if (typeof result.file === "string") {
       try {
-        result.file = Buffer.from(result.file, 'base64');
+        result.file = Buffer.from(result.file, "base64");
       } catch (error) {
         debugError("Error converting base64 string to Buffer:", error);
       }
@@ -517,21 +531,21 @@ export class DocStoreSQLiteServer {
   private prepareDocForSerialization(doc: Doc): any {
     // Create a deep copy of the document
     const result: any = { ...doc };
-    
+
     // Convert Float32Array embeddings to regular arrays
     if (doc.embeddings) {
       result.embeddings = doc.embeddings.map((embedding) =>
         embedding instanceof Float32Array ? Array.from(embedding) : embedding
       );
     }
-    
+
     // Convert Uint8Array file to base64 string for transmission
     if (doc.file) {
       // For browser compatibility, we need to convert Uint8Array to base64 string
       const buffer = Buffer.from(doc.file);
-      result.file = buffer.toString('base64');
+      result.file = buffer.toString("base64");
     }
-    
+
     return result;
   }
 
