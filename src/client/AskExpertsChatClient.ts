@@ -38,6 +38,11 @@ export interface ChatMessage {
   content: string;
 }
 
+export interface ChatReply {
+  text: string;
+  images?: string[];
+}
+
 /**
  * Client for chatting with experts
  */
@@ -128,18 +133,26 @@ export class AskExpertsChatClient {
     return this.client.fetchExperts(params);
   }
 
+  public async processMessage(
+    message: string,
+    onStream?: (s: string) => void
+  ): Promise<string> {
+    return (await this.processMessageExt(message, (r) => onStream?.(r.text)))
+      .text;
+  }
+
   /**
    * Process a message and get a response from the expert
    *
    * @param message The message to send to the expert
    * @returns The expert's reply
    */
-  public async processMessage(
+  public async processMessageExt(
     message: string,
-    onStream?: (s: string) => void
-  ): Promise<string> {
+    onStream?: (r: ChatReply) => void
+  ): Promise<ChatReply> {
     if (!message) {
-      return "";
+      return { text: "" };
     }
 
     if (!this.expert) {
@@ -166,6 +179,7 @@ export class AskExpertsChatClient {
       const openaiRequest = {
         model: this.expertPubkey,
         messages: this.messageHistory,
+        modalities: ["text", "image"], // hmm may some of models break due to 'image'?
         stream: !!this.options.stream,
       };
 
@@ -185,8 +199,17 @@ export class AskExpertsChatClient {
         format,
       });
 
+      const extractImage = (message: any) => {
+        const images = message?.images as {
+          type: "image_url";
+          image_url: { url: string };
+        }[];
+        if (images?.[0]?.image_url.url) return images?.[0]?.image_url.url;
+        return undefined;
+      };
+
       // Process the replies
-      let expertReply: string = "";
+      const chatReply: ChatReply = { text: "" };
 
       // Iterate through the replies
       for await (const reply of replies) {
@@ -201,41 +224,56 @@ export class AskExpertsChatClient {
           typeof reply.content === "string"
             ? reply.content
             : new TextDecoder().decode(reply.content);
-        
+
         if (format === FORMAT_OPENAI && this.options.stream) {
           for (const line of chunk.split("\n")) {
             if (!line.trim()) continue;
 
             const completionChunk = JSON.parse(line) as ChatCompletionChunk;
-            const content = completionChunk.choices[0]?.delta.content;
-            let delta = "";
-            if (typeof content === "string") delta = content;
+            const delta = completionChunk.choices[0]?.delta;
+            const content = delta?.content;
+            const deltaReply: ChatReply = { text: "" };
+            if (typeof content === "string") deltaReply.text = content;
+            const image = extractImage(delta);
+            if (image) deltaReply.images = [image];
             // FIXME so can it be an array?
             // else if (Array.isArray(content))
             //   chunk = content
 
-            if (this.options.stream) onStream!(delta);
-            expertReply += delta;
+            if (this.options.stream) onStream!(deltaReply);
+            chatReply.text += deltaReply.text;
+            if (image) {
+              if (!chatReply.images) chatReply.images = [];
+              chatReply.images.push(image);
+            }
           }
         } else {
-          if (this.options.stream) onStream!(chunk);
-          expertReply += chunk;
+          if (format === FORMAT_TEXT && this.options.stream)
+            onStream!({ text: chunk });
+          chatReply.text += chunk;
         }
       }
 
-      if (expertReply && format === FORMAT_OPENAI && !this.options.stream) {
-        const content = JSON.parse(expertReply) as ChatCompletion;
-        expertReply = content.choices[0].message.content || "";
+      // Parse openai reply if we're not streaming
+      if (chatReply.text && format === FORMAT_OPENAI && !this.options.stream) {
+        const content = JSON.parse(chatReply.text) as ChatCompletion;
+        chatReply.text = content.choices[0].message.content || "";
+
+        const image = extractImage(content.choices[0].message);
+        if (image) {
+          if (!chatReply.images) chatReply.images = [];
+          chatReply.images.push(image);
+        }
       }
 
       // Add the full expert's response to the message history
-      if (expertReply)
+      if (chatReply.text)
         this.messageHistory.push({
           role: "assistant",
-          content: expertReply,
+          content: chatReply.text,
         });
 
-      return expertReply;
+      return chatReply;
     } catch (error) {
       debugError(
         "Error in chat:",

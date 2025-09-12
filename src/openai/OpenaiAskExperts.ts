@@ -615,6 +615,8 @@ export class OpenaiAskExperts implements OpenaiInterface {
       "7da89a0ed47ef042b195c833c6f383ec9035c3f5d409a6ce431254e718044813",
     "x-ai/grok-code-fast-1":
       "5178bc6dedd3e95e12a13711693c2917cbb305195ca0862abb75dc407ffc5572",
+    "google/gemini-2.5-flash-image-preview":
+      "12bda0a13fde778a6c32c81d19215425073d60e03cedfc2ae56ae25f15ba95d6",
   };
 
   /**
@@ -899,13 +901,11 @@ export class OpenaiAskExperts implements OpenaiInterface {
     replies: Replies
   ): AsyncIterable<ChatCompletionChunk> {
     for await (const reply of replies) {
-      let content = '';
-      if (typeof reply.content === 'string')
-        content = reply.content;
-      else
-        content = new TextDecoder().decode(reply.content);
+      let content = "";
+      if (typeof reply.content === "string") content = reply.content;
+      else content = new TextDecoder().decode(reply.content);
 
-      for (const line of content.split('\n')) {
+      for (const line of content.split("\n")) {
         if (!line.trim()) continue;
         yield JSON.parse(line) as ChatCompletionChunk;
       }
@@ -924,12 +924,10 @@ export class OpenaiAskExperts implements OpenaiInterface {
     model: string
   ): Promise<ChatCompletion> {
     // Read all replies
-    let content = '';
+    let content = "";
     for await (const reply of replies) {
-      if (typeof reply.content === 'string')
-        content += reply.content;
-      else
-        content += new TextDecoder().decode(reply.content);
+      if (typeof reply.content === "string") content += reply.content;
+      else content += new TextDecoder().decode(reply.content);
     }
 
     return JSON.parse(content) as ChatCompletion;

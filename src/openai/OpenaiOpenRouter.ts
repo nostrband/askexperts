@@ -118,6 +118,12 @@ export class OpenaiOpenRouter implements OpenaiInterface {
     content: ChatCompletionCreateParams
   ): Promise<{ amountSats: number; quoteId: string }> {
     try {
+      if (content.model !== model) throw new Error("Model mismatch in content");
+
+      // Force OpenRouter to include usage
+      // @ts-ignore
+      content.usage = true;
+
       // Calculate the number of tokens in the content
       let inputTokenCount = 0;
 
@@ -160,12 +166,8 @@ export class OpenaiOpenRouter implements OpenaiInterface {
         quoteId,
       };
     } catch (error) {
-      console.error("Error estimating price:", error);
-      // Generate a unique quote ID for error cases
-      const quoteId = `openrouter-error-${Date.now()}-${Math.random()
-        .toString(36)
-        .substring(2, 15)}`;
-      return { amountSats: 0, quoteId };
+      console.error("Error in getQuote:", error);
+      throw error;
     }
   }
 
@@ -212,7 +214,9 @@ export class OpenaiOpenRouter implements OpenaiInterface {
 
           // When we receive the last chunk, update the average output count
           if (chunk.choices[0]?.finish_reason !== null) {
-            this.updateAverageOutputCount(accumulatedContent);
+            // Check if usage information is available in the chunk
+            const completionTokens = (chunk as any).usage?.completion_tokens;
+            this.updateAverageOutputCount(accumulatedContent, completionTokens);
           }
         });
       }) as APIPromise<AsyncIterable<ChatCompletionChunk>>;
@@ -228,7 +232,9 @@ export class OpenaiOpenRouter implements OpenaiInterface {
         .then((response) => {
           if ("choices" in response) {
             const output = response.choices[0]?.message?.content || "";
-            this.updateAverageOutputCount(output);
+            // Check if usage information is available in the response
+            const completionTokens = (response as any).usage?.completion_tokens;
+            this.updateAverageOutputCount(output, completionTokens);
           }
         })
         .catch((error) => {
@@ -243,9 +249,12 @@ export class OpenaiOpenRouter implements OpenaiInterface {
    * Updates the average output token count based on new output
    *
    * @param outputContent - The content to count tokens for
+   * @param completionTokens - Optional completion token count from usage data
    */
-  private updateAverageOutputCount(outputContent: string): void {
-    const outputTokenCount = this.countTokens(outputContent);
+  private updateAverageOutputCount(outputContent: string, completionTokens?: number): void {
+    const outputTokenCount = completionTokens !== undefined
+      ? completionTokens
+      : this.countTokens(outputContent);
 
     // Update the average using the formula: avgOutputTokens = (avgOutputTokens * outputCount + newOutputCount) / (outputCount + 1)
     this.avgOutputCount =

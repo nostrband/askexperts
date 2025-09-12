@@ -132,6 +132,41 @@ export async function executeChatCommand(
     );
     console.log("-----------------------------------------------------------");
 
+    // Function to process an image and return the appropriate text
+    const processImage = (image: string): string => {
+      if (image.startsWith("data:")) {
+        // It's a data URL, decode and save to file
+        try {
+          // Parse the data URL
+          const match = image.match(/^data:image\/([^;]+);base64,(.+)$/);
+          if (!match) {
+            return `Invalid data URL format for image\n`;
+          }
+          
+          const [, imageType, base64Data] = match;
+          
+          // Decode the base64 data
+          const binaryData = Buffer.from(base64Data, 'base64');
+          
+          // Generate filename with current datetime
+          const now = new Date();
+          const datetime = now.toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19);
+          const filename = `image_${datetime}.${imageType}`;
+          
+          // Save to current directory
+          fs.writeFileSync(filename, binaryData);
+          
+          return `Image saved to ${filename}\n`;
+        } catch (error) {
+          debugError("Error processing data URL image:", error);
+          return `Error saving image: ${error instanceof Error ? error.message : String(error)}\n`;
+        }
+      } else {
+        // Not a data URL, just print the reference
+        return `Image ${image}. `;
+      }
+    };
+
     // Function to process a message and get a response
     const processMessage = async (message: string): Promise<void> => {
       if (!message) {
@@ -141,9 +176,22 @@ export async function executeChatCommand(
       const start = Date.now();
       try {
         // Process the message using the chat client
-        const expertReply = await chatClient.processMessage(message, (s) =>
-          process.stdout.write(s)
-        );
+        const expertReply = await chatClient.processMessageExt(message, (reply) => {
+          // Handle text output
+          if (reply.text) {
+            process.stdout.write(reply.text);
+          }
+          
+          // Handle images
+          if (reply.images) {
+            for (const image of reply.images) {
+              const imageText = processImage(image);
+              if (imageText) {
+                process.stdout.write(imageText);
+              }
+            }
+          }
+        });
 
         // Display the expert's reply
         if (options.stream) {
@@ -152,7 +200,19 @@ export async function executeChatCommand(
           console.log();
         } else {
           // In non-stream mode, write the full reply
-          process.stdout.write(`${expert.name || "Expert"} > ${expertReply}\n`);
+          process.stdout.write(`${expert.name || "Expert"} > ${expertReply.text}`);
+          
+          // Handle images in non-stream mode
+          if (expertReply.images) {
+            for (const image of expertReply.images) {
+              const imageText = processImage(image);
+              if (imageText) {
+                process.stdout.write(imageText);
+              }
+            }
+          }
+          
+          console.log();
         }
       } catch (error) {
         debugError(
