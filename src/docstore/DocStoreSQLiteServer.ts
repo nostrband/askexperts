@@ -434,6 +434,12 @@ export class DocStoreSQLiteServer {
       case "countDocs":
         await this.handleCountDocs(ws, message);
         break;
+      case "listDocStoresByIds":
+        await this.handleListDocStoresByIds(ws, message);
+        break;
+      case "listDocsByIds":
+        await this.handleListDocsByIds(ws, message);
+        break;
       default:
         this.sendErrorResponse(
           ws,
@@ -1003,6 +1009,114 @@ export class DocStoreSQLiteServer {
         message,
         ErrorCode.INTERNAL_ERROR,
         `Error counting documents: ${errorMessage}`
+      );
+    }
+  }
+
+  /**
+   * Handle listDocStoresByIds method
+   * @param ws - WebSocket connection
+   * @param message - Request message
+   */
+  private async handleListDocStoresByIds(
+    ws: ExtendedWebSocket,
+    message: WebSocketMessage
+  ): Promise<void> {
+    try {
+      // Validate parameters
+      if (!message.params.ids || !Array.isArray(message.params.ids)) {
+        return this.sendErrorResponse(
+          ws,
+          message,
+          ErrorCode.INVALID_PARAMS,
+          "Missing or invalid ids parameter (must be an array)"
+        );
+      }
+
+      // List docstores by IDs with user_id
+      const docstores = await this.docStore.listDocStoresByIds(
+        message.params.ids,
+        ws.user_info?.user_id
+      );
+
+      // Send response with the docstores
+      this.sendResponse(ws, {
+        id: message.id,
+        type: MessageType.RESPONSE,
+        method: message.method,
+        params: {
+          docstores,
+        },
+      });
+    } catch (error: unknown) {
+      debugError("Error in listDocStoresByIds:", error);
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error";
+      this.sendErrorResponse(
+        ws,
+        message,
+        ErrorCode.INTERNAL_ERROR,
+        `Error listing docstores by IDs: ${errorMessage}`
+      );
+    }
+  }
+
+  /**
+   * Handle listDocsByIds method
+   * @param ws - WebSocket connection
+   * @param message - Request message
+   */
+  private async handleListDocsByIds(
+    ws: ExtendedWebSocket,
+    message: WebSocketMessage
+  ): Promise<void> {
+    try {
+      // Validate parameters
+      if (!message.params.docstore_id) {
+        return this.sendErrorResponse(
+          ws,
+          message,
+          ErrorCode.INVALID_PARAMS,
+          "Missing docstore_id parameter"
+        );
+      }
+
+      if (!message.params.ids || !Array.isArray(message.params.ids)) {
+        return this.sendErrorResponse(
+          ws,
+          message,
+          ErrorCode.INVALID_PARAMS,
+          "Missing or invalid ids parameter (must be an array)"
+        );
+      }
+
+      // List documents by IDs
+      const docs = await this.docStore.listDocsByIds(
+        message.params.docstore_id,
+        message.params.ids
+      );
+
+      // Prepare documents for serialization
+      const serializedDocs = docs.map(doc => this.prepareDocForSerialization(doc));
+
+      // Send response with the documents
+      this.sendResponse(ws, {
+        id: message.id,
+        type: MessageType.RESPONSE,
+        method: message.method,
+        params: {
+          docs: serializedDocs,
+        },
+      });
+    } catch (error: unknown) {
+      debugError("Error in listDocsByIds:", error);
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error";
+      this.sendErrorResponse(
+        ws,
+        message,
+        ErrorCode.INTERNAL_ERROR,
+        `Error listing documents by IDs: ${errorMessage}`
       );
     }
   }

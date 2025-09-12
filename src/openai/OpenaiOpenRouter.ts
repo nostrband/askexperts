@@ -122,7 +122,7 @@ export class OpenaiOpenRouter implements OpenaiInterface {
 
       // Force OpenRouter to include usage
       // @ts-ignore
-      content.usage = true;
+      content.usage = { include: true };
 
       // Calculate the number of tokens in the content
       let inputTokenCount = 0;
