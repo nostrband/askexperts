@@ -26,6 +26,8 @@ Create AI experts, discover them, ask them questions privately and pay for the a
   - [Expert Management](#expert-management)
   - [Document Store](#document-store)
   - [Wallet Management](#wallet-management)
+  - [User Management](#user-management)
+  - [Environment Management](#environment-management)
   - [Streaming](#streaming)
 - [Development](#development)
 - [Examples](#examples)
@@ -478,7 +480,7 @@ The AskExperts SDK provides a comprehensive command-line interface (CLI) for var
 
 - **smart**: Run a Smart MCP server with LLM capabilities
   ```bash
-  npx askexperts smart --wallet=my_wallet_name --openai-api-key=your_key
+  npx askexperts smart --wallet=my_wallet_name --openai-api-key=your_key --openai-base-url=https://api.openai.com/v1
   ```
 
 - **http**: Run an HTTP server for MCP
@@ -530,6 +532,18 @@ The AskExperts SDK provides a comprehensive command-line interface (CLI) for var
     ```bash
     npx askexperts expert ls
     ```
+  - **search**: Search for experts
+    ```bash
+    npx askexperts expert search --hashtags=bitcoin,lightning
+    ```
+  - **scheduler**: Run expert scheduler
+    ```bash
+    npx askexperts expert scheduler
+    ```
+  - **worker**: Run expert worker
+    ```bash
+    npx askexperts expert worker
+    ```
   - **openrouter**: Create an OpenRouter expert
     ```bash
     npx askexperts expert openrouter --api-key=your_key --model=model_name
@@ -574,10 +588,31 @@ The AskExperts SDK provides a comprehensive command-line interface (CLI) for var
     ```bash
     npx askexperts docstore search --docstore=store_id "search query"
     ```
-  - **import**: Import nostr posts into a store
+  - **server**: Run a docstore server
     ```bash
-    npx askexperts docstore import nostr <pubkey> --docstore=store_id --kinds=1,30023 -r wss://relay.nostr.band -l 100
+    npx askexperts docstore server --port=3003
     ```
+  - **reembed**: Re-embed documents in a store
+    ```bash
+    npx askexperts docstore reembed --docstore=store_id
+    ```
+  - **import**: Import data into a store
+    - **nostr**: Import Nostr posts
+      ```bash
+      npx askexperts docstore import nostr <pubkey> --docstore=store_id --kinds=1,30023 -r wss://relay.nostr.band -l 100
+      ```
+    - **twitter**: Import Twitter data
+      ```bash
+      npx askexperts docstore import twitter --docstore=store_id
+      ```
+    - **markdown**: Import markdown files
+      ```bash
+      npx askexperts docstore import markdown --docstore=store_id --file=path/to/file.md
+      ```
+    - **dir**: Import directory of files
+      ```bash
+      npx askexperts docstore import dir --docstore=store_id --path=path/to/directory
+      ```
 
 ### Wallet Management
 
@@ -617,6 +652,42 @@ The AskExperts SDK provides a comprehensive command-line interface (CLI) for var
   - **history**: View transaction history
     ```bash
     npx askexperts wallet history my_wallet
+    ```
+
+### User Management
+
+- **user**: Manage users
+  - **add**: Add a new user
+    ```bash
+    npx askexperts user add --pubkey=user_pubkey --privkey=user_privkey
+    ```
+  - **list**: List all users
+    ```bash
+    npx askexperts user list
+    ```
+  - **whoami**: Show the current user
+    ```bash
+    npx askexperts user whoami
+    ```
+  - **switch**: Switch to a different user
+    ```bash
+    npx askexperts user switch user_id
+    ```
+  - **signup**: Sign up a new user
+    ```bash
+    npx askexperts user signup
+    ```
+
+### Environment Management
+
+- **env**: Manage environment variables
+  - **show**: Display all environment variables
+    ```bash
+    npx askexperts env show
+    ```
+  - **migrate**: Migrate .env file to app directory
+    ```bash
+    npx askexperts env migrate --force
     ```
 
 ### Streaming
