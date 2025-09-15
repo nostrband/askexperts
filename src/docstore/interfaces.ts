@@ -20,6 +20,7 @@ export interface Doc {
   file?: Uint8Array; // Optional binary file data
   metadata?: string; // Optional metadata string
   related_ids?: string[]; // Optional array of related document IDs
+  include?: string; // Optional include field for filtering (e.g., "always")
 }
 
 /**

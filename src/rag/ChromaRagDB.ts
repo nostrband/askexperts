@@ -143,8 +143,20 @@ export class ChromaRagDB implements RagDB {
     };
 
     if (options?.ids?.length) query.ids = options.ids;
-    if (options?.doc_ids?.length)
-      query.where = { doc_id: { $in: options.doc_ids } };
+    
+    // Build where clause for filtering
+    const whereClause: any = {};
+    if (options?.doc_ids?.length) {
+      whereClause.doc_id = { $in: options.doc_ids };
+    }
+    if (options?.include !== undefined) {
+      whereClause.include = options.include;
+    }
+    
+    // Only add where clause if we have conditions
+    if (Object.keys(whereClause).length > 0) {
+      query.where = whereClause;
+    }
 
     const results = await collection.query(query);
 
@@ -178,8 +190,20 @@ export class ChromaRagDB implements RagDB {
       include: ["embeddings", "metadatas", "documents"],
     };
     if (options.ids?.length) query.ids = options.ids;
-    if (options.doc_ids?.length)
-      query.where = { doc_id: { $in: options.doc_ids } };
+    
+    // Build where clause for filtering
+    const whereClause: any = {};
+    if (options.doc_ids?.length) {
+      whereClause.doc_id = { $in: options.doc_ids };
+    }
+    if (options.include !== undefined) {
+      whereClause.include = options.include;
+    }
+    
+    // Only add where clause if we have conditions
+    if (Object.keys(whereClause).length > 0) {
+      query.where = whereClause;
+    }
 
     const results = await collection.query(query);
 

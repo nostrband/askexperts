@@ -50,3 +50,6 @@ export const DEFAULT_REPLY_TIMEOUT = 120000;
 export const DEFAULT_MAX_PARALLEL_PAYMENTS = 5;
 
 export const DOC_FILE_EXT = ".aedoc";
+
+// Constant for the "always" include value
+export const INCLUDE_ALWAYS = "always";

@@ -58,24 +58,4 @@ author: ${event.pubkey}
 
     return doc;
   }
-
-  /**
-   * Check if the input is a valid Nostr event
-   * @param data - Data to validate
-   * @returns Boolean indicating if the data is a valid Nostr event
-   */
-  private isValidNostrEvent(data: any): boolean {
-    // Basic validation of Nostr event structure
-    return (
-      data &&
-      typeof data === "object" &&
-      typeof data.id === "string" &&
-      typeof data.pubkey === "string" &&
-      typeof data.created_at === "number" &&
-      typeof data.kind === "number" &&
-      Array.isArray(data.tags) &&
-      typeof data.content === "string" &&
-      typeof data.sig === "string"
-    );
-  }
 }

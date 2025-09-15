@@ -1,3 +1,4 @@
+import { INCLUDE_ALWAYS } from "../../common/constants.js";
 import { debugError, debugExpert } from "../../common/debug.js";
 import { Doc, DocStoreClient } from "../../docstore/interfaces.js";
 import { RagDB, RagEmbeddings } from "../../rag/interfaces.js";
@@ -98,8 +99,21 @@ export async function buildContext(
       // Get related doc IDs for this docstore
       const relatedIdsSet = relatedDocIds.get(docstore_id) || new Set<string>();
 
-      // Merge IDs from both sets to create a unified list of documents to fetch
-      const allIds = new Set<string>([...docIdsSet, ...relatedIdsSet]);
+      // Fetch docs with include="always" for this docstore
+      const alwaysResults = await ragDB.get(ragCollectionName, {
+        include: INCLUDE_ALWAYS
+      });
+      
+      // Add the doc IDs of "always" docs to the set
+      const alwaysDocIds = new Set<string>();
+      for (const result of alwaysResults) {
+        if (result.metadata.docstore_id === docstore_id) {
+          alwaysDocIds.add(result.metadata.doc_id);
+        }
+      }
+
+      // Merge IDs from all sets to create a unified list of documents to fetch
+      const allIds = new Set<string>([...docIdsSet, ...relatedIdsSet, ...alwaysDocIds]);
       const idsList = Array.from(allIds);
 
       // Skip if there are no documents to fetch

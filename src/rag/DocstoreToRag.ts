@@ -87,6 +87,7 @@ export class DocstoreToRag {
           doc_metadata: doc.metadata || "",
           extra: "",
           doc_related_ids: JSON.stringify(doc.related_ids || []),
+          include: doc.include,
         };
         let data: string = "";
         if (doc.embedding_offsets) {

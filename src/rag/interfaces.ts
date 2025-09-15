@@ -63,6 +63,7 @@ export interface RagMetadata {
   offset_start: number;
   offset_end: number;
   extra: string;
+  include?: string; // Optional include field for filtering (e.g., "always")
 }
 
 /**
@@ -99,6 +100,7 @@ export interface RagDocument {
 export interface RagSearchOptions {
   ids?: string[];
   doc_ids?: string[];
+  include?: string; // Optional include field for filtering
 }
 
 /**

@@ -154,6 +154,21 @@ export class DocStoreSQLite {
     } catch (error) {
       debugError("Error adding related_ids column to docs table:", error);
     }
+
+    // Migration: Add include column to docs table if it doesn't exist
+    try {
+      // Check if include column exists in docs table
+      const docsColumns = this.db.prepare("PRAGMA table_info(docs)").all();
+      const hasIncludeColumn = docsColumns.some((col: any) => col.name === 'include');
+      
+      if (!hasIncludeColumn) {
+        debugDocstore("Adding include column to docs table");
+        this.db.exec("ALTER TABLE docs ADD COLUMN include TEXT DEFAULT NULL");
+        this.db.exec("CREATE INDEX IF NOT EXISTS idx_docs_include ON docs (include)");
+      }
+    } catch (error) {
+      debugError("Error adding include column to docs table:", error);
+    }
   }
 
   /**
@@ -219,6 +234,7 @@ export class DocStoreSQLite {
         file: row.file ? (row.file as Buffer) : undefined,
         metadata: row.metadata?.toString() || "",
         related_ids: relatedIds,
+        include: row.include?.toString() || undefined,
         // aid is not included in the returned Doc object as it's an internal implementation detail
       };
     };
@@ -506,8 +522,8 @@ export class DocStoreSQLite {
     // Use INSERT OR REPLACE to handle both insert and update in a single atomic operation
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO docs (
-        id, docstore_id, timestamp, created_at, type, data, embeddings, embedding_offsets, user_id, file, metadata, related_ids
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        id, docstore_id, timestamp, created_at, type, data, embeddings, embedding_offsets, user_id, file, metadata, related_ids, include
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     
     // Convert embedding_offsets to blob if present
@@ -534,7 +550,8 @@ export class DocStoreSQLite {
       user_id || doc.user_id || "",
       doc.file || null,
       doc.metadata || "",
-      relatedIdsJson
+      relatedIdsJson,
+      doc.include || null
     );
     
     return Promise.resolve();
@@ -599,6 +616,7 @@ export class DocStoreSQLite {
       file: row.file ? (row.file as Buffer) : undefined,
       metadata: row.metadata?.toString() || "",
       related_ids: relatedIds,
+      include: row.include?.toString() || undefined,
     };
     
     return Promise.resolve(doc);
@@ -805,6 +823,7 @@ export class DocStoreSQLite {
         file: row.file ? (row.file as Buffer) : undefined,
         metadata: row.metadata?.toString() || "",
         related_ids: relatedIds,
+        include: row.include?.toString() || undefined,
       };
     });
     
