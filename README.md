@@ -38,6 +38,9 @@ Create AI experts, discover them, ask them questions privately and pay for the a
   - [Remote Client](#remote-client)
   - [RAG Example](#rag-example)
   - [Payment Server](#payment-server)
+- [HOWTO Guides](#howto-guides)
+  - [Chat with an expert using CLI](#howto-chat-with-an-expert-using-cli)
+  - [Launch an AI expert "clone" based on your Nostr posts](#howto-launch-an-ai-expert-clone-based-on-your-nostr-posts)
 - [License](#license)
 
 ## Overview
@@ -967,6 +970,23 @@ const paymentManager = new ExpertPaymentManager({
 
 // Generate invoices and verify payments
 // ...
+```
+
+## HOWTO: chat with an expert using CLI
+
+### 1. Create 'askexperts' user
+```bash
+npx askexperts user add -d
+```
+
+### 2. Add NWC-enclabled wallet
+```bash
+npx askexperts wallet add main -n <NWC-string> -d
+```
+
+### 3. Chat with an expert
+```bash
+npx askexperts expert chat <expert_pubkey> 
 ```
 
 ## HOWTO: launch an AI expert "clone" based on your Nostr posts
