@@ -10,6 +10,7 @@ import { bytesToHex, hexToBytes } from "nostr-tools/utils";
 import { getPublicKey } from "nostr-tools";
 import { createWallet } from "nwc-enclaved-utils";
 import { generateRandomKeyPair } from "../common/crypto.js";
+import { LightningPaymentManager } from "../payments/LightningPaymentManager.js";
 
 /**
  * Interface for DB server permissions
@@ -51,6 +52,10 @@ export interface DBServerOptions {
   origin?: string;
   /** Optional permissions interface for authentication and authorization */
   perms?: DBServerPerms;
+  /** Optional payment manager for bonus top-ups */
+  paymentManager?: LightningPaymentManager;
+  /** Optional bonus amount in sats for new external users */
+  bonusAmountSats?: number;
 }
 
 /**
@@ -65,6 +70,8 @@ export class DBServer {
   private db: DB = getDB();
   private perms?: DBServerPerms;
   private serverOrigin: string;
+  private paymentManager?: LightningPaymentManager;
+  private bonusAmountSats?: number;
 
   /**
    * Creates a new DBServer instance
@@ -80,6 +87,8 @@ export class DBServer {
       : "";
     this.perms = options.perms;
     this.serverOrigin = options.origin || `http://localhost:${this.port}`;
+    this.paymentManager = options.paymentManager;
+    this.bonusAmountSats = options.bonusAmountSats;
 
     // Create the Express app
     this.app = express();
@@ -829,6 +838,42 @@ export class DBServer {
     debugServer(
       `Created external user with external ID ${user_id_ext} pubkey ${publicKey}`
     );
+
+    // Handle bonus top-up if both paymentManager and bonusAmountSats are provided
+    if (this.paymentManager && this.bonusAmountSats) {
+      try {
+        debugServer(
+          `Topping up new external user ${user_id_ext} with ${this.bonusAmountSats} sats`
+        );
+
+        // Create a temporary LightningPaymentManager for the user's wallet
+        const userPaymentManager = new LightningPaymentManager(nwcString);
+
+        // Create an invoice for the bonus amount
+        const { invoice } = await userPaymentManager.makeInvoice(
+          this.bonusAmountSats,
+          `Welcome bonus for user ${user_id_ext}`,
+          60 // 1 min expiry
+        );
+
+        // Pay the invoice using the constructor's payment manager
+        const { preimage } = await this.paymentManager.payInvoice(invoice);
+
+        debugServer(
+          `Successfully topped up user ${user_id_ext} with ${this.bonusAmountSats} sats. Preimage: ${preimage}`
+        );
+
+        // Clean up the temporary payment manager
+        userPaymentManager[Symbol.dispose]();
+      } catch (error) {
+        debugError(
+          `Failed to top up user ${user_id_ext} with bonus sats:`,
+          error
+        );
+        // Don't throw the error - user creation should still succeed even if bonus fails
+      }
+    }
+
     return publicKey;
   }
 
