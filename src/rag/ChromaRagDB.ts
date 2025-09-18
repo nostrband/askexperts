@@ -1,4 +1,4 @@
-import { ChromaClient, Collection, Metadata } from "chromadb";
+import { ChromaClient, Collection } from "chromadb";
 import {
   RagDB,
   RagResult,
@@ -71,6 +71,9 @@ export class ChromaRagDB implements RagDB {
     if (documents.length === 0) return;
 
     const collection = await this.getCollection(collectionName);
+    // documents.map(doc => {
+    //   if (doc.metadata.include) console.error("always", doc.id); 
+    // });
 
     await collection.upsert({
       ids: documents.map((doc) => doc.id),
@@ -143,7 +146,7 @@ export class ChromaRagDB implements RagDB {
     };
 
     if (options?.ids?.length) query.ids = options.ids;
-    
+
     // Build where clause for filtering
     const whereClause: any = {};
     if (options?.doc_ids?.length) {
@@ -152,7 +155,7 @@ export class ChromaRagDB implements RagDB {
     if (options?.include !== undefined) {
       whereClause.include = options.include;
     }
-    
+
     // Only add where clause if we have conditions
     if (Object.keys(whereClause).length > 0) {
       query.where = whereClause;
@@ -181,7 +184,8 @@ export class ChromaRagDB implements RagDB {
     collectionName: string,
     options: RagSearchOptions
   ): Promise<RagResult[]> {
-    if (!options.ids?.length && !options.doc_ids?.length) return [];
+    if (!options.ids?.length && !options.doc_ids?.length && !options.include)
+      return [];
 
     const collection = await this.getCollection(collectionName);
 
@@ -190,7 +194,7 @@ export class ChromaRagDB implements RagDB {
       include: ["embeddings", "metadatas", "documents"],
     };
     if (options.ids?.length) query.ids = options.ids;
-    
+
     // Build where clause for filtering
     const whereClause: any = {};
     if (options.doc_ids?.length) {
@@ -199,15 +203,15 @@ export class ChromaRagDB implements RagDB {
     if (options.include !== undefined) {
       whereClause.include = options.include;
     }
-    
+
     // Only add where clause if we have conditions
     if (Object.keys(whereClause).length > 0) {
       query.where = whereClause;
     }
 
-    const results = await collection.query(query);
+    const results = await collection.get(query);
 
-    return results.rows()[0].map((r) => ({
+    return results.rows().map((r) => ({
       id: r.id,
       vector: r.embedding!,
       data: r.document || "",

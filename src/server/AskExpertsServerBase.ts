@@ -135,7 +135,7 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
   #profileHashtags: string[];
 
   /** Picture for expert profile */
-  #picture: string = '';
+  #picture: string = "";
 
   /**
    * Custom tags for expert profile
@@ -217,7 +217,14 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
    */
   private schedulePublishProfile(): void {
     this.scheduledPublishProfile = true;
-    setImmediate(() => this.maybeRepublishProfile());
+    // Given a swarm of experts we should smoothen out
+    // the queries if all experts are updated due to pricing changes etc,
+    // plus we should batch all calls to schedulePublishProfile and 
+    // make them produce only one publish.
+    setTimeout(
+      () => this.maybeRepublishProfile(),
+      Math.round(Math.random() * 10000)
+    );
   }
 
   /**
@@ -225,7 +232,11 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
    */
   private scheduleSubscribeToAsks(): void {
     this.scheduledSubscribeToAsks = true;
-    setImmediate(() => this.maybeSubscribeToAsks());
+    // See notes in schedulePublishProfile()
+    setTimeout(
+      () => this.maybeSubscribeToAsks(),
+      Math.round(Math.random() * 10000)
+    );
   }
 
   /**
@@ -283,7 +294,7 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
     this.#promptRelays = options.promptRelays || DEFAULT_DISCOVERY_RELAYS;
     this.#hashtags = options.hashtags || [];
     this.#profileHashtags = options.profileHashtags || [];
-    this.#picture = options.picture || '';
+    this.#picture = options.picture || "";
     this.#tags = options.tags || [];
     this.#formats = options.formats || [FORMAT_TEXT];
     this.#onAsk = options.onAsk;
@@ -296,7 +307,7 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
 
     // Set the required pool
     this.pool = options.pool;
-    
+
     // Set the logger if provided
     this.#logger = options.logger;
   }
@@ -459,10 +470,8 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
 
   private log(type: string, content: string | any, promptId?: string) {
     if (!this.#logger) return;
-    if (typeof content === 'string')
-      this.#logger.log(type, content, promptId)
-    else
-      this.#logger.log(type, JSON.stringify(content), promptId)
+    if (typeof content === "string") this.#logger.log(type, content, promptId);
+    else this.#logger.log(type, JSON.stringify(content), promptId);
   }
 
   /**

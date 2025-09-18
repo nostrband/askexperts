@@ -80,19 +80,10 @@ export async function buildContext(
       }
     }
 
-    // Markdown context, for each document:
-    //
-    // =============================
-    // # doc: {docstore_id}:{id}
-    // ## metadata
-    // {doc.metadata}
-    // ## content
-    // {doc.content}
-    let context = "";
-
     // Keep track of which documents have been printed to avoid duplicates
     const docs: Doc[] = [];
     const printedDocs = new Map<string, Set<string>>();
+    const alwaysDocs: Doc[] = [];
 
     // Process each docstore and its documents
     for (const [docstore_id, docIdsSet] of docIds.entries()) {
@@ -101,9 +92,9 @@ export async function buildContext(
 
       // Fetch docs with include="always" for this docstore
       const alwaysResults = await ragDB.get(ragCollectionName, {
-        include: INCLUDE_ALWAYS
+        include: INCLUDE_ALWAYS,
       });
-      
+
       // Add the doc IDs of "always" docs to the set
       const alwaysDocIds = new Set<string>();
       for (const result of alwaysResults) {
@@ -111,9 +102,14 @@ export async function buildContext(
           alwaysDocIds.add(result.metadata.doc_id);
         }
       }
+      // debugExpert("alwaysDocIds", [...alwaysDocIds]);
 
       // Merge IDs from all sets to create a unified list of documents to fetch
-      const allIds = new Set<string>([...docIdsSet, ...relatedIdsSet, ...alwaysDocIds]);
+      const allIds = new Set<string>([
+        ...docIdsSet,
+        ...relatedIdsSet,
+        ...alwaysDocIds,
+      ]);
       const idsList = Array.from(allIds);
 
       // Skip if there are no documents to fetch
@@ -134,8 +130,39 @@ export async function buildContext(
       // Put to global list
       docs.push(...docstoreDocs);
 
+      // Separate 'always' list
+      alwaysDocs.push(...docstoreDocs.filter((d) => alwaysDocIds.has(d.id)));
+
       // Initialize tracking set for this docstore if not exists
       printedDocs.set(docstore_id, new Set<string>());
+    }
+
+    // Markdown context, for each document:
+    //
+    // =============================
+    // # doc: {docstore_id}:{id}
+    // ## metadata
+    // {doc.metadata}
+    // ## content
+    // {doc.content}
+    let context = "";
+
+    const print = (doc: Doc) => {
+      // Mark as printed
+      printedDocs.get(doc.docstore_id)!.add(doc.id);
+
+      // Add to context
+      context += "=============================\n";
+      context += `# doc: ${doc.docstore_id}:${doc.id}\n`;
+      context += "## metadata\n";
+      context += `${doc.metadata || ""}\n`;
+      context += "## content\n";
+      context += `${doc.data || ""}\n\n`;
+    };
+
+    // 'always' docs go first
+    for (const d of alwaysDocs) {
+      if (!printedDocs.get(d.docstore_id)!.has(d.id)) print(d);
     }
 
     // Process each result to add relevant documents to the context
@@ -147,19 +174,6 @@ export async function buildContext(
       if (printedDocs.get(dsid)!.has(did)) {
         continue;
       }
-
-      const print = (doc: Doc) => {
-        // Mark as printed
-        printedDocs.get(doc.docstore_id)!.add(doc.id);
-
-        // Add to context
-        context += "=============================\n";
-        context += `# doc: ${dsid}:${did}\n`;
-        context += "## metadata\n";
-        context += `${doc.metadata || ""}\n`;
-        context += "## content\n";
-        context += `${doc.data || ""}\n\n`;
-      };
 
       // Find the document in the fetched docs
       const doc = docs.find((d) => d.id === did && d.docstore_id === dsid);
@@ -200,80 +214,6 @@ export async function buildContext(
       `onGetContext results ${results.length} context ${context.length} chars`
     );
     return context;
-
-    // // Newer version with data stored in RAG?
-    // let context: {
-    //   id: string;
-    //   metadata: string;
-    //   segments: { i: number; c: string }[];
-    // }[] = [];
-    // // if (results[0].data) {
-
-    // for (const r of results) {
-    //   // add segment to context
-    //   const c = context.find((c) => c.id === r.metadata.doc_id);
-    //   if (c) {
-    //     if (!c.segments.find((s) => s.i === r.metadata.chunk))
-    //       c.segments.push({ i: r.metadata.chunk, c: r.data });
-    //   } else {
-    //     context.push({
-    //       id: r.metadata.doc_id,
-    //       metadata: r.metadata.doc_metadata,
-    //       segments: [{ i: r.metadata.chunk, c: r.data }],
-    //     });
-    //   }
-    // }
-
-    // // Search related docs
-
-    // // Sort segments by index
-    // for (const c of context) {
-    //   c.segments.sort((a, b) => a.i - b.i);
-    // }
-
-    // } else {
-    //   // Collect post IDs from all results
-    //   const docIds = new Map<string, number>();
-    //   for (const result of results) {
-    //     if (result.metadata && result.metadata.id) {
-    //       const docDistance = Math.min(
-    //         result.distance,
-    //         docIds.get(result.metadata.id) || result.distance
-    //       );
-    //       docIds.set(result.metadata.id, docDistance);
-    //     }
-    //   }
-
-    //   // Find matching posts in profileInfo
-    //   const matchingDocs = this.docs
-    //     .filter((doc) => docIds.has(doc.id))
-    //     .sort((a, b) => docIds.get(b.id)! - docIds.get(a.id)!);
-    //   debugExpert(`Rag matchingDocs ${matchingDocs.length}`);
-
-    //   // Nothing?
-    //   if (!matchingDocs.length) {
-    //     throw notFound;
-    //   }
-
-    //   if (matchingDocs.length > MAX_RESULTS)
-    //     matchingDocs.length = MAX_RESULTS;
-
-    //   // Remove useless fields, return as string
-    //   context = matchingDocs.map((d) => {
-    //     return {
-    //       id: d.id,
-    //       segments: [{ i: 0, c: d.data }],
-    //       metadata: d.metadata || "",
-    //     };
-    //   });
-    // }
-
-    // const jsonContext = JSON.stringify(context, null, 2);
-    // debugExpert("jsonContext", jsonContext);
-    // debugExpert(
-    //   `onGetContext results ${results.length} context ${jsonContext.length} chars`
-    // );
-    // return jsonContext;
   } catch (error) {
     debugError("Error generating prompt context:", error);
     throw error;
