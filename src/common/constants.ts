@@ -53,3 +53,5 @@ export const DOC_FILE_EXT = ".aedoc";
 
 // Constant for the "always" include value
 export const INCLUDE_ALWAYS = "always";
+
+export const WALLET_SERVICE_RELAY = "wss://relay.zap.land";

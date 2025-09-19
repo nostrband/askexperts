@@ -46,7 +46,7 @@ async function runExampleExpert() {
 
   // Create a wallet using nwc-enclaved-utils
   console.log("Creating NWC wallet...");
-  const wallet = await createWallet();
+  const wallet = await createWallet({});
   const nwcString = wallet.nwcString;
   console.log("NWC wallet created");
 

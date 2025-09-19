@@ -8,9 +8,9 @@ import { getDB } from "./utils.js";
 import { DB } from "./DB.js";
 import { bytesToHex, hexToBytes } from "nostr-tools/utils";
 import { getPublicKey } from "nostr-tools";
-import { createWallet } from "nwc-enclaved-utils";
 import { generateRandomKeyPair } from "../common/crypto.js";
 import { LightningPaymentManager } from "../payments/LightningPaymentManager.js";
+import { createWallet } from "../common/utils.js";
 
 /**
  * Interface for DB server permissions

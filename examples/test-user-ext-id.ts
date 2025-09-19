@@ -28,7 +28,7 @@ async function testUserExtId() {
     
     // Generate test data
     const { privateKey, publicKey } = generateRandomKeyPair();
-    const { nwcString } = await createWallet();
+    const { nwcString } = await createWallet({});
     const externalId = "external-user-123";
     
     console.log(`\n1. Creating a user with external ID: ${externalId}`);

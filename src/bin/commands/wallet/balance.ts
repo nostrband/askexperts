@@ -36,7 +36,7 @@ export async function executeBalanceCommand(
     try {
       // Get balance
       const { balance } = await client.getBalance();
-      
+
       // Display balance
       console.log(`Wallet: ${wallet.name}${wallet.default ? ' (default)' : ''}`);
       console.log(`Balance: ${Math.floor(balance / 1000)} sats`); // ms to sats

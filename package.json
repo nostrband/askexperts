@@ -1,6 +1,6 @@
 {
   "name": "askexperts",
-  "version": "0.7.124",
+  "version": "0.7.125",
   "description": "AskExperts SDK: build and use AI experts - ask them questions and pay with bitcoin on an open protocol",
   "main": "dist/index.js",
   "type": "module",
@@ -168,7 +168,7 @@
     "gpt-tokenizer": "^3.0.1",
     "light-bolt11-decoder": "^3.2.0",
     "nostr-tools": "^2.15.0",
-    "nwc-enclaved-utils": "^2.0.10",
+    "nwc-enclaved-utils": "^2.0.12",
     "openai": "^5.8.3",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3",

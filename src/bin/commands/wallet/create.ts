@@ -1,9 +1,10 @@
 import { Command } from "commander";
 import { debugError } from "../../../common/debug.js";
-import { createWallet } from "nwc-enclaved-utils";
 import { addCommonOptions } from "./index.js";
 import { getCurrentUserId } from "../../../common/users.js";
 import { createDBClientForCommands } from "../utils.js";
+import { WALLET_SERVICE_RELAY } from "../../../common/constants.js";
+import { createWallet } from "../../../common/utils.js";
 
 /**
  * Options for the create wallet command
