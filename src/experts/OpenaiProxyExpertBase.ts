@@ -94,7 +94,7 @@ export class OpenaiProxyExpertBase {
     const streamFactory = new DefaultStreamFactory();
     streamFactory.writerConfig = {
       minChunkInterval: 1000, // Send a delta every second
-      minChunkSize: 1024, // Send if >1KB of deltas
+      minChunkSize: 256, // Some batching for deltas
     };
     this.server.streamFactory = streamFactory;
   }

@@ -1221,9 +1221,6 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
       const { privateKey: streamPrivkey, publicKey: streamPubkey } =
         generateRandomKeyPair();
 
-      // Generate a new key pair for encryption
-      const { privateKey: streamEncryptionPrivkey } = generateRandomKeyPair();
-
       const binary =
         Symbol.asyncIterator in expertReplies
           ? expertReplies.binary
