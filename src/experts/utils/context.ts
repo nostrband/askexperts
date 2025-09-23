@@ -102,7 +102,7 @@ export async function buildContext(
           alwaysDocIds.add(result.metadata.doc_id);
         }
       }
-      // debugExpert("alwaysDocIds", [...alwaysDocIds]);
+      debugExpert("alwaysDocIds", [...alwaysDocIds]);
 
       // Merge IDs from all sets to create a unified list of documents to fetch
       const allIds = new Set<string>([
@@ -160,8 +160,32 @@ export async function buildContext(
       context += `${doc.data || ""}\n\n`;
     };
 
-    // 'always' docs go first
-    for (const d of alwaysDocs) {
+    // 'always' docs go first, sorted by file path
+    const sortedAlwaysDocs = alwaysDocs.slice().sort((a, b) => {
+      const getFilePath = (doc: Doc): string => {
+        if (!doc.metadata) return '';
+        
+        // Look for "file: <path>" in metadata
+        const lines = doc.metadata.split('\n');
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith('file:')) {
+            return trimmed.substring(5).trim(); // Remove "file:" and trim whitespace
+          }
+        }
+        return '';
+      };
+      
+      const pathA = getFilePath(a);
+      const pathB = getFilePath(b);
+      // A simple way to prioritize closer-to-root files
+      if (pathA.length === pathB.length)
+        return pathA.localeCompare(pathB);
+      else
+        return pathA.length - pathB.length;
+    });
+    
+    for (const d of sortedAlwaysDocs) {
       if (!printedDocs.get(d.docstore_id)!.has(d.id)) print(d);
     }
 

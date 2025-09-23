@@ -219,4 +219,10 @@ export class ChromaRagDB implements RagDB {
       distance: 0, // No distance is calculated for direct ID retrieval
     }));
   }
+
+  async deleteCollection(collectionName: string) {
+    this.collections.delete(collectionName);
+    return this.client.deleteCollection({ name: collectionName });
+  }
+
 }

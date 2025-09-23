@@ -151,4 +151,10 @@ export interface RagDB {
    * @returns Promise resolving to array of results
    */
   get(collectionName: string, options: RagSearchOptions): Promise<RagResult[]>;
+
+  /**
+   * Delete collection and all it's contents
+   * @param collectionName collection name
+   */
+  deleteCollection(collectionName: string): Promise<void>;
 }

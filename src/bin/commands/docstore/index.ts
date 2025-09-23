@@ -16,6 +16,7 @@ import { registerListDocsCommand } from "./list.js";
 import { registerSearchCommand } from "./search.js";
 import { registerServerCommand } from "./server.js";
 import { registerReembedCommand } from "./reembed.js";
+import { registerClearCommand } from "./clear.js";
 import { getCurrentUserId } from "../../../common/users.js";
 import { getDB } from "../../../db/index.js";
 import { hexToBytes } from "nostr-tools/utils";
@@ -160,6 +161,7 @@ export function registerDocstoreCommand(program: Command): void {
   registerSearchCommand(docstoreCommand, addCommonOptions);
   registerServerCommand(docstoreCommand, addCommonOptions);
   registerReembedCommand(docstoreCommand, addCommonOptions);
+  registerClearCommand(docstoreCommand, addCommonOptions);
   
   // Register import command with its subcommands
   registerImportCommand(docstoreCommand, addCommonOptions);
