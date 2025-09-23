@@ -303,6 +303,8 @@ export class StreamWriter {
     // Set up timer for interval-based sending if not already done
     if (!this.isDone && this.config.minChunkInterval > 0 && !this.batchTimer) {
       this.batchTimer = setTimeout(async () => {
+        // Timeout expired but we've already flushed
+        if (!this.currentChunkSize) return;
         try {
           debugStream(`Sending by timeout`);
           await this.flushCompressor();
