@@ -1,7 +1,8 @@
 import type { DBInterface, DBWallet, DBExpert } from "./interfaces.js";
 import { debugDB, debugError } from "../common/debug.js";
-import { createAuthToken } from "../common/auth.js";
+import { createAuthToken, createAuthTokenWithSigner } from "../common/auth.js";
 import { bytesToHex } from "nostr-tools/utils";
+import type { Signer } from "nostr-tools/signer";
 
 /**
  * Remote implementation of the DBInterface
@@ -15,6 +16,8 @@ export interface DBRemoteClientOptions {
   url?: string;
   /** Optional private key for authentication (as Uint8Array) */
   privateKey?: Uint8Array;
+  /** Optional signer for authentication */
+  signer?: Signer;
   /**
    * Optional token for bearer authentication
    * Can be a string or a callback function that returns a Promise<string>
@@ -27,6 +30,7 @@ export interface DBRemoteClientOptions {
 export class DBRemoteClient implements DBInterface {
   private baseUrl: string;
   private privateKey?: Uint8Array;
+  private signer?: Signer;
   #token?: string | (() => Promise<string>);
   private user_id?: string;
 
@@ -39,6 +43,7 @@ export class DBRemoteClient implements DBInterface {
     this.baseUrl = options.url || 'https://api.askexperts.io' ;
     this.baseUrl = this.baseUrl.endsWith("/") ? this.baseUrl.slice(0, -1) : this.baseUrl;
     this.privateKey = options.privateKey;
+    this.signer = options.signer;
     this.#token = options.token;
     this.user_id = options.user_id;
 
@@ -69,9 +74,19 @@ export class DBRemoteClient implements DBInterface {
       
       headers["Authorization"] = `Bearer ${tokenValue}`;
     }
+    // Otherwise use signer-based authentication if available
+    else if (this.signer) {
+      const authToken = await createAuthTokenWithSigner(
+        this.signer,
+        url,
+        method,
+        bodyString
+      );
+      headers["Authorization"] = authToken;
+    }
     // Otherwise use privateKey-based authentication if available
     else if (this.privateKey) {
-      const authToken = createAuthToken(
+      const authToken = await createAuthToken(
         this.privateKey,
         url,
         method,

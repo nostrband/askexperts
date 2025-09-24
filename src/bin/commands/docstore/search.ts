@@ -16,6 +16,7 @@ import {
   enableAllDebug,
 } from "../../../common/debug.js";
 import { buildContext } from "../../../experts/utils/context.js";
+import { bytesToHex, randomBytes } from "@noble/hashes/utils";
 
 /**
  * Search documents in a docstore using vector similarity
@@ -49,7 +50,7 @@ export async function searchDocs(
     await embeddings.start();
 
     // Use provided collection name or generate one
-    const collectionName = options.collection || `search-${docstore.id}`;
+    const collectionName = options.collection || `search-${bytesToHex(randomBytes())}`;
     
     // Skip syncing if the skip-sync flag is provided
     if (!options.skipSync) {
@@ -151,6 +152,10 @@ export async function searchDocs(
         }
       }
     }
+
+    // Clean up test collection
+    if (!options.skipSync && !options.collection)
+      await ragDb.deleteCollection(collectionName);
 
     // Clean up resources
     if (docstoreToRag) {

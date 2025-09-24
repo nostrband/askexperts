@@ -212,6 +212,8 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
    */
   private started = false;
 
+  private profilePublished = false;
+
   /**
    * Schedules the profile for republishing
    */
@@ -219,11 +221,11 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
     this.scheduledPublishProfile = true;
     // Given a swarm of experts we should smoothen out
     // the queries if all experts are updated due to pricing changes etc,
-    // plus we should batch all calls to schedulePublishProfile and 
-    // make them produce only one publish.
+    // plus we should batch all calls to schedulePublishProfile and
+    // make them produce only one publish - hence out-of-loop publish.
     setTimeout(
       () => this.maybeRepublishProfile(),
-      Math.round(Math.random() * 10000)
+      this.profilePublished ? 0 : Math.round(Math.random() * 30000)
     );
   }
 
@@ -232,11 +234,8 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
    */
   private scheduleSubscribeToAsks(): void {
     this.scheduledSubscribeToAsks = true;
-    // See notes in schedulePublishProfile()
-    setTimeout(
-      () => this.maybeSubscribeToAsks(),
-      Math.round(Math.random() * 10000)
-    );
+    // Batching sync calls to scheduleSubscribeToAsks 
+    setTimeout(() => this.maybeSubscribeToAsks(), 0);
   }
 
   /**
@@ -491,13 +490,15 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
       } catch (error) {
         debugError("Error republishing expert profile:", error);
       }
-    }, PROFILE_REPUBLISH_INTERVAL);
+    }, PROFILE_REPUBLISH_INTERVAL * (1 + 0.2 * Math.random()));
   }
 
   /**
    * Publishes the expert profile to discovery relays
    */
   private async publishExpertProfile(): Promise<void> {
+    this.profilePublished = true;
+
     // Create tags for the expert profile
     const tags: string[][] = [
       ...this.#promptRelays.map((relay) => ["relay", relay]),

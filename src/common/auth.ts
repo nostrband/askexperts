@@ -2,6 +2,8 @@
  * Authentication utilities for NIP-98 token-based authentication
  */
 import { getPublicKey, finalizeEvent, verifyEvent } from "nostr-tools";
+import type { Signer } from "nostr-tools/signer";
+import { PlainKeySigner } from "nostr-tools/signer";
 import { bytesToHex } from "nostr-tools/utils";
 import { sha256 } from "@noble/hashes/sha2";
 
@@ -95,19 +97,19 @@ function verifyNostrEvent(event: any): boolean {
 }
 
 /**
- * Create a NIP-98 auth token for WebSocket connection
- * @param privateKey - The private key to sign the event with (as Uint8Array)
+ * Create a NIP-98 auth token for WebSocket connection using a Signer
+ * @param signer - The Signer instance to sign the event with
  * @param url - The URL to connect to
  * @param method - The HTTP method (usually 'GET' for WebSocket)
  * @param body - Optional request body
  * @returns The authorization header value
  */
-export function createAuthToken(
-  privateKey: Uint8Array,
+export async function createAuthTokenWithSigner(
+  signer: Signer,
   url: string,
   method: string,
   body?: string
-): string {
+): Promise<string> {
   // Create a NIP-98 event
   const event = {
     kind: 27235,
@@ -118,12 +120,12 @@ export function createAuthToken(
       // No payload tag for WebSocket connections
     ],
     content: "",
-    pubkey: getPublicKey(privateKey),
+    pubkey: await signer.getPublicKey(),
   };
   if (body) event.tags.push(["payload", bytesToHex(sha256(body))]);
 
-  // Sign the event
-  const signedEvent = finalizeEvent(event, privateKey);
+  // Sign the event using the signer
+  const signedEvent = await signer.signEvent(event);
 
   // Convert to base64
   const base64Event = Buffer.from(JSON.stringify(signedEvent)).toString(
@@ -132,4 +134,25 @@ export function createAuthToken(
 
   // Return the authorization header value
   return `Nostr ${base64Event}`;
+}
+
+/**
+ * Create a NIP-98 auth token for WebSocket connection
+ * @param privateKey - The private key to sign the event with (as Uint8Array)
+ * @param url - The URL to connect to
+ * @param method - The HTTP method (usually 'GET' for WebSocket)
+ * @param body - Optional request body
+ * @returns The authorization header value
+ */
+export async function createAuthToken(
+  privateKey: Uint8Array,
+  url: string,
+  method: string,
+  body?: string
+): Promise<string> {
+  // Create a PlainKeySigner from the private key
+  const signer = new PlainKeySigner(privateKey);
+  
+  // Reuse the signer-based function
+  return await createAuthTokenWithSigner(signer, url, method, body);
 }

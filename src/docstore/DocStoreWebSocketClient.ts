@@ -1,7 +1,8 @@
 import { Doc, DocStore, DocStoreClient, MessageType, Subscription } from './interfaces.js';
 import { generateUUID } from '../common/uuid.js';
-import { createAuthToken } from '../common/auth.js';
+import { createAuthToken, createAuthTokenWithSigner } from '../common/auth.js';
 import { debugDocstore, debugError } from '../common/debug.js';
+import type { Signer } from 'nostr-tools/signer';
 
 /**
  * Serializable version of Doc with regular arrays instead of Float32Array
@@ -19,6 +20,8 @@ export interface DocStoreWebSocketClientOptions {
   url: string;
   /** Optional private key for authentication (as Uint8Array) */
   privateKey?: Uint8Array;
+  /** Optional signer for authentication */
+  signer?: Signer;
   /** Optional token for bearer authentication */
   token?: string;
   /** Optional WebSocket instance to use instead of creating a new one */
@@ -40,6 +43,7 @@ export class DocStoreWebSocketClient implements DocStoreClient {
   private connectResolve!: () => void;
   private connectReject!: (error: Error) => void;
   private privateKey?: Uint8Array;
+  private signer?: Signer;
   private token?: string;
   private url: string;
   private authenticated: boolean = false;
@@ -56,6 +60,7 @@ export class DocStoreWebSocketClient implements DocStoreClient {
     // Handle legacy constructor format (url string)
     let url: string;
     let privateKey: Uint8Array | undefined;
+    let signer: Signer | undefined;
     let token: string | undefined;
     let customWebSocket: WebSocket | undefined;
     
@@ -68,6 +73,7 @@ export class DocStoreWebSocketClient implements DocStoreClient {
       // New format: constructor(options)
       url = options.url;
       privateKey = options.privateKey;
+      signer = options.signer;
       token = options.token;
       customWebSocket = options.webSocket;
     }
@@ -80,6 +86,7 @@ export class DocStoreWebSocketClient implements DocStoreClient {
 
     // Store authentication info for later use
     this.privateKey = privateKey;
+    this.signer = signer;
     this.token = token;
     this.url = url;
     
@@ -89,7 +96,7 @@ export class DocStoreWebSocketClient implements DocStoreClient {
       this.connected = true;
       
       // If authentication is needed, send auth message
-      if (this.token || this.privateKey) {
+      if (this.token || this.privateKey || this.signer) {
         try {
           await this.sendAuthMessage();
         } catch (error) {
@@ -153,11 +160,14 @@ export class DocStoreWebSocketClient implements DocStoreClient {
     // Create headers object
     const headers: Record<string, string> = {};
     
-    // Add authorization header based on token or privateKey
+    // Add authorization header based on token, signer, or privateKey
     if (this.token) {
       headers['authorization'] = `Bearer ${this.token}`;
+    } else if (this.signer) {
+      const authToken = await createAuthTokenWithSigner(this.signer, this.url, 'GET');
+      headers['authorization'] = authToken;
     } else if (this.privateKey) {
-      const authToken = createAuthToken(this.privateKey, this.url, 'GET');
+      const authToken = await createAuthToken(this.privateKey, this.url, 'GET');
       headers['authorization'] = authToken;
     }
     
@@ -256,7 +266,7 @@ export class DocStoreWebSocketClient implements DocStoreClient {
     }
     
     // Make sure we're authenticated if authentication was required
-    if ((this.token || this.privateKey) && !this.authenticated) {
+    if ((this.token || this.privateKey || this.signer) && !this.authenticated) {
       throw new Error('Not authenticated');
     }
 
