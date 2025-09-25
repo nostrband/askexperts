@@ -1,8 +1,9 @@
 import type { DBInterface, DBWallet, DBExpert } from "./interfaces.js";
 import { debugDB, debugError } from "../common/debug.js";
-import { createAuthToken, createAuthTokenWithSigner } from "../common/auth.js";
+import { createAuthTokenNip98 } from "../common/auth.js";
 import { bytesToHex } from "nostr-tools/utils";
 import type { Signer } from "nostr-tools/signer";
+import { PlainKeySigner } from "nostr-tools/signer";
 
 /**
  * Remote implementation of the DBInterface
@@ -40,8 +41,10 @@ export class DBRemoteClient implements DBInterface {
    */
   constructor(options: DBRemoteClientOptions) {
     // Ensure the URL doesn't end with a slash
-    this.baseUrl = options.url || 'https://api.askexperts.io' ;
-    this.baseUrl = this.baseUrl.endsWith("/") ? this.baseUrl.slice(0, -1) : this.baseUrl;
+    this.baseUrl = options.url || "https://api.askexperts.io";
+    this.baseUrl = this.baseUrl.endsWith("/")
+      ? this.baseUrl.slice(0, -1)
+      : this.baseUrl;
     this.privateKey = options.privateKey;
     this.signer = options.signer;
     this.#token = options.token;
@@ -68,30 +71,20 @@ export class DBRemoteClient implements DBInterface {
     // Add token-based authentication if token is provided
     if (this.#token) {
       // If token is a callback function, call it to get the actual token
-      const tokenValue = typeof this.#token === 'function'
-        ? await this.#token()
-        : this.#token;
-      
-      headers["Authorization"] = `Bearer ${tokenValue}`;
+      const tokenValue =
+        typeof this.#token === "function" ? await this.#token() : this.#token;
+
+      headers["Authorization"] = tokenValue;
     }
     // Otherwise use signer-based authentication if available
-    else if (this.signer) {
-      const authToken = await createAuthTokenWithSigner(
-        this.signer,
+    else if (this.signer || this.privateKey) {
+      const signer = this.signer || new PlainKeySigner(this.privateKey!);
+      const authToken = await createAuthTokenNip98({
+        signer,
         url,
         method,
-        bodyString
-      );
-      headers["Authorization"] = authToken;
-    }
-    // Otherwise use privateKey-based authentication if available
-    else if (this.privateKey) {
-      const authToken = await createAuthToken(
-        this.privateKey,
-        url,
-        method,
-        bodyString
-      );
+        body: bodyString,
+      });
       headers["Authorization"] = authToken;
     }
 
@@ -423,7 +416,10 @@ export class DBRemoteClient implements DBInterface {
 
       return await response.json();
     } catch (error) {
-      debugError(`Error in DBRemoteClient.listExpertsAfter(${timestamp}):`, error);
+      debugError(
+        `Error in DBRemoteClient.listExpertsAfter(${timestamp}):`,
+        error
+      );
       throw error;
     }
   }

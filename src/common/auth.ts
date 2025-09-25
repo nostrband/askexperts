@@ -1,9 +1,8 @@
 /**
  * Authentication utilities for NIP-98 token-based authentication
  */
-import { getPublicKey, finalizeEvent, verifyEvent } from "nostr-tools";
+import { NostrEvent, verifyEvent } from "nostr-tools";
 import type { Signer } from "nostr-tools/signer";
-import { PlainKeySigner } from "nostr-tools/signer";
 import { bytesToHex } from "nostr-tools/utils";
 import { sha256 } from "@noble/hashes/sha2";
 
@@ -22,6 +21,35 @@ export interface AuthRequest {
   req?: any;
 }
 
+const KIND_NIP98 = 27235;
+const KIND_NIP981 = 27236;
+const DEFAULT_NIP981_EXPIRATION = 24 * 3600;
+
+export interface AuthTokenInfo {
+  pubkey?: string;
+  expiration?: number;
+}
+
+export async function parseAuthToken(
+  origin: string,
+  req: AuthRequest
+): Promise<AuthTokenInfo> {
+  const { authorization } = req.headers;
+  if (!authorization || typeof authorization !== "string") return {};
+  if (!authorization.startsWith("Nostr ")) return {};
+
+  const data = authorization.split(" ")[1].trim();
+  if (!data) return {};
+
+  const json = Buffer.from(data, "base64").toString("utf-8");
+  const event = JSON.parse(json);
+  if (event.kind === KIND_NIP98) {
+    return parseAuthTokenNip98(origin, req, event);
+  } else if (event.kind === KIND_NIP981) {
+    return parseAuthTokenNip981(origin, req, event);
+  }
+  return {};
+}
 
 /**
  * Parse and validate a NIP-98 authentication token
@@ -29,24 +57,16 @@ export interface AuthRequest {
  * @param req - Request object with headers and other properties
  * @returns Public key if token is valid, empty string otherwise
  */
-export async function parseAuthToken(
+export async function parseAuthTokenNip98(
   origin: string,
-  req: AuthRequest
-): Promise<string> {
+  req: AuthRequest,
+  event: NostrEvent
+): Promise<AuthTokenInfo> {
   try {
-    const { authorization } = req.headers;
-    if (!authorization || typeof authorization !== "string") return "";
-    if (!authorization.startsWith("Nostr ")) return "";
-
-    const data = authorization.split(" ")[1].trim();
-    if (!data) return "";
-
-    const json = Buffer.from(data, "base64").toString("utf-8");
-    const event = JSON.parse(json);
+    if (event.kind !== KIND_NIP98) return {};
 
     const now = Math.floor(Date.now() / 1000);
-    if (event.kind !== 27235) return "";
-    if (event.created_at < now - 60 || event.created_at > now + 60) return "";
+    if (event.created_at < now - 60 || event.created_at > now + 60) return {};
 
     const u = event.tags.find(
       (t: string[]) => t.length === 2 && t[0] === "u"
@@ -58,27 +78,67 @@ export async function parseAuthToken(
       (t: string[]) => t.length === 2 && t[0] === "payload"
     )?.[1];
 
-    if (method !== req.method) return "";
+    if (method !== req.method) return {};
+    if (!u) return {};
 
     const url = new URL(u);
     if (url.origin !== origin || url.pathname + url.search !== req.originalUrl)
-      return "";
+      return {};
 
     if (req.rawBody && req.rawBody.length > 0) {
       const hash = bytesToHex(sha256(req.rawBody));
-      if (hash !== payload) return "";
+      if (hash !== payload) return {};
     } else if (payload) {
-      return "";
+      return {};
     }
 
     // Finally after all cheap checks are done, verify the signature
-    if (!verifyNostrEvent(event)) return "";
+    if (!verifyNostrEvent(event)) return {};
 
     // all ok
-    return event.pubkey;
+    return { pubkey: event.pubkey };
   } catch (e) {
     console.error("Auth error:", e);
-    return "";
+    return {};
+  }
+}
+
+export async function parseAuthTokenNip981(
+  origin: string,
+  req: AuthRequest,
+  event: NostrEvent
+): Promise<AuthTokenInfo> {
+  try {
+    if (event.kind !== KIND_NIP981) return {};
+
+    const now = Math.floor(Date.now() / 1000);
+    // created in the future?
+    if (event.created_at > now + 60) return {};
+
+    const domain = event.tags.find(
+      (t: string[]) => t.length === 2 && t[0] === "domain"
+    )?.[1];
+    const expiration = event.tags.find(
+      (t: string[]) => t.length === 2 && t[0] === "expiration"
+    )?.[1];
+
+    if (!domain || !expiration) return {};
+    const exp = parseInt(expiration);
+    if (exp < now) return {};
+
+    // must be same domain or sub-domain of token's domain
+    const originDomain = new URL(origin).hostname;
+    if (originDomain !== domain && !originDomain.endsWith("." + domain))
+      return {};
+
+    // Finally after all cheap checks are done, verify the signature
+    if (!verifyNostrEvent(event)) return {};
+
+    // all ok
+    return { pubkey: event.pubkey, expiration: exp };
+  } catch (e) {
+    console.error("Auth error:", e);
+    return {};
   }
 }
 
@@ -97,27 +157,31 @@ function verifyNostrEvent(event: any): boolean {
 }
 
 /**
- * Create a NIP-98 auth token for WebSocket connection using a Signer
+ * Create a NIP-98 auth token for http connection using a Signer
  * @param signer - The Signer instance to sign the event with
  * @param url - The URL to connect to
  * @param method - The HTTP method (usually 'GET' for WebSocket)
  * @param body - Optional request body
  * @returns The authorization header value
  */
-export async function createAuthTokenWithSigner(
-  signer: Signer,
-  url: string,
-  method: string,
-  body?: string
-): Promise<string> {
+export async function createAuthTokenNip98({
+  signer,
+  url,
+  method,
+  body,
+}: {
+  signer: Signer;
+  url: string;
+  method: string;
+  body?: string;
+}): Promise<string> {
   // Create a NIP-98 event
   const event = {
-    kind: 27235,
+    kind: KIND_NIP98,
     created_at: Math.floor(Date.now() / 1000),
     tags: [
       ["u", url],
       ["method", method],
-      // No payload tag for WebSocket connections
     ],
     content: "",
     pubkey: await signer.getPublicKey(),
@@ -137,22 +201,43 @@ export async function createAuthTokenWithSigner(
 }
 
 /**
- * Create a NIP-98 auth token for WebSocket connection
- * @param privateKey - The private key to sign the event with (as Uint8Array)
- * @param url - The URL to connect to
- * @param method - The HTTP method (usually 'GET' for WebSocket)
- * @param body - Optional request body
+ * Create a NIP-981 auth token for http connection using a Signer
+ * @param signer - The Signer instance to sign the event with
+ * @param domain - The domain for which it's valid (and it's sub-domains)
+ * @param expiration - Expiration in seconds
  * @returns The authorization header value
  */
-export async function createAuthToken(
-  privateKey: Uint8Array,
-  url: string,
-  method: string,
-  body?: string
-): Promise<string> {
-  // Create a PlainKeySigner from the private key
-  const signer = new PlainKeySigner(privateKey);
-  
-  // Reuse the signer-based function
-  return await createAuthTokenWithSigner(signer, url, method, body);
+export async function createAuthToken({
+  signer,
+  domain,
+  expiration = DEFAULT_NIP981_EXPIRATION,
+}: {
+  signer: Signer;
+  domain: string;
+  expiration?: number;
+}): Promise<string> {
+  // Create a NIP-981 event
+  const created_at = Math.floor(Date.now() / 1000);
+  const event = {
+    kind: KIND_NIP981,
+    created_at,
+    tags: [
+      // everything under this domain
+      ["domain", domain],
+      ["expiration", (created_at + expiration).toString()],
+    ],
+    content: "",
+    pubkey: await signer.getPublicKey(),
+  };
+
+  // Sign the event using the signer
+  const signedEvent = await signer.signEvent(event);
+
+  // Convert to base64
+  const base64Event = Buffer.from(JSON.stringify(signedEvent)).toString(
+    "base64"
+  );
+
+  // Return the authorization header value
+  return `Nostr ${base64Event}`;
 }

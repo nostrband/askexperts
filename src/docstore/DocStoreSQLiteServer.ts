@@ -24,8 +24,11 @@ interface ExtendedWebSocket {
   close: () => void;
   on: (event: string, listener: (...args: any[]) => void) => void;
   pubkey?: string; // Added pubkey for authenticated connections
-  user_info?: UserInfo; // Added user_info for authenticated connections
-  is_dead?: boolean;
+  userInfo?: UserInfo; // Added user_info for authenticated connections
+  isDead?: boolean;
+  authenticated?: boolean;
+  authRequired?: boolean;
+  expirationTimer?: NodeJS.Timeout; // Timer for token expiration
 }
 
 /**
@@ -112,9 +115,9 @@ export class DocStoreSQLiteServer {
       // Authentication will be handled via WebSocket messages if perms is provided
       this.wss.handleUpgrade(request, socket, head, (ws: ExtendedWebSocket) => {
         // Set a flag to indicate if authentication is required
-        (ws as any).authRequired = !!this.perms;
+        ws.authRequired = !!this.perms;
         // Set a flag to indicate if the client has authenticated
-        (ws as any).authenticated = !this.perms;
+        ws.authenticated = !this.perms;
         this.wss.emit("connection", ws, request);
       });
     });
@@ -145,13 +148,13 @@ export class DocStoreSQLiteServer {
 
       // Start pinging
       const interval = setInterval(() => {
-        if (ws.is_dead === true) return ws.terminate();
-        ws.is_dead = true;
+        if (ws.isDead === true) return ws.terminate();
+        ws.isDead = true;
         ws.ping();
       }, 30000);
 
       ws.on("pong", () => {
-        ws.is_dead = false;
+        ws.isDead = false;
       });
 
       // Set up message handler
@@ -160,7 +163,7 @@ export class DocStoreSQLiteServer {
           const message = JSON.parse(data.toString()) as WebSocketMessage;
 
           // Check if authentication is required but not yet completed
-          if ((ws as any).authRequired && !(ws as any).authenticated) {
+          if (ws.authRequired && !ws.authenticated) {
             // Only allow auth messages if not authenticated
             if (message.type !== MessageType.AUTH) {
               debugError(
@@ -204,6 +207,9 @@ export class DocStoreSQLiteServer {
 
         clearInterval(interval);
 
+        // Clear expiration timer
+        this.clearExpirationTimer(ws);
+
         // Remove client from the set
         this.clients.delete(ws);
 
@@ -214,6 +220,9 @@ export class DocStoreSQLiteServer {
       // Set up error handler
       ws.on("error", (error: Error) => {
         debugError("WebSocket error:", error);
+
+        // Clear expiration timer
+        this.clearExpirationTimer(ws);
 
         // Remove client from the set
         this.clients.delete(ws);
@@ -271,7 +280,7 @@ export class DocStoreSQLiteServer {
       };
 
       // Parse the auth token
-      const pubkey = this.perms
+      const { pubkey, expiration } = this.perms
         ? await this.perms.parseAuthToken(this.serverOrigin, authReq)
         : await parseAuthToken(this.serverOrigin, authReq);
 
@@ -311,10 +320,18 @@ export class DocStoreSQLiteServer {
         return;
       }
 
+      // Clear any existing expiration timer before setting a new one
+      this.clearExpirationTimer(ws);
+
       // Authentication successful
       ws.pubkey = pubkey;
-      ws.user_info = user_info;
-      (ws as any).authenticated = true;
+      ws.userInfo = user_info;
+      ws.authenticated = true;
+
+      // Set expiration timer if expiration is provided
+      if (expiration) {
+        this.setExpirationTimer(ws, expiration);
+      }
 
       debugDocstore(
         `Authenticated user ${pubkey} with user_id ${user_info.user_id}`
@@ -358,10 +375,10 @@ export class DocStoreSQLiteServer {
     }
 
     // Check permissions if perms is provided and user_id is available
-    if (this.perms && ws.user_info) {
+    if (this.perms && ws.userInfo) {
       try {
         // Store the result of checkPerms in the message
-        const permsResult = await this.perms.checkPerms(ws.user_info, message);
+        const permsResult = await this.perms.checkPerms(ws.userInfo, message);
         message.perms = permsResult || {};
       } catch (error) {
         debugError("Permission check error:", error);
@@ -593,15 +610,15 @@ export class DocStoreSQLiteServer {
       }
 
       // Set user_id if available in the WebSocket connection
-      if (ws.user_info) {
-        rawDoc.user_id = ws.user_info.user_id;
+      if (ws.userInfo) {
+        rawDoc.user_id = ws.userInfo.user_id;
       }
 
       // Convert regular arrays to Float32Array for embeddings
       const doc = this.prepareDocForUpsert(rawDoc);
 
       // Upsert the document with user_id from WebSocket connection
-      await this.docStore.upsert(doc, ws.user_info?.user_id);
+      await this.docStore.upsert(doc, ws.userInfo?.user_id);
 
       // Send success response
       this.sendResponse(ws, {
@@ -649,7 +666,7 @@ export class DocStoreSQLiteServer {
       const doc = await this.docStore.get(
         message.params.docstore_id,
         message.params.doc_id,
-        ws.user_info?.user_id
+        ws.userInfo?.user_id
       );
 
       if (!doc) {
@@ -710,7 +727,7 @@ export class DocStoreSQLiteServer {
       const success = await this.docStore.delete(
         message.params.docstore_id,
         message.params.doc_id,
-        ws.user_info?.user_id
+        ws.userInfo?.user_id
       );
 
       // Send response
@@ -761,7 +778,7 @@ export class DocStoreSQLiteServer {
         message.params.model || "",
         message.params.vector_size || 0,
         message.params.options || "",
-        ws.user_info?.user_id
+        ws.userInfo?.user_id
       );
 
       // If perms is provided and pubkey is available, update the docstore with user_id
@@ -772,14 +789,14 @@ export class DocStoreSQLiteServer {
 
           if (docstore) {
             // Use the user_id from the WebSocket connection
-            if (ws.user_info) {
+            if (ws.userInfo) {
               // Update the docstore with user_id
               // Note: We need to add a method to update docstore in DocStoreSQLite
               // For now, we'll use a workaround by directly updating the docstore in the database
               const stmt = this.docStore["db"].prepare(
                 "UPDATE docstores SET user_id = ? WHERE id = ?"
               );
-              stmt.run(ws.user_info.user_id, id);
+              stmt.run(ws.userInfo.user_id, id);
             }
           }
         } catch (error) {
@@ -833,7 +850,7 @@ export class DocStoreSQLiteServer {
       // Get the docstore
       const docstore = await this.docStore.getDocstore(
         message.params.id,
-        ws.user_info?.user_id
+        ws.userInfo?.user_id
       );
 
       if (!docstore) {
@@ -884,14 +901,14 @@ export class DocStoreSQLiteServer {
         // List docstores by IDs with user_id
         docstores = await this.docStore.listDocStoresByIds(
           message.perms.listIds,
-          ws.user_info?.user_id
+          ws.userInfo?.user_id
         );
         debugDocstore(
           `Listing docstores by IDs: ${message.perms.listIds.join(", ")}`
         );
       } else {
         // List all docstores with user_id
-        docstores = await this.docStore.listDocstores(ws.user_info?.user_id);
+        docstores = await this.docStore.listDocstores(ws.userInfo?.user_id);
         debugDocstore("Listing all docstores");
       }
 
@@ -940,7 +957,7 @@ export class DocStoreSQLiteServer {
       // Delete the docstore
       const success = await this.docStore.deleteDocstore(
         message.params.id,
-        ws.user_info?.user_id
+        ws.userInfo?.user_id
       );
 
       // Send response
@@ -988,7 +1005,7 @@ export class DocStoreSQLiteServer {
       // Count the documents
       const count = await this.docStore.countDocs(
         message.params.docstore_id,
-        ws.user_info?.user_id
+        ws.userInfo?.user_id
       );
 
       // Send response with the count
@@ -1036,7 +1053,7 @@ export class DocStoreSQLiteServer {
       // List docstores by IDs with user_id
       const docstores = await this.docStore.listDocStoresByIds(
         message.params.ids,
-        ws.user_info?.user_id
+        ws.userInfo?.user_id
       );
 
       // Send response with the docstores
@@ -1161,7 +1178,7 @@ export class DocStoreSQLiteServer {
           type: message.params.type,
           since: message.params.since,
           until: message.params.until,
-          user_id: ws.user_info?.user_id,
+          user_id: ws.userInfo?.user_id,
         },
         async (doc?: Doc) => {
           try {
@@ -1281,6 +1298,45 @@ export class DocStoreSQLiteServer {
   }
 
   /**
+   * Set expiration timer for a WebSocket connection
+   * @param ws - WebSocket connection
+   * @param expiration - Expiration timestamp in seconds
+   */
+  private setExpirationTimer(ws: ExtendedWebSocket, expiration: number): void {
+    const now = Math.floor(Date.now() / 1000);
+    const timeUntilExpiration = expiration - now;
+
+    if (timeUntilExpiration <= 0) {
+      // Token is already expired, close connection immediately
+      debugDocstore("Token already expired, closing connection immediately");
+      ws.close();
+      return;
+    }
+
+    // Set timer to close connection when token expires
+    ws.expirationTimer = setTimeout(() => {
+      debugDocstore(`Token expired for user ${ws.pubkey}, closing connection`);
+      ws.close();
+    }, timeUntilExpiration * 1000);
+
+    debugDocstore(
+      `Set expiration timer for user ${ws.pubkey}, expires in ${timeUntilExpiration} seconds`
+    );
+  }
+
+  /**
+   * Clear expiration timer for a WebSocket connection
+   * @param ws - WebSocket connection
+   */
+  private clearExpirationTimer(ws: ExtendedWebSocket): void {
+    if (ws.expirationTimer) {
+      clearTimeout(ws.expirationTimer);
+      ws.expirationTimer = undefined;
+      debugDocstore(`Cleared expiration timer for user ${ws.pubkey}`);
+    }
+  }
+
+  /**
    * Clean up subscriptions associated with a WebSocket connection
    * @param ws - WebSocket connection
    */
@@ -1353,6 +1409,8 @@ export class DocStoreSQLiteServer {
 
     // Close all WebSocket connections
     for (const client of this.clients) {
+      // Clear expiration timers before closing
+      this.clearExpirationTimer(client);
       client.close();
     }
     this.clients.clear();

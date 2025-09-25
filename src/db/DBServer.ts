@@ -3,7 +3,7 @@ import cors from "cors";
 import * as http from "http";
 import { debugServer, debugError } from "../common/debug.js";
 import type { DBWallet, DBExpert } from "./interfaces.js";
-import { parseAuthToken, AuthRequest } from "../common/auth.js";
+import { parseAuthToken, AuthRequest, AuthTokenInfo } from "../common/auth.js";
 import { getDB } from "./utils.js";
 import { DB } from "./DB.js";
 import { bytesToHex, hexToBytes } from "nostr-tools/utils";
@@ -37,7 +37,7 @@ export interface DBServerPerms {
    * @param req - Request object with headers and other properties
    * @returns Public key if token is valid, empty string otherwise
    */
-  parseAuthToken(origin: string, req: AuthRequest): Promise<string>;
+  parseAuthToken(origin: string, req: AuthRequest): Promise<AuthTokenInfo>;
 }
 
 /**
@@ -142,7 +142,7 @@ export class DBServer {
       };
 
       // Parse the auth token
-      const pubkey = this.perms
+      const { pubkey } = this.perms
         ? await this.perms.parseAuthToken(this.serverOrigin, authReq)
         : await parseAuthToken(this.serverOrigin, authReq);
 

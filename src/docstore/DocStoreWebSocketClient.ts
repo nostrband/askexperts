@@ -1,16 +1,14 @@
-import { Doc, DocStore, DocStoreClient, MessageType, Subscription } from './interfaces.js';
-import { generateUUID } from '../common/uuid.js';
-import { createAuthToken, createAuthTokenWithSigner } from '../common/auth.js';
-import { debugDocstore, debugError } from '../common/debug.js';
-import type { Signer } from 'nostr-tools/signer';
-
-/**
- * Serializable version of Doc with regular arrays instead of Float32Array
- */
-interface SerializableDoc extends Omit<Doc, 'embeddings' | 'file'> {
-  embeddings: number[][];
-  file?: string; // Base64 encoded string for binary data
-}
+import {
+  Doc,
+  DocStore,
+  DocStoreClient,
+  MessageType,
+  Subscription,
+} from "./interfaces.js";
+import { generateUUID } from "../common/uuid.js";
+import { createAuthTokenNip98 } from "../common/auth.js";
+import { debugDocstore, debugError } from "../common/debug.js";
+import { PlainKeySigner, type Signer } from "nostr-tools/signer";
 
 /**
  * Configuration options for DocStoreWebSocketClient
@@ -22,10 +20,21 @@ export interface DocStoreWebSocketClientOptions {
   privateKey?: Uint8Array;
   /** Optional signer for authentication */
   signer?: Signer;
-  /** Optional token for bearer authentication */
-  token?: string;
+  /**
+   * Optional token for bearer authentication
+   * Can be a string or a callback function that returns a Promise<string>
+   */
+  token?: string | (() => Promise<string>);
   /** Optional WebSocket instance to use instead of creating a new one */
   webSocket?: WebSocket;
+  /** Enable automatic reconnection on disconnect (default: true) */
+  autoReconnect?: boolean;
+  /** Initial reconnection delay in milliseconds (default: 1000) */
+  reconnectDelay?: number;
+  /** Maximum reconnection delay in milliseconds (default: 30000) */
+  maxReconnectDelay?: number;
+  /** Maximum number of reconnection attempts (default: Infinity) */
+  maxReconnectAttempts?: number;
 }
 
 /**
@@ -33,9 +42,10 @@ export interface DocStoreWebSocketClientOptions {
  * Implements the DocStoreClient interface
  */
 export class DocStoreWebSocketClient implements DocStoreClient {
-  private ws: WebSocket; // WebSocket instance
+  private ws!: WebSocket; // WebSocket instance
   private messageCallbacks: Map<string, (response: any) => void> = new Map();
-  private subscriptionCallbacks: Map<string, (doc?: Doc) => Promise<void>> = new Map();
+  private subscriptionCallbacks: Map<string, (doc?: Doc) => Promise<void>> =
+    new Map();
   private docBuffers: Map<string, Doc[]> = new Map();
   private processingSubscriptions: Set<string> = new Set();
   private connected: boolean = false;
@@ -44,13 +54,23 @@ export class DocStoreWebSocketClient implements DocStoreClient {
   private connectReject!: (error: Error) => void;
   private privateKey?: Uint8Array;
   private signer?: Signer;
-  private token?: string;
+  #token?: string | (() => Promise<string>);
   private url: string;
   private authenticated: boolean = false;
   private messageHandler: (event: MessageEvent) => void;
   private openHandler: () => void;
-  private closeHandler: () => void;
+  private closeHandler: (event: CloseEvent) => void;
   private errorHandler: (event: Event) => void;
+  
+  // Reconnection state
+  private autoReconnect: boolean = true;
+  private reconnectDelay: number = 1000;
+  private maxReconnectDelay: number = 30000;
+  private maxReconnectAttempts: number = Infinity;
+  private reconnectAttempts: number = 0;
+  private reconnectTimeout?: NodeJS.Timeout | number;
+  private disposed: boolean = false;
+  private customWebSocket?: WebSocket;
 
   /**
    * Creates a new DocStoreWebSocketClient
@@ -61,10 +81,10 @@ export class DocStoreWebSocketClient implements DocStoreClient {
     let url: string;
     let privateKey: Uint8Array | undefined;
     let signer: Signer | undefined;
-    let token: string | undefined;
+    let token: string | (() => Promise<string>) | undefined;
     let customWebSocket: WebSocket | undefined;
-    
-    if (typeof options === 'string') {
+
+    if (typeof options === "string") {
       // Legacy format: constructor(url, privateKey?, token?)
       url = options;
       // Note: We can't access the other parameters in this legacy format
@@ -76,8 +96,14 @@ export class DocStoreWebSocketClient implements DocStoreClient {
       signer = options.signer;
       token = options.token;
       customWebSocket = options.webSocket;
+      
+      // Set reconnection options
+      this.autoReconnect = options.autoReconnect ?? true;
+      this.reconnectDelay = options.reconnectDelay ?? 1000;
+      this.maxReconnectDelay = options.maxReconnectDelay ?? 30000;
+      this.maxReconnectAttempts = options.maxReconnectAttempts ?? Infinity;
     }
-    
+
     // Initialize connection promise
     this.connectPromise = new Promise<void>((resolve, reject) => {
       this.connectResolve = resolve;
@@ -87,59 +113,99 @@ export class DocStoreWebSocketClient implements DocStoreClient {
     // Store authentication info for later use
     this.privateKey = privateKey;
     this.signer = signer;
-    this.token = token;
+    this.#token = token;
     this.url = url;
-    
+    this.customWebSocket = customWebSocket;
+
     // Create event handlers
     this.openHandler = async () => {
-      debugDocstore('Connected to DocStoreSQLiteServer');
+      debugDocstore("Connected to DocStoreSQLiteServer");
       this.connected = true;
       
+      // Reset reconnection attempts on successful connection
+      this.reconnectAttempts = 0;
+
       // If authentication is needed, send auth message
-      if (this.token || this.privateKey || this.signer) {
+      if (this.#token || this.privateKey || this.signer) {
         try {
           await this.sendAuthMessage();
         } catch (error) {
-          debugError('Authentication error:', error);
-          this.connectReject(new Error('Authentication failed'));
+          debugError("Authentication error:", error);
+          this.connectReject(new Error("Authentication failed"));
           return;
         }
       }
-      
+
       this.connectResolve();
     };
 
     this.messageHandler = (event: MessageEvent) => {
       try {
-        const data = typeof event.data === 'string' ? event.data : new TextDecoder().decode(event.data);
+        const data =
+          typeof event.data === "string"
+            ? event.data
+            : new TextDecoder().decode(event.data);
         const message = JSON.parse(data);
         this.handleMessage(message);
       } catch (error) {
-        debugError('Error parsing message:', error);
+        debugError("Error parsing message:", error);
       }
     };
 
-    this.closeHandler = () => {
-      debugDocstore('Disconnected from DocStoreSQLiteServer');
+    this.closeHandler = (event: CloseEvent) => {
+      debugDocstore("Disconnected from DocStoreSQLiteServer", event.code, event.reason);
       this.connected = false;
+      this.authenticated = false;
+      
+      // Only attempt reconnection if not disposed and auto-reconnect is enabled
+      // and the close was not initiated by the client (code 1000 is normal closure)
+      if (!this.disposed && this.autoReconnect && event.code !== 1000) {
+        this.scheduleReconnect();
+      }
     };
 
     this.errorHandler = (event: Event) => {
-      debugError('WebSocket error:', event);
+      debugError("WebSocket error:", event);
       if (!this.connected) {
-        this.connectReject(new Error('WebSocket connection error'));
+        this.connectReject(new Error("WebSocket connection error"));
+        
+        // Schedule reconnection on connection error if auto-reconnect is enabled
+        if (!this.disposed && this.autoReconnect) {
+          this.scheduleReconnect();
+        }
       }
     };
-    
+
     // Connect to the WebSocket server
-    if (customWebSocket) {
-      // Use the provided WebSocket instance
-      this.ws = customWebSocket;
+    this.connect();
+  }
+
+  /**
+   * Connect or reconnect to the WebSocket server
+   */
+  private connect(): void {
+    // Clear any existing reconnection timeout
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout as NodeJS.Timeout);
+      this.reconnectTimeout = undefined;
+    }
+
+    // Create a new connection promise for this connection attempt
+    this.connectPromise = new Promise<void>((resolve, reject) => {
+      this.connectResolve = resolve;
+      this.connectReject = reject;
+    });
+
+    // Connect to the WebSocket server
+    if (this.customWebSocket && this.reconnectAttempts === 0) {
+      // Use the provided WebSocket instance only on first connection
+      this.ws = this.customWebSocket;
     } else {
       // Create a new WebSocket instance
-      this.ws = typeof globalThis.WebSocket !== 'undefined'
-        ? new globalThis.WebSocket(url)
-        : new WebSocket(url);
+      this.ws =
+        typeof globalThis.WebSocket !== "undefined"
+          ? new globalThis.WebSocket(this.url)
+          : new WebSocket(this.url);
     }
 
     // Set up event handlers
@@ -148,7 +214,75 @@ export class DocStoreWebSocketClient implements DocStoreClient {
     this.ws.onclose = this.closeHandler;
     this.ws.onerror = this.errorHandler;
   }
-  
+
+  /**
+   * Schedule a reconnection attempt with exponential backoff
+   * This method is idempotent - it won't schedule multiple reconnections
+   */
+  private scheduleReconnect(): void {
+    if (this.disposed || !this.autoReconnect) {
+      return;
+    }
+
+    // If a reconnection is already scheduled, don't schedule another one
+    if (this.reconnectTimeout) {
+      return;
+    }
+
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      debugError(`Max reconnection attempts (${this.maxReconnectAttempts}) reached`);
+      return;
+    }
+
+    this.reconnectAttempts++;
+    
+    // Calculate delay with exponential backoff and jitter
+    const baseDelay = Math.min(
+      this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1),
+      this.maxReconnectDelay
+    );
+    
+    // Add random jitter (±25% of the delay)
+    const jitter = baseDelay * 0.25 * (Math.random() * 2 - 1);
+    const delay = Math.max(0, baseDelay + jitter);
+
+    debugDocstore(`Scheduling reconnection attempt ${this.reconnectAttempts} in ${Math.round(delay)}ms`);
+
+    this.reconnectTimeout = setTimeout(() => {
+      this.reconnectTimeout = undefined; // Clear the timeout reference
+      if (!this.disposed && this.autoReconnect) {
+        debugDocstore(`Attempting reconnection ${this.reconnectAttempts}`);
+        this.connect();
+      }
+    }, delay);
+  }
+
+  /**
+   * Manually disable automatic reconnection
+   */
+  disableAutoReconnect(): void {
+    this.autoReconnect = false;
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout as NodeJS.Timeout);
+      this.reconnectTimeout = undefined;
+    }
+  }
+
+  /**
+   * Manually enable automatic reconnection
+   */
+  enableAutoReconnect(): void {
+    this.autoReconnect = true;
+  }
+
+  get token(): string | (() => Promise<string>) | undefined {
+    return this.#token;
+  }
+
+  set token(value: string | (() => Promise<string>) | undefined) {
+    this.#token = value;
+  }
+
   /**
    * Send authentication message after connection
    * @returns Promise that resolves when authentication is successful
@@ -156,29 +290,35 @@ export class DocStoreWebSocketClient implements DocStoreClient {
   private async sendAuthMessage(): Promise<void> {
     // Generate a unique message ID
     const id = generateUUID();
-    
+
     // Create headers object
     const headers: Record<string, string> = {};
-    
+
     // Add authorization header based on token, signer, or privateKey
-    if (this.token) {
-      headers['authorization'] = `Bearer ${this.token}`;
-    } else if (this.signer) {
-      const authToken = await createAuthTokenWithSigner(this.signer, this.url, 'GET');
-      headers['authorization'] = authToken;
-    } else if (this.privateKey) {
-      const authToken = await createAuthToken(this.privateKey, this.url, 'GET');
-      headers['authorization'] = authToken;
+    if (this.#token) {
+      // If token is a callback function, call it to get the actual token
+      const tokenValue =
+        typeof this.#token === "function" ? await this.#token() : this.#token;
+
+      headers["authorization"] = tokenValue;
+    } else if (this.signer || this.privateKey) {
+      const signer = this.signer || new PlainKeySigner(this.privateKey!);
+      const authToken = await createAuthTokenNip98({
+        signer,
+        url: this.url,
+        method: "GET",
+      });
+      headers["authorization"] = authToken;
     }
-    
+
     // Create a promise for the auth response
     const authPromise = new Promise<void>((resolve, reject) => {
       // Set a timeout to reject the promise if no response is received
       const timeout = setTimeout(() => {
         this.messageCallbacks.delete(id);
-        reject(new Error('Timeout waiting for authentication response'));
+        reject(new Error("Timeout waiting for authentication response"));
       }, 30000); // 30 second timeout
-      
+
       // Set up the callback to resolve the promise
       this.messageCallbacks.set(id, (response) => {
         clearTimeout(timeout);
@@ -186,23 +326,23 @@ export class DocStoreWebSocketClient implements DocStoreClient {
           reject(new Error(`Authentication error: ${response.error.message}`));
         } else {
           this.authenticated = true;
-          debugDocstore('Authentication successful');
+          debugDocstore("Authentication successful");
           resolve();
         }
       });
     });
-    
+
     // Send the auth message
     const authMessage = JSON.stringify({
       id,
       type: MessageType.AUTH,
-      method: 'auth',
+      method: "auth",
       params: {
-        headers
-      }
+        headers,
+      },
     });
     this.ws.send(authMessage);
-    
+
     // Wait for the auth response
     return authPromise;
   }
@@ -259,15 +399,19 @@ export class DocStoreWebSocketClient implements DocStoreClient {
    * @param params - Method parameters
    * @returns Promise that resolves with the response
    */
-  private async sendAndWait(type: MessageType, method: string, params: any): Promise<any> {
+  private async sendAndWait(
+    type: MessageType,
+    method: string,
+    params: any
+  ): Promise<any> {
     // Wait for connection if not connected
     if (!this.connected) {
       await this.waitForConnection();
     }
-    
+
     // Make sure we're authenticated if authentication was required
-    if ((this.token || this.privateKey || this.signer) && !this.authenticated) {
-      throw new Error('Not authenticated');
+    if ((this.#token || this.privateKey || this.signer) && !this.authenticated) {
+      throw new Error("Not authenticated");
     }
 
     // Generate a unique message ID
@@ -297,7 +441,7 @@ export class DocStoreWebSocketClient implements DocStoreClient {
       id,
       type,
       method,
-      params
+      params,
     });
     this.ws.send(messageStr);
 
@@ -330,8 +474,8 @@ export class DocStoreWebSocketClient implements DocStoreClient {
     const subscriptionMessage = JSON.stringify({
       id: subscriptionId,
       type: MessageType.SUBSCRIPTION,
-      method: 'subscribe',
-      params: options
+      method: "subscribe",
+      params: options,
     });
     this.ws.send(subscriptionMessage);
 
@@ -342,14 +486,14 @@ export class DocStoreWebSocketClient implements DocStoreClient {
         const endMessage = JSON.stringify({
           id: subscriptionId,
           type: MessageType.END,
-          method: 'subscribe',
-          params: {}
+          method: "subscribe",
+          params: {},
         });
         this.ws.send(endMessage);
 
         // Remove the callback
         this.subscriptionCallbacks.delete(subscriptionId);
-      }
+      },
     });
   }
 
@@ -361,31 +505,31 @@ export class DocStoreWebSocketClient implements DocStoreClient {
   private prepareDocForSerialization(doc: Doc): any {
     // Create a deep copy of the document
     const result: any = { ...doc };
-    
+
     // Convert Float32Array embeddings to regular arrays
     if (doc.embeddings) {
-      result.embeddings = doc.embeddings.map(embedding =>
+      result.embeddings = doc.embeddings.map((embedding) =>
         embedding instanceof Float32Array ? Array.from(embedding) : embedding
       );
     }
-    
+
     // Convert Uint8Array file to base64 string for transmission
     if (doc.file) {
       // For browser compatibility, we need to convert Uint8Array to base64 string
       // In browser environments, we need to use a different approach
-      if (typeof window !== 'undefined') {
+      if (typeof window !== "undefined") {
         // Browser environment
         const binary = Array.from(new Uint8Array(doc.file.buffer))
-          .map(b => String.fromCharCode(b))
-          .join('');
+          .map((b) => String.fromCharCode(b))
+          .join("");
         result.file = btoa(binary);
       } else {
         // Node.js environment
         const buffer = Buffer.from(doc.file);
-        result.file = buffer.toString('base64');
+        result.file = buffer.toString("base64");
       }
     }
-    
+
     return result;
   }
 
@@ -397,9 +541,11 @@ export class DocStoreWebSocketClient implements DocStoreClient {
   async upsert(doc: Doc): Promise<void> {
     // Prepare the document for serialization
     const serializedDoc = this.prepareDocForSerialization(doc);
-    
+
     // Send the serialized document
-    await this.sendAndWait(MessageType.REQUEST, 'upsert', { doc: serializedDoc });
+    await this.sendAndWait(MessageType.REQUEST, "upsert", {
+      doc: serializedDoc,
+    });
   }
 
   /**
@@ -410,7 +556,10 @@ export class DocStoreWebSocketClient implements DocStoreClient {
    */
   async get(docstore_id: string, doc_id: string): Promise<Doc | null> {
     try {
-      const response = await this.sendAndWait(MessageType.REQUEST, 'get', { docstore_id, doc_id });
+      const response = await this.sendAndWait(MessageType.REQUEST, "get", {
+        docstore_id,
+        doc_id,
+      });
       return response.doc;
     } catch (error) {
       return null;
@@ -425,7 +574,10 @@ export class DocStoreWebSocketClient implements DocStoreClient {
    */
   async delete(docstore_id: string, doc_id: string): Promise<boolean> {
     try {
-      const response = await this.sendAndWait(MessageType.REQUEST, 'delete', { docstore_id, doc_id });
+      const response = await this.sendAndWait(MessageType.REQUEST, "delete", {
+        docstore_id,
+        doc_id,
+      });
       return response.success;
     } catch (error) {
       return false;
@@ -440,8 +592,17 @@ export class DocStoreWebSocketClient implements DocStoreClient {
    * @param options - Options for the model, defaults to empty string
    * @returns Promise that resolves with the ID of the created or existing docstore
    */
-  async createDocstore(name: string, model: string = "", vector_size: number = 0, options: string = ""): Promise<string> {
-    const response = await this.sendAndWait(MessageType.REQUEST, 'createDocstore', { name, model, vector_size, options });
+  async createDocstore(
+    name: string,
+    model: string = "",
+    vector_size: number = 0,
+    options: string = ""
+  ): Promise<string> {
+    const response = await this.sendAndWait(
+      MessageType.REQUEST,
+      "createDocstore",
+      { name, model, vector_size, options }
+    );
     return response.id;
   }
 
@@ -452,7 +613,11 @@ export class DocStoreWebSocketClient implements DocStoreClient {
    */
   async getDocstore(id: string): Promise<DocStore | undefined> {
     try {
-      const response = await this.sendAndWait(MessageType.REQUEST, 'getDocstore', { id });
+      const response = await this.sendAndWait(
+        MessageType.REQUEST,
+        "getDocstore",
+        { id }
+      );
       return response.docstore;
     } catch (error) {
       return undefined;
@@ -465,7 +630,11 @@ export class DocStoreWebSocketClient implements DocStoreClient {
    */
   async listDocstores(): Promise<DocStore[]> {
     try {
-      const response = await this.sendAndWait(MessageType.REQUEST, 'listDocstores', {});
+      const response = await this.sendAndWait(
+        MessageType.REQUEST,
+        "listDocstores",
+        {}
+      );
       return response.docstores;
     } catch (error) {
       return [];
@@ -479,7 +648,11 @@ export class DocStoreWebSocketClient implements DocStoreClient {
    */
   async listDocStoresByIds(ids: string[]): Promise<DocStore[]> {
     try {
-      const response = await this.sendAndWait(MessageType.REQUEST, 'listDocStoresByIds', { ids });
+      const response = await this.sendAndWait(
+        MessageType.REQUEST,
+        "listDocStoresByIds",
+        { ids }
+      );
       return response.docstores || [];
     } catch (error) {
       return [];
@@ -498,7 +671,11 @@ export class DocStoreWebSocketClient implements DocStoreClient {
     }
 
     try {
-      const response = await this.sendAndWait(MessageType.REQUEST, 'listDocsByIds', { docstore_id, ids });
+      const response = await this.sendAndWait(
+        MessageType.REQUEST,
+        "listDocsByIds",
+        { docstore_id, ids }
+      );
       return response.docs || [];
     } catch (error) {
       return [];
@@ -512,7 +689,11 @@ export class DocStoreWebSocketClient implements DocStoreClient {
    */
   async deleteDocstore(id: string): Promise<boolean> {
     try {
-      const response = await this.sendAndWait(MessageType.REQUEST, 'deleteDocstore', { id });
+      const response = await this.sendAndWait(
+        MessageType.REQUEST,
+        "deleteDocstore",
+        { id }
+      );
       return response.success;
     } catch (error) {
       return false;
@@ -526,7 +707,11 @@ export class DocStoreWebSocketClient implements DocStoreClient {
    */
   async countDocs(docstore_id: string): Promise<number> {
     try {
-      const response = await this.sendAndWait(MessageType.REQUEST, 'countDocs', { docstore_id });
+      const response = await this.sendAndWait(
+        MessageType.REQUEST,
+        "countDocs",
+        { docstore_id }
+      );
       return response.count;
     } catch (error) {
       return 0;
@@ -551,9 +736,9 @@ export class DocStoreWebSocketClient implements DocStoreClient {
     if (doc !== undefined) {
       // Process the document before adding it to the buffer
       // Convert base64 string back to Uint8Array for file field
-      if (doc.file && typeof doc.file === 'string') {
+      if (doc.file && typeof doc.file === "string") {
         try {
-          if (typeof window !== 'undefined') {
+          if (typeof window !== "undefined") {
             // Browser environment
             const binary = atob(doc.file);
             const bytes = new Uint8Array(binary.length);
@@ -563,13 +748,13 @@ export class DocStoreWebSocketClient implements DocStoreClient {
             doc.file = bytes;
           } else {
             // Node.js environment
-            doc.file = Buffer.from(doc.file, 'base64');
+            doc.file = Buffer.from(doc.file, "base64");
           }
         } catch (error) {
           debugError("Error converting base64 string to Uint8Array:", error);
         }
       }
-      
+
       buffer.push(doc);
     } else {
       // For EOF (undefined), we add a special marker
@@ -611,7 +796,7 @@ export class DocStoreWebSocketClient implements DocStoreClient {
 
       // Process the first document
       const doc = buffer.shift();
-      
+
       // Check if it's the EOF marker (null)
       if (doc === null) {
         // Call with undefined to signal EOF
@@ -630,7 +815,7 @@ export class DocStoreWebSocketClient implements DocStoreClient {
         this.processingSubscriptions.delete(subId);
       }
     } catch (error) {
-      debugError('Error processing document:', error);
+      debugError("Error processing document:", error);
       // Remove from processing set to allow retry
       this.processingSubscriptions.delete(subId);
     }
@@ -638,16 +823,32 @@ export class DocStoreWebSocketClient implements DocStoreClient {
 
   [Symbol.dispose](): void {
     debugDocstore("DocStoreWebSocket client dispose");
-    this.ws.close();
+    
+    // Mark as disposed to prevent reconnection
+    this.disposed = true;
+    
+    // Clear reconnection timeout
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout as NodeJS.Timeout);
+      this.reconnectTimeout = undefined;
+    }
+    
+    // Close WebSocket connection
+    if (this.ws && this.ws.readyState !== WebSocket.CLOSED) {
+      this.ws.close(1000, "Client disposed"); // Normal closure
+    }
+    
     this.subscriptionCallbacks.clear();
     this.messageCallbacks.clear();
     this.docBuffers.clear();
     this.processingSubscriptions.clear();
-    
+
     // Clean up event handlers
-    this.ws.onopen = null;
-    this.ws.onmessage = null;
-    this.ws.onclose = null;
-    this.ws.onerror = null;
+    if (this.ws) {
+      this.ws.onopen = null;
+      this.ws.onmessage = null;
+      this.ws.onclose = null;
+      this.ws.onerror = null;
+    }
   }
 }
