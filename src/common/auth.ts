@@ -30,10 +30,10 @@ export interface AuthTokenInfo {
   expiration?: number;
 }
 
-export async function parseAuthToken(
+export function parseAuthToken(
   origin: string,
   req: AuthRequest
-): Promise<AuthTokenInfo> {
+): AuthTokenInfo {
   const { authorization } = req.headers;
   if (!authorization || typeof authorization !== "string") return {};
   if (!authorization.startsWith("Nostr ")) return {};
@@ -57,11 +57,11 @@ export async function parseAuthToken(
  * @param req - Request object with headers and other properties
  * @returns Public key if token is valid, empty string otherwise
  */
-export async function parseAuthTokenNip98(
+export function parseAuthTokenNip98(
   origin: string,
   req: AuthRequest,
   event: NostrEvent
-): Promise<AuthTokenInfo> {
+): AuthTokenInfo {
   try {
     if (event.kind !== KIND_NIP98) return {};
 
@@ -103,11 +103,11 @@ export async function parseAuthTokenNip98(
   }
 }
 
-export async function parseAuthTokenNip981(
+export function parseAuthTokenNip981(
   origin: string,
   req: AuthRequest,
   event: NostrEvent
-): Promise<AuthTokenInfo> {
+): AuthTokenInfo {
   try {
     if (event.kind !== KIND_NIP981) return {};
 

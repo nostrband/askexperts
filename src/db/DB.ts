@@ -120,7 +120,7 @@ export class DB {
       CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
         pubkey TEXT NOT NULL UNIQUE,
-        privkey TEXT NOT NULL,
+        privkey TEXT DEFAULT '',
         user_id_ext TEXT DEFAULT ''
       )
     `);
@@ -141,6 +141,43 @@ export class DB {
       this.db.exec("ALTER TABLE users ADD COLUMN user_id_ext TEXT DEFAULT ''");
 
       // Add the index
+      this.db.exec(
+        "CREATE INDEX IF NOT EXISTS idx_users_user_id_ext ON users (user_id_ext)"
+      );
+    }
+
+    // Migration: Make privkey column nullable for existing databases
+    try {
+      // Check if we can insert a user with empty privkey
+      const testStmt = this.db.prepare("INSERT INTO users (id, pubkey, privkey) VALUES (?, ?, ?)");
+      testStmt.run("test-id", "test-pubkey", "");
+      // If successful, delete the test record
+      this.db.prepare("DELETE FROM users WHERE id = ?").run("test-id");
+    } catch (error) {
+      // privkey column is NOT NULL, need to recreate table
+      this.db.exec(`
+        CREATE TABLE users_new (
+          id TEXT PRIMARY KEY,
+          pubkey TEXT NOT NULL UNIQUE,
+          privkey TEXT DEFAULT '',
+          user_id_ext TEXT DEFAULT ''
+        )
+      `);
+      
+      // Copy existing data
+      this.db.exec(`
+        INSERT INTO users_new (id, pubkey, privkey, user_id_ext)
+        SELECT id, pubkey, privkey, user_id_ext FROM users
+      `);
+      
+      // Drop old table and rename new one
+      this.db.exec("DROP TABLE users");
+      this.db.exec("ALTER TABLE users_new RENAME TO users");
+      
+      // Recreate indexes
+      this.db.exec(
+        "CREATE INDEX IF NOT EXISTS idx_users_pubkey ON users (pubkey)"
+      );
       this.db.exec(
         "CREATE INDEX IF NOT EXISTS idx_users_user_id_ext ON users (user_id_ext)"
       );

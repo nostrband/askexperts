@@ -13,6 +13,7 @@ import { bytesToHex } from "nostr-tools/utils";
  */
 interface AddUserOptions {
   privkey?: string;
+  pubkey?: string;
   debug?: boolean;
 }
 
@@ -25,15 +26,33 @@ export async function executeAddUserCommand(
   options: AddUserOptions
 ): Promise<void> {
   try {
+    // Validate that only one of privkey or pubkey is provided
+    if (options.privkey && options.pubkey) {
+      throw new Error("Cannot specify both --privkey and --pubkey options");
+    }
+
     // Initialize the database
     const db = new DB(APP_DB_PATH);
 
-    let privateKey: Uint8Array;
+    let privateKey: Uint8Array | null = null;
     let publicKey: string;
+    let privateKeyHex: string;
 
-    // Generate or use provided private key
-    if (options.privkey) {
-      // Convert hex string to Uint8Array
+    if (options.pubkey) {
+      // Use provided public key without private key
+      publicKey = options.pubkey;
+      
+      // Validate public key format (should be 64 hex characters)
+      if (!/^[0-9a-fA-F]{64}$/.test(publicKey)) {
+        throw new Error("Invalid public key: must be 64 hex characters");
+      }
+      
+      // Set empty private key for pubkey-only users
+      privateKeyHex = "";
+      
+      console.log("Adding user with public key only (no private key stored)");
+    } else if (options.privkey) {
+      // Use provided private key
       privateKey = new Uint8Array(
         options.privkey.match(/.{1,2}/g)?.map(byte => parseInt(byte, 16)) || []
       );
@@ -45,15 +64,14 @@ export async function executeAddUserCommand(
       
       // Get public key from private key
       publicKey = getPublicKey(privateKey);
+      privateKeyHex = bytesToHex(privateKey);
     } else {
       // Generate a new key pair
       const keyPair = generateRandomKeyPair();
       privateKey = keyPair.privateKey;
       publicKey = keyPair.publicKey;
+      privateKeyHex = bytesToHex(privateKey);
     }
-
-    // Convert private key to hex for storage
-    const privateKeyHex = bytesToHex(privateKey);
 
     // Insert the user into the database
     const userId = await db.insertUser({
@@ -63,6 +81,10 @@ export async function executeAddUserCommand(
 
     console.log(`User added successfully with ID: ${userId}`);
     console.log(`Public key: ${publicKey}`);
+    
+    if (options.pubkey) {
+      console.log("Note: No private key stored for this user");
+    }
 
     // Check if this is the first user
     const users = await db.listUsers();
@@ -86,8 +108,9 @@ export async function executeAddUserCommand(
 export function registerAddCommand(program: Command): void {
   const command = program
     .command("add")
-    .description("Add a new user with an optional private key")
+    .description("Add a new user with an optional private key or pubkey-only")
     .option("-p, --privkey <string>", "Private key in hex format (if not provided, a new key will be generated)")
+    .option("--pubkey <string>", "Public key in hex format (creates user without storing private key)")
     .action(async (options) => {
       try {
         await executeAddUserCommand(options);
