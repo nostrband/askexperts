@@ -254,7 +254,7 @@ export class AskExpertsClient implements AskExpertsClientInterface {
     };
 
     // Subscribe to bid events
-    const sub = subscribeToRelays([filter], publishedRelays, this.pool, {
+    const sub = subscribeToRelays(filter, publishedRelays, this.pool, {
       onevent: async (event: Event) => {
         try {
           // No need to validate events from relay - they're already validated

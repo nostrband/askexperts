@@ -147,7 +147,7 @@ export class StreamReader implements AsyncIterable<string | Uint8Array> {
 
     // Subscribe to the stream
     this.subscription = subscribeToRelays(
-      [filter],
+      filter,
       this.metadata.relays,
       this.pool,
       {

@@ -126,7 +126,9 @@ export class RagExpert {
       );
 
       // Make sure it's empty - we're re-synching it
-      await this.ragDB.deleteCollection(collectionName);
+      try {
+        await this.ragDB.deleteCollection(collectionName);
+      } catch {}
 
       // Sync from docstore to RAG
       await new Promise<void>(async (resolve) => {

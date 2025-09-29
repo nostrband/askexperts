@@ -214,6 +214,7 @@ export class OpenaiOpenRouter implements OpenaiInterface {
 
           // When we receive the last chunk, update the average output count
           if (chunk.choices[0]?.finish_reason !== null) {
+            debugExpert(`Finish reason '${chunk.choices[0]?.finish_reason}'`);
             // Check if usage information is available in the chunk
             const completionTokens = (chunk as any).usage?.completion_tokens;
             this.updateAverageOutputCount(accumulatedContent, completionTokens);
@@ -231,6 +232,7 @@ export class OpenaiOpenRouter implements OpenaiInterface {
       result
         .then((response) => {
           if ("choices" in response) {
+            debugExpert(`Finish reason '${response.choices[0]?.finish_reason}'`);
             const output = response.choices[0]?.message?.content || "";
             // Check if usage information is available in the response
             const completionTokens = (response as any).usage?.completion_tokens;

@@ -225,7 +225,7 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
     // make them produce only one publish - hence out-of-loop publish.
     setTimeout(
       () => this.maybeRepublishProfile(),
-      this.profilePublished ? 0 : Math.round(Math.random() * 30000)
+      this.profilePublished ? 0 : Math.round(Math.random() * 300000)
     );
   }
 
@@ -580,7 +580,7 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
     }
 
     // Subscribe to ask events with the combined filter
-    const sub = subscribeToRelays([filter], this.#discoveryRelays, this.pool, {
+    const sub = subscribeToRelays(filter, this.#discoveryRelays, this.pool, {
       onevent: async (event: Event) => {
         try {
           await this.handleAskEvent(event);
@@ -610,7 +610,7 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
     };
 
     // Subscribe to prompt events
-    const sub = subscribeToRelays([filter], this.#promptRelays, this.pool, {
+    const sub = subscribeToRelays(filter, this.#promptRelays, this.pool, {
       onevent: async (event: Event) => {
         try {
           await this.handlePromptEvent(event);

@@ -81,13 +81,13 @@ export async function publishToRelays(
 /**
  * Subscribes to events from multiple relays
  *
- * @param filters - Array of filters
+ * @param filter - Filter
  * @param relays - Array of relay URLs
  * @param options - Subscription options
  * @returns Subscription object
  */
 export function subscribeToRelays(
-  filters: Filter[],
+  filter: Filter,
   relays: string[],
   pool: SimplePool,
   options: {
@@ -95,7 +95,7 @@ export function subscribeToRelays(
     oneose?: () => void;
   } = {}
 ): Sub {
-  return pool.subscribeMany(relays, filters, options);
+  return pool.subscribe(relays, filter, options);
 }
 
 /**
