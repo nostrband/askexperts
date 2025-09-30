@@ -142,24 +142,30 @@ export async function executeChatCommand(
           if (!match) {
             return `Invalid data URL format for image\n`;
           }
-          
+
           const [, imageType, base64Data] = match;
-          
+
           // Decode the base64 data
-          const binaryData = Buffer.from(base64Data, 'base64');
-          
+          const binaryData = Buffer.from(base64Data, "base64");
+
           // Generate filename with current datetime
           const now = new Date();
-          const datetime = now.toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19);
+          const datetime = now
+            .toISOString()
+            .replace(/[:.]/g, "-")
+            .replace("T", "_")
+            .slice(0, 19);
           const filename = `image_${datetime}.${imageType}`;
-          
+
           // Save to current directory
           fs.writeFileSync(filename, binaryData);
-          
+
           return `Image saved to ${filename}\n`;
         } catch (error) {
           debugError("Error processing data URL image:", error);
-          return `Error saving image: ${error instanceof Error ? error.message : String(error)}\n`;
+          return `Error saving image: ${
+            error instanceof Error ? error.message : String(error)
+          }\n`;
         }
       } else {
         // Not a data URL, just print the reference
@@ -168,30 +174,49 @@ export async function executeChatCommand(
     };
 
     // Function to process a message and get a response
-    const processMessage = async (message: string): Promise<void> => {
-      if (!message) {
+    const processMessage = async (
+      message:
+        | string
+        | Array<{
+            type: "text" | "image_url";
+            text?: string;
+            image_url?: {
+              url: string;
+            };
+          }>
+    ): Promise<void> => {
+      if (!message || (Array.isArray(message) && message.length === 0)) {
         return;
       }
 
       const start = Date.now();
       try {
+        let printedName = false;
         // Process the message using the chat client
-        const expertReply = await chatClient.processMessageExt(message, (reply) => {
-          // Handle text output
-          if (reply.text) {
-            process.stdout.write(reply.text);
-          }
-          
-          // Handle images
-          if (reply.images) {
-            for (const image of reply.images) {
-              const imageText = processImage(image);
-              if (imageText) {
-                process.stdout.write(imageText);
+        const expertReply = await chatClient.processMessageExt(
+          message,
+          (reply) => {
+            if (!printedName) {
+              process.stdout.write(`${expert.name || "Expert"} > `);
+              printedName = true;
+            }
+
+            // Handle text output
+            if (reply.text) {
+              process.stdout.write(reply.text);
+            }
+
+            // Handle images
+            if (reply.images) {
+              for (const image of reply.images) {
+                const imageText = processImage(image);
+                if (imageText) {
+                  process.stdout.write(imageText);
+                }
               }
             }
           }
-        });
+        );
 
         // Display the expert's reply
         if (options.stream) {
@@ -200,8 +225,10 @@ export async function executeChatCommand(
           console.log();
         } else {
           // In non-stream mode, write the full reply
-          process.stdout.write(`${expert.name || "Expert"} > ${expertReply.text}`);
-          
+          process.stdout.write(
+            `${expert.name || "Expert"} > ${expertReply.text}`
+          );
+
           // Handle images in non-stream mode
           if (expertReply.images) {
             for (const image of expertReply.images) {
@@ -211,14 +238,10 @@ export async function executeChatCommand(
               }
             }
           }
-          
+
           console.log();
         }
       } catch (error) {
-        debugError(
-          "Error in chat:",
-          error instanceof Error ? error.message : String(error)
-        );
         console.error(
           `Error: ${error instanceof Error ? error.message : String(error)}`
         );
@@ -311,12 +334,21 @@ export async function executeChatCommand(
  *
  * @param message The original message
  * @param rl The readline interface to use for confirmation prompts
- * @returns The processed message with file contents appended (if any)
+ * @returns The processed message with file contents appended (if any) or multi-part array for images
  */
 async function processFileAttachments(
   message: string,
   rl: readline.Interface
-): Promise<string> {
+): Promise<
+  | string
+  | Array<{
+      type: "text" | "image_url";
+      text?: string;
+      image_url?: {
+        url: string;
+      };
+    }>
+> {
   // Regular expression to match attach_file: prefix
   const attachFileRegex = /\battach_file:([^\s]+)\b/g;
 
@@ -335,6 +367,17 @@ async function processFileAttachments(
   // Remove all attach_file: words from the message
   let processedMessage = message.replace(attachFileRegex, "").trim();
 
+  // Track if we have any images to create multi-part message
+  const messageParts: Array<{
+    type: "text" | "image_url";
+    text?: string;
+    image_url?: {
+      url: string;
+    };
+  }> = [];
+
+  let hasImages = false;
+
   // Process each file
   for (const filePath of filePaths) {
     try {
@@ -343,19 +386,74 @@ async function processFileAttachments(
         rl.question(`Attach file ${filePath}? y/N `, resolve);
       });
 
-      // If confirmed, read the file and append to message
+      // If confirmed, read the file and process based on type
       if (answer.toLowerCase() === "y") {
         try {
           // Resolve the file path (handle relative paths)
           const resolvedPath = path.resolve(filePath);
 
-          // Read the file as UTF-8
-          const fileContent = fs.readFileSync(resolvedPath, "utf8");
+          // Get file extension to determine if it's an image
+          const fileExtension = path.extname(filePath).toLowerCase();
+          const imageExtensions = [
+            ".jpg",
+            ".jpeg",
+            ".png",
+            ".gif",
+            ".bmp",
+            ".webp",
+            ".svg",
+          ];
 
-          // Append the file content to the message
-          processedMessage += `\n${fileContent}`;
+          if (imageExtensions.includes(fileExtension)) {
+            // It's an image file - read as binary and convert to data URL
+            const imageBuffer = fs.readFileSync(resolvedPath);
 
-          debugError(`Attached file: ${filePath}`);
+            // Determine MIME type based on extension
+            let mimeType = "image/";
+            switch (fileExtension) {
+              case ".jpg":
+              case ".jpeg":
+                mimeType += "jpeg";
+                break;
+              case ".png":
+                mimeType += "png";
+                break;
+              case ".gif":
+                mimeType += "gif";
+                break;
+              case ".bmp":
+                mimeType += "bmp";
+                break;
+              case ".webp":
+                mimeType += "webp";
+                break;
+              case ".svg":
+                mimeType += "svg+xml";
+                break;
+              default:
+                mimeType += "jpeg"; // fallback
+            }
+
+            // Convert to base64 data URL
+            const base64Data = imageBuffer.toString("base64");
+            const dataUrl = `data:${mimeType};base64,${base64Data}`;
+
+            // Add image to message parts
+            messageParts.push({
+              type: "image_url",
+              image_url: {
+                url: dataUrl,
+              },
+            });
+
+            hasImages = true;
+            debugError(`Attached image: ${filePath}`);
+          } else {
+            // It's a text file - read as UTF-8 and append to message
+            const fileContent = fs.readFileSync(resolvedPath, "utf8");
+            processedMessage += `\n${fileContent}`;
+            debugError(`Attached file: ${filePath}`);
+          }
         } catch (error) {
           console.error(
             `Error reading file ${filePath}: ${
@@ -369,6 +467,19 @@ async function processFileAttachments(
     }
   }
 
+  // If we have images, create a multi-part message
+  if (hasImages) {
+    // Add text part if there's any text content
+    if (processedMessage.trim()) {
+      messageParts.unshift({
+        type: "text",
+        text: processedMessage.trim(),
+      });
+    }
+    return messageParts;
+  }
+
+  // No images, return the processed text message
   return processedMessage;
 }
 

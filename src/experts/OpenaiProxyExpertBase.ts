@@ -345,7 +345,13 @@ ${contextText}
     // Create an async generator function
     const generator = async function* (this: OpenaiProxyExpertBase) {
       for await (const chunk of stream) {
-        if (!chunk.choices[0].delta.content) continue;
+        // console.error("stream chunk", JSON.stringify(chunk));
+        if (
+          !chunk.choices[0].delta.content &&
+          // @ts-ignore
+          !chunk.choices[0].delta.images?.length
+        )
+          continue;
         switch (format) {
           case FORMAT_OPENAI:
             // Return the full API response in jsonl format
@@ -356,7 +362,8 @@ ${contextText}
           case FORMAT_TEXT:
             // Return the text output only
             yield {
-              content: chunk.choices[0].delta.content,
+              content: chunk.choices[0].delta.content || "",
+              // FIXME how to send images using text?
             };
             break;
           default:

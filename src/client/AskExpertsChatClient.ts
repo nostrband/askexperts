@@ -10,7 +10,7 @@ import {
 } from "./AskExpertsPayingClient.js";
 import { LightningPaymentManager } from "../payments/LightningPaymentManager.js";
 import { FORMAT_OPENAI, FORMAT_TEXT } from "../common/constants.js";
-import { debugError, debugClient } from "../common/debug.js";
+import { debugError, debugClient, debugExpert } from "../common/debug.js";
 import { Expert, FetchExpertsParams } from "../common/types.js";
 import { SimplePool } from "nostr-tools";
 import { StreamFactory } from "../stream/interfaces.js";
@@ -35,7 +35,15 @@ export interface ChatClientOptions {
  */
 export interface ChatMessage {
   role: "user" | "assistant";
-  content: string;
+  content:
+    | string
+    | Array<{
+        type: "text" | "image_url";
+        text?: string;
+        image_url?: {
+          url: string;
+        };
+      }>;
 }
 
 export interface ChatReply {
@@ -144,14 +152,22 @@ export class AskExpertsChatClient {
   /**
    * Process a message and get a response from the expert
    *
-   * @param message The message to send to the expert
+   * @param message The message to send to the expert (string or multi-part array)
    * @returns The expert's reply
    */
   public async processMessageExt(
-    message: string,
+    message:
+      | string
+      | Array<{
+          type: "text" | "image_url";
+          text?: string;
+          image_url?: {
+            url: string;
+          };
+        }>,
     onStream?: (r: ChatReply) => void
   ): Promise<ChatReply> {
-    if (!message) {
+    if (!message || (Array.isArray(message) && message.length === 0)) {
       return { text: "" };
     }
 
@@ -165,8 +181,11 @@ export class AskExpertsChatClient {
 
     const start = Date.now();
     try {
+      const messageLength = Array.isArray(message)
+        ? `${message.length} parts`
+        : `${message.length} chars`;
       debugClient(
-        `Sending message to expert ${this.expertPubkey} of ${message.length} chars...`
+        `Sending message to expert ${this.expertPubkey} of ${messageLength}...`
       );
 
       // Add user message to history
@@ -208,15 +227,23 @@ export class AskExpertsChatClient {
         return undefined;
       };
 
-      // Process the replies
+      // Final reply to be placed into history,
+      // and to be returned for non-streamed requests
       const chatReply: ChatReply = { text: "" };
+
+      // For streamed replies,
+      // chunks might be delta lines (one or several),
+      // or big lines split into several chunks,
+      // we will buffer such split lines here,
+      // non-streamed openai replies are also buffered here.
+      let lineBuffer = '';
 
       // Iterate through the replies
       for await (const reply of replies) {
         if (reply.done) {
-          debugClient(`Received final reply from expert ${this.expertPubkey}`);
+          debugClient(`Received final reply from expert ${this.expertPubkey} length ${reply.content.length}`);
         } else {
-          debugClient(`Received chunk from expert ${this.expertPubkey}`);
+          debugClient(`Received chunk from expert ${this.expertPubkey} length ${reply.content.length}`);
         }
         if (!reply.content) continue;
 
@@ -225,38 +252,88 @@ export class AskExpertsChatClient {
             ? reply.content
             : new TextDecoder().decode(reply.content);
 
-        if (format === FORMAT_OPENAI && this.options.stream) {
-          for (const line of chunk.split("\n")) {
-            if (!line.trim()) continue;
+        if (format === FORMAT_OPENAI) {
+          if (this.options.stream) {
 
-            const completionChunk = JSON.parse(line) as ChatCompletionChunk;
-            const delta = completionChunk.choices[0]?.delta;
-            const content = delta?.content;
-            const deltaReply: ChatReply = { text: "" };
-            if (typeof content === "string") deltaReply.text = content;
-            const image = extractImage(delta);
-            if (image) deltaReply.images = [image];
-            // FIXME so can it be an array?
-            // else if (Array.isArray(content))
-            //   chunk = content
+            // Append to buffered json, if any
+            lineBuffer += chunk;
 
-            if (this.options.stream) onStream!(deltaReply);
-            chatReply.text += deltaReply.text;
-            if (image) {
-              if (!chatReply.images) chatReply.images = [];
-              chatReply.images.push(image);
+            // Split buffered stuff into lines
+            const lines = lineBuffer.split("\n");
+
+            // Do we have full line?
+            const isFullLastLine = !lines[lines.length - 1].trim().length;
+            debugExpert(`chunk lines ${lines.length} isFullLastLine ${isFullLastLine}`);
+
+            // If last line is complete, clear the buffer,
+            // otherwise append last line's head to the buffer
+            // to process when tail arrives in further chunks
+            if (isFullLastLine) {
+              lineBuffer = "";
+            } else {
+              // Put last incomplete line to buffer,
+              // which might be a single line with full buffer
+              lineBuffer = lines[lines.length - 1];
+
+              // Cut the last incomplete line, we'll process it with
+              // further chunks
+              lines.length -= 1;
             }
+
+            // No full lines in this chunk?
+            // Wait for further chunks to get a least 1 full line
+            if (!isFullLastLine && !lines.length) continue;
+
+            for (const line of lines) {
+              if (!line.trim()) continue;
+
+              let completionChunk: ChatCompletionChunk;
+              try {
+                completionChunk = JSON.parse(line) as ChatCompletionChunk;
+              } catch (e) {
+                debugError(`Failed to parse chunk line: ${e} '${line.substring(0, 20)}...${line.substring(line.length - 20)}'`);
+                throw e;
+              }
+
+              // Prepare delta reply from chunk
+              const delta = completionChunk.choices[0]?.delta;
+              const content = delta?.content;
+              const deltaReply: ChatReply = { text: "" };
+              if (typeof content === "string") deltaReply.text = content;
+              const image = extractImage(delta);
+              if (image) deltaReply.images = [image];
+              onStream!(deltaReply);
+
+              // Append to full final reply for history
+              chatReply.text += deltaReply.text;
+              if (image) {
+                if (!chatReply.images) chatReply.images = [];
+                chatReply.images.push(image);
+              }
+            }
+          } else {
+            // Chunks are simply big json split into many parts,
+            // put them all to our buffer
+            lineBuffer += chunk;
           }
-        } else {
-          if (format === FORMAT_TEXT && this.options.stream)
+        } else if (format === FORMAT_TEXT) {
+          // Notify about streamed chunk
+          if (this.options.stream)
             onStream!({ text: chunk });
+
+          // Append to final reply for history,
+          // since text replies don't need parsing
+          // we don't use lineBuffer and append directly
+          // to final reply.
           chatReply.text += chunk;
+        } else {
+          throw new Error(`Unsupported format ${format}`);
         }
       }
 
       // Parse openai reply if we're not streaming
-      if (chatReply.text && format === FORMAT_OPENAI && !this.options.stream) {
-        const content = JSON.parse(chatReply.text) as ChatCompletion;
+      if (lineBuffer && format === FORMAT_OPENAI && !this.options.stream) {
+        const content = JSON.parse(lineBuffer) as ChatCompletion;
         chatReply.text = content.choices[0].message.content || "";
 
         const image = extractImage(content.choices[0].message);
@@ -267,7 +344,7 @@ export class AskExpertsChatClient {
       }
 
       // Add the full expert's response to the message history
-      if (chatReply.text)
+      if (chatReply.text || chatReply.images)
         this.messageHistory.push({
           role: "assistant",
           content: chatReply.text,

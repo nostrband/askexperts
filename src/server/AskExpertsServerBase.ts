@@ -198,14 +198,14 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
   private profileRepublishTimer: NodeJS.Timeout | null = null;
 
   /**
-   * Flag to indicate that profile needs to be republished
+   * Timer to launch profile republish
    */
-  private scheduledPublishProfile = false;
+  private publishProfileTimer: NodeJS.Timeout | null = null;
 
   /**
-   * Flag to indicate that ask subscription needs to be updated
+   * Timer to launch resubscribe request
    */
-  private scheduledSubscribeToAsks = false;
+  private subscribeToAsksTimer: NodeJS.Timeout | null = null;
 
   /**
    * Flag to signal that start was called
@@ -218,32 +218,40 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
    * Schedules the profile for republishing
    */
   private schedulePublishProfile(): void {
-    this.scheduledPublishProfile = true;
+    // already scheduled
+    if (this.publishProfileTimer) return;
+
     // Given a swarm of experts we should smoothen out
     // the queries if all experts are updated due to pricing changes etc,
     // plus we should batch all calls to schedulePublishProfile and
     // make them produce only one publish - hence out-of-loop publish.
-    setTimeout(
-      () => this.maybeRepublishProfile(),
-      this.profilePublished ? 0 : Math.round(Math.random() * 300000)
-    );
+    const pause = this.profilePublished
+      ? Math.round(Math.random() * 300000)
+      : 0;
+    this.publishProfileTimer = setTimeout(() => {
+      this.publishProfileTimer = null;
+      this.maybeRepublishProfile();
+    }, pause);
   }
 
   /**
    * Schedules the ask subscription for updating
    */
   private scheduleSubscribeToAsks(): void {
-    this.scheduledSubscribeToAsks = true;
-    // Batching sync calls to scheduleSubscribeToAsks 
-    setTimeout(() => this.maybeSubscribeToAsks(), 0);
+    if (this.subscribeToAsksTimer) return;
+
+    // Batching sync calls to scheduleSubscribeToAsks
+    this.subscribeToAsksTimer = setTimeout(() => {
+      this.subscribeToAsksTimer = null;
+      this.maybeSubscribeToAsks();
+    }, 0);
   }
 
   /**
    * Checks if ask subscription needs to be updated and does so if necessary
    */
   private maybeSubscribeToAsks(): void {
-    if (this.scheduledSubscribeToAsks) {
-      this.scheduledSubscribeToAsks = false;
+    if (this.started) {
       this.subscribeToAsks();
     }
   }
@@ -498,6 +506,7 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
    */
   private async publishExpertProfile(): Promise<void> {
     this.profilePublished = true;
+    debugExpert(`Publishing profile ${this.pubkey}`);
 
     // Create tags for the expert profile
     const tags: string[][] = [
@@ -531,15 +540,14 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
       this.pool
     );
 
-    debugExpert(`Published expert profile to ${publishedRelays.length} relays`);
+    debugExpert(`Published expert ${this.pubkey} profile to ${publishedRelays.length} relays`);
   }
 
   /**
    * Checks if profile needs to be republished and does so if necessary
    */
   private async maybeRepublishProfile(): Promise<void> {
-    if (this.started && this.scheduledPublishProfile) {
-      this.scheduledPublishProfile = false;
+    if (this.started) {
       await this.publishExpertProfile();
     }
   }
@@ -1146,6 +1154,7 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
           payload: content,
           error,
         };
+        this.log("reply_chunk", replyPayload, prompt.id);
 
         // Convert to JSON string
         const replyPayloadStr = JSON.stringify(replyPayload);
@@ -1340,6 +1349,16 @@ export class AskExpertsServerBase implements AskExpertsServerBaseInterface {
     if (this.profileRepublishTimer) {
       clearInterval(this.profileRepublishTimer);
       this.profileRepublishTimer = null;
+    }
+
+    if (this.publishProfileTimer) {
+      clearTimeout(this.publishProfileTimer);
+      this.publishProfileTimer = null;
+    }
+
+    if (this.subscribeToAsksTimer) {
+      clearTimeout(this.subscribeToAsksTimer);
+      this.subscribeToAsksTimer = null;
     }
 
     // The pool is managed externally, so we don't destroy it here

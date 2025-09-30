@@ -102,7 +102,12 @@ export class OpenaiOpenRouter implements OpenaiInterface {
    * @returns Token count
    */
   private countTokens(text: string): number {
-    return encode(text).length;
+    if (text.length < 10000)
+      // expensive but accurate
+      return encode(text).length;
+    else
+      // too expensive to encode
+      return text.length / 2;
   }
 
   /**
@@ -208,15 +213,23 @@ export class OpenaiOpenRouter implements OpenaiInterface {
         let accumulatedContent = "";
 
         // Use tapAsyncIterable to process each chunk while passing it through
+        let finishReason = "";
         return tapAsyncIterable(stream, async (chunk) => {
+          // console.error("openrouter chunk", JSON.stringify(chunk));
+
           // Accumulate the content from each chunk
           accumulatedContent += chunk.choices[0]?.delta?.content || "";
 
+          // nano-banana sends finish reason first and then extra chunk with usage
+          if (chunk.choices[0]?.finish_reason)
+            finishReason = chunk.choices[0]?.finish_reason;
+
           // When we receive the last chunk, update the average output count
-          if (chunk.choices[0]?.finish_reason !== null) {
-            debugExpert(`Finish reason '${chunk.choices[0]?.finish_reason}'`);
+          const usage = (chunk as any).usage;
+          if (usage) {
+            debugExpert(`Finish reason '${finishReason}' usage ${JSON.stringify(usage)}`);
             // Check if usage information is available in the chunk
-            const completionTokens = (chunk as any).usage?.completion_tokens;
+            const completionTokens = usage.completion_tokens;
             this.updateAverageOutputCount(accumulatedContent, completionTokens);
           }
         });
@@ -232,10 +245,11 @@ export class OpenaiOpenRouter implements OpenaiInterface {
       result
         .then((response) => {
           if ("choices" in response) {
-            debugExpert(`Finish reason '${response.choices[0]?.finish_reason}'`);
+            const usage = (response as any).usage;
+            debugExpert(`Finish reason '${response.choices[0]?.finish_reason}' usage ${JSON.stringify(usage)}`);
             const output = response.choices[0]?.message?.content || "";
             // Check if usage information is available in the response
-            const completionTokens = (response as any).usage?.completion_tokens;
+            const completionTokens = usage?.completion_tokens;
             this.updateAverageOutputCount(output, completionTokens);
           }
         })
