@@ -105,9 +105,8 @@ export class OpenaiOpenRouter implements OpenaiInterface {
     if (text.length < 10000)
       // expensive but accurate
       return encode(text).length;
-    else
-      // too expensive to encode
-      return text.length / 2;
+    // too expensive to encode
+    else return text.length / 2;
   }
 
   /**
@@ -197,8 +196,11 @@ export class OpenaiOpenRouter implements OpenaiInterface {
       throw new Error(`No active quote found for ID: ${quoteId}`);
     }
 
+    const logPayloads = false;
+
     // Use the stored content
     const body = quoteData.content;
+    if (logPayloads) console.error("openrouter request", JSON.stringify(body));
 
     // Handle streaming responses
     if (body.stream === true) {
@@ -215,7 +217,8 @@ export class OpenaiOpenRouter implements OpenaiInterface {
         // Use tapAsyncIterable to process each chunk while passing it through
         let finishReason = "";
         return tapAsyncIterable(stream, async (chunk) => {
-          // console.error("openrouter chunk", JSON.stringify(chunk));
+          if (logPayloads)
+            console.error("openrouter chunk", JSON.stringify(chunk));
 
           // Accumulate the content from each chunk
           accumulatedContent += chunk.choices[0]?.delta?.content || "";
@@ -227,7 +230,9 @@ export class OpenaiOpenRouter implements OpenaiInterface {
           // When we receive the last chunk, update the average output count
           const usage = (chunk as any).usage;
           if (usage) {
-            debugExpert(`Finish reason '${finishReason}' usage ${JSON.stringify(usage)}`);
+            debugExpert(
+              `Finish reason '${finishReason}' usage ${JSON.stringify(usage)}`
+            );
             // Check if usage information is available in the chunk
             const completionTokens = usage.completion_tokens;
             this.updateAverageOutputCount(accumulatedContent, completionTokens);
@@ -244,9 +249,15 @@ export class OpenaiOpenRouter implements OpenaiInterface {
       // Update the average output token count when the result is available
       result
         .then((response) => {
+          if (logPayloads)
+            console.error("openrouter reply", JSON.stringify(response));
           if ("choices" in response) {
             const usage = (response as any).usage;
-            debugExpert(`Finish reason '${response.choices[0]?.finish_reason}' usage ${JSON.stringify(usage)}`);
+            debugExpert(
+              `Finish reason '${
+                response.choices[0]?.finish_reason
+              }' usage ${JSON.stringify(usage)}`
+            );
             const output = response.choices[0]?.message?.content || "";
             // Check if usage information is available in the response
             const completionTokens = usage?.completion_tokens;
@@ -267,10 +278,14 @@ export class OpenaiOpenRouter implements OpenaiInterface {
    * @param outputContent - The content to count tokens for
    * @param completionTokens - Optional completion token count from usage data
    */
-  private updateAverageOutputCount(outputContent: string, completionTokens?: number): void {
-    const outputTokenCount = completionTokens !== undefined
-      ? completionTokens
-      : this.countTokens(outputContent);
+  private updateAverageOutputCount(
+    outputContent: string,
+    completionTokens?: number
+  ): void {
+    const outputTokenCount =
+      completionTokens !== undefined
+        ? completionTokens
+        : this.countTokens(outputContent);
 
     // Update the average using the formula: avgOutputTokens = (avgOutputTokens * outputCount + newOutputCount) / (outputCount + 1)
     this.avgOutputCount =
